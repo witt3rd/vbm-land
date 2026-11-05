@@ -2,7 +2,7 @@
 
 A small, language-neutral tool for landing changes **directly on the main branch** of a repository that only your own agents (or you) work in: one lander, a mechanical gate, a single definition of "main is red", and a hold switch. Plain bash, git and `gh`. Nothing in it knows what language your repository is written in.
 
-> **Status: early (0.2, not tagged).** The lander, the red check and the test suite exist ([6.1](#61-what-is-here-today)). Pinned vendoring, the drift check, the watchdog and the known-flaky list are not built yet.
+> **Status: early (0.3, not tagged).** The lander, the red check, pinned vendoring with a drift check, and the test suite exist ([6.1](#61-what-is-here-today)). The watchdog, the known-flaky list and group landing are not built yet.
 
 The rest of this file is the landing guide: the policy first, then the tool.
 
@@ -97,12 +97,14 @@ Hosted CI minutes are usually a budgeted resource. A cheap pattern: run Tier 1 i
 | `bin/land-direct` | The lander: the configurable core of section 4.3. Lock with a lease, hold and freeze markers, land-time checks, rebase in a scratch worktree, regeneration of generated files, hooks, Tier 1 on the rebased combination, three tries, plain fast-forward push, an exit code that says what to do next, a JSON last line, a metrics log. |
 | `bin/land-red` | The one definition of a red main (4.4): modes `push`, `push+dispatch`, `off`; the infrastructure classifier; the freeze marker. |
 | `lib/` | `conf.sh` (the configuration reader), `infra-re.sh` (the infrastructure classifier), `freeze.sh`. |
+| `install`, `bin/land-check`, `bin/land-update`, `bin/land-audit`, `bin/land-manifest`, `MANIFEST.sha256` | Pinned vendoring (6.6): the installer, the drift check, the updater, the audit across repositories, and the manifest of every file a consumer vendors. |
+| `templates/` | A starter `land.conf` with examples for four ecosystems, the agent-instructions block, a CI workflow with Tier 1 on push and Tier 2 on a schedule. |
 | `scripts/land.conf`, `scripts/land-direct` | This repository's own configuration and its stub: the repository lands itself with its own lander. |
 | `scripts/bootstrap-land` | A minimal, dependency-light lander. It landed this repository's first commits and stays as the recovery path if the full lander is ever broken on main. |
 | `tests/` | The test suite: every test builds a scratch repository with a bare remote and drives the lander, with a negative test for each refusal. `tests/run.sh` is this repository's Tier 1 (about half a minute). |
 | `.github/workflows/ci.yml` | Tier 1 on a push to main. |
 
-Not built yet: pinned vendoring and the drift check, the revert-first watchdog, the known-flaky list, group (batch) landing, a macOS lock fallback.
+Not built yet: the revert-first watchdog, the known-flaky list, group (batch) landing, a macOS lock fallback.
 
 Requirements: bash 4+, git 2.30+, util-linux `flock`, `timeout`, `gh` (the red check). The tests also need `jq`. Linux only for now.
 
@@ -163,7 +165,38 @@ Hooks are executables in `scripts/land.d/`, taken from `origin/<base>` (so a cha
 
 ### 6.5 Trust model
 
-The tool is for a repository whose only writers are cooperating agents and people, not for adversaries. It makes mistakes mechanical failures: the gate runs on the exact combination, config and hooks come from main, the push is a plain fast-forward, an unknowable CI state refuses, and a lock with a lease cannot be wedged by a dead holder. A lander runs repository-supplied commands with your credentials; protect the gate-defining set accordingly.
+The tool is for a repository whose only writers are cooperating agents and people, not for adversaries. It makes mistakes mechanical failures: the gate runs on the exact combination, config and hooks come from main, the push is a plain fast-forward, an unknowable CI state refuses, and a lock with a lease cannot be wedged by a dead holder. A lander runs repository-supplied commands with your credentials; protect the gate-defining set accordingly. The lander is the copy in the worktree it is run from; what protects the main branch is the drift check on the rebased tree (6.6), the configuration and hooks read from main, and the independent push CI.
+
+### 6.6 Installing it into a repository: a pinned, vendored copy
+
+A repository does not depend on this one at run time. It **vendors a pinned copy** and commits it: a worktree is self-contained and offline, the lander of a landing is the one in the tree being landed, and the history shows exactly which release landed what. (Rejected: a git submodule, which breaks fresh and detached worktrees; a language package manager, which is not language-neutral; fetching the tool when landing, which would let the lander change under a landing.)
+
+One command, run in the target repository (`SRC` is `OWNER/NAME` on GitHub, read through `gh`, so a private repository works; or any git URL or path):
+
+```
+gh api repos/OWNER/vbm-land/contents/install?ref=<tag> -H 'Accept: application/vnd.github.raw' | bash -s -- --source OWNER/vbm-land <tag>
+# or, from a checkout of this repository:
+/path/to/vbm-land/install --source /path/to/vbm-land <tag-or-commit>
+```
+
+It writes, and commits nothing (review the diff, commit it as `chore(land): vbm-land <version>`, land it like any other change):
+
+- `scripts/land/` the tool, read-only by contract;
+- `scripts/land/MANIFEST.sha256` the hash of every vendored file, copied from the release;
+- `scripts/land/PIN` `source`, `version`, the 40-hex **`commit`** (a tag can move, a commit cannot) and `manifest_sha256`;
+- `scripts/land-direct` a three-line stub that runs the vendored lander, so "land with `scripts/land-direct`" stays true;
+- `scripts/land.conf` a starter, **only if there is none**.
+
+Before writing anything the installer checks every file it fetched against the manifest at that same commit, and refuses a release that does not match or has no manifest. `templates/AGENTS-block.md` is the agent-instructions block to paste; `templates/ci.yml.example` is the CI workflow.
+
+**No local patches.** A repository that needs something different adds a configuration key or a hook upstream (one change, one release), or uses a hook of its own; it never edits the copy. The rule is mechanical:
+
+- `scripts/land/bin/land-check` is the **drift check**. Offline (run it in Tier 1; the lander also runs it on the rebased tree and refuses with exit 12): the manifest must hash to the pin, every vendored file must hash to its entry and keep its executable bit, nothing else may sit in `scripts/land/`, and the repository's own `scripts/land.conf` (known keys) and `scripts/land.d/` (executable) must be well formed. Any difference fails: *edit vbm-land, not the copy*.
+- `scripts/land/bin/land-check --upstream` (the scheduled Tier 2, or by hand) also fetches the manifest at the **pinned commit** from the source and requires it to match, so a forged pin and tree edited together fail; it prints when a newer release exists (advice, never a failure) and exits 3 when the source cannot be reached (not verified).
+- `scripts/land/bin/land-update <tag|commit>` replaces the tree and the pin with another release and verifies it; it commits nothing.
+- `bin/land-audit DIR...`, run from this repository, prints for each repository its pin, whether it is intact, and how far behind it is: the rollout table, from the repositories themselves.
+
+A release is a tag whose commit has a fresh `MANIFEST.sha256` (`bin/land-manifest`; Tier 1 here fails on a stale one). Additive changes to the interface (configuration keys, exit codes, the JSON line, hook names, marker names) are minor, anything else is major; `CHANGELOG.md` has a line per interface change.
 
 ## License
 

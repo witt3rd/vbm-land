@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# install [--source SRC] [--target DIR] <tag|commit>
+#
+# Vendors a PINNED copy of vbm-land into a repository: scripts/land/ (the tool, read-only by contract), scripts/land/PIN, a three-line stub scripts/land-direct
+# that execs it (so "land with scripts/land-direct" stays true), and, only when absent, a starter scripts/land.conf. It commits nothing: review the diff and commit
+# it as one change (`chore(land): vbm-land <version>`). Re-running it with another ref is the update.
+#
+#   SRC     where the source repository is: OWNER/NAME (GitHub, through `gh`, so a private repository works), or anything git can clone (URL, path).
+#           Default: $VBM_LAND_SOURCE.
+#   ref     a tag or a commit. The pin records the 40-hex COMMIT (a tag can move, a commit cannot) and the hash of the release's manifest.
+#   --target DIR   the repository to install into (default: the current repository's root).
+#
+# One command, from the target repository:
+#   gh api repos/OWNER/vbm-land/contents/install?ref=<tag> -H 'Accept: application/vnd.github.raw' | bash -s -- --source OWNER/vbm-land <tag>
+# or, with a checkout of the source:  /path/to/vbm-land/install --source /path/to/vbm-land <tag>
+# Nothing is fetched or run at landing time: the vendored tree is committed, so a worktree is self-contained and offline.
+set -euo pipefail
+export LC_ALL=C
+src=${VBM_LAND_SOURCE:-}; target=; ref=
+while [ $# -gt 0 ]; do case $1 in
+  --source) src=${2:?--source needs a value}; shift;; --target) target=${2:?--target needs a directory}; shift;;
+  -h|--help) sed -n '2,17p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0;;
+  -*) echo "usage: install [--source SRC] [--target DIR] <tag|commit>" >&2; exit 2;; *) ref=$1;; esac; shift; done
+[ -n "$src" ] && [ -n "$ref" ] || { echo "usage: install [--source SRC] [--target DIR] <tag|commit>   (SRC: OWNER/NAME or a git URL or path)" >&2; exit 2; }
+[ -n "$target" ] || target=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "install: not inside a git repository (use --target DIR)" >&2; exit 2; }
+target=$(cd "$target" && pwd); git -C "$target" rev-parse --git-dir >/dev/null 2>&1 || { echo "install: $target is not a git repository" >&2; exit 2; }
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/vbm-land-install.XXXXXX"); trap 'rm -rf "$tmp"' EXIT
+if [[ "$src" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] && [ ! -e "$src" ]; then
+  "${GH:-gh}" repo clone "$src" "$tmp/src" -- --quiet --bare >/dev/null 2>&1 || { echo "install: cannot clone $src with gh" >&2; exit 1; }
+else git clone -q --bare -- "$src" "$tmp/src" >/dev/null 2>&1 || { echo "install: cannot clone $src" >&2; exit 1; }; fi
+commit=$(git -C "$tmp/src" rev-parse --verify -q "$ref^{commit}") || { echo "install: $src has no tag or commit '$ref'" >&2; exit 1; }
+[[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "install: unexpected commit id for $ref" >&2; exit 1; }
+git -C "$tmp/src" show "$commit:MANIFEST.sha256" > "$tmp/MANIFEST.sha256" 2>/dev/null || { echo "install: $ref has no MANIFEST.sha256: not a release of this tool" >&2; exit 1; }
+mkdir -p "$tmp/tree"; git -C "$tmp/src" archive "$commit" | tar -x -C "$tmp/tree"
+# verify what was fetched against the manifest at that same commit before touching the target
+while read -r h f; do
+  [ -f "$tmp/tree/$f" ] && [ "$(sha256sum < "$tmp/tree/$f" | cut -d' ' -f1)" = "$h" ] || { echo "install: $f at $ref does not match its manifest entry: refusing" >&2; exit 1; }
+done < "$tmp/MANIFEST.sha256"
+version=v$(cat "$tmp/tree/VERSION")
+vpath() { [ "$1" = templates/land-direct-stub ] && echo scripts/land-direct || echo "scripts/land/$1"; }
+rm -rf "$target/scripts/land"; mkdir -p "$target/scripts/land"
+while read -r h f; do
+  [ -n "$f" ] || continue; v=$(vpath "$f"); mkdir -p "$target/$(dirname "$v")"; cp "$tmp/tree/$f" "$target/$v"
+  case $f in bin/*|templates/land-direct-stub) chmod +x "$target/$v";; *) chmod -x "$target/$v";; esac
+done < "$tmp/MANIFEST.sha256"
+cp "$tmp/MANIFEST.sha256" "$target/scripts/land/MANIFEST.sha256"
+printf 'source=%s\nversion=%s\ncommit=%s\nmanifest_sha256=%s\n' "$src" "$version" "$commit" "$(sha256sum < "$tmp/MANIFEST.sha256" | cut -d' ' -f1)" > "$target/scripts/land/PIN"
+created=
+if [ ! -e "$target/scripts/land.conf" ]; then cp "$tmp/tree/templates/land.conf.example" "$target/scripts/land.conf"; created=" and a starter scripts/land.conf (edit it: at least LAND_TEST_CMD or LAND_GATES_CMD)"; fi
+"$target/scripts/land/bin/land-check" --root "$target" >/dev/null || { echo "install: the installed copy fails its own drift check" >&2; exit 1; }
+echo "install: vbm-land $version ($commit) vendored into $target/scripts/land$created."
+echo "install: review and commit it as one change: chore(land): vbm-land $version. Agent-instructions block: templates/AGENTS-block.md in the source."

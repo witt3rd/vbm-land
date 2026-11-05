@@ -265,8 +265,8 @@ for attempt in 1 2 3; do
   export LAND_PROTECTED_TOUCHED=${prot_hit# }
   [ -z "$prot_hit" ] && echo "land-direct: protected set: none touched" || echo "land-direct: protected set: TOUCHED ($LAND_PROTECTED_TOUCHED): allowed, every gate must pass"
   run_hook post-rebase || stop 12 refused "the post-rebase hook refused this change (protected set / gate checks; see above)"
-  if [ -x "$wt/scripts/land/check" ] && [ -e "$wt/scripts/land/PIN" ]; then   # a vendored copy of this tool: it must still be what its pin says
-    rc=0; (cd "$wt" && bounded "$st" "vendored-copy drift check" scripts/land/check) >&2 || rc=$?
+  if [ -x "$wt/scripts/land/bin/land-check" ] && [ -e "$wt/scripts/land/PIN" ]; then   # a vendored copy of this tool: it must still be what its pin says
+    rc=0; (cd "$wt" && bounded "$st" "vendored-copy drift check" scripts/land/bin/land-check) >&2 || rc=$?
     [ "$rc" = 0 ] || stop 12 refused "the vendored copy of this tool under scripts/land/ differs from its pin (edit the source repository, not the copy); not landing."
   fi
   ts=$(date +%s)

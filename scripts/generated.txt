@@ -1,0 +1,2 @@
+# Generated files (read from main by the lander): a rebase conflict confined to these takes main's file and runs LAND_REGEN_CMD.
+MANIFEST.sha256

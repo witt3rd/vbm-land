@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# land-manifest [--check]   (source repository only)
+# Writes MANIFEST.sha256: the sha256 of every file a consumer vendors (the payload below), one `<sha256>  <path>` line per file, sorted by path.
+# A consumer's pin records the hash of this manifest; the manifest records the hash of every file. --check fails when the file differs from what
+# would be written (Tier 1 of this repository runs it: a release whose manifest is stale could not be verified by anyone).
+set -euo pipefail
+export LC_ALL=C
+root=$(cd "$(dirname "$0")/.." && pwd); cd "$root"
+payload=(bin/land-direct bin/land-red bin/land-check bin/land-update lib/conf.sh lib/freeze.sh lib/infra-re.sh lib/source.sh VERSION templates/land-direct-stub)
+want=$(for f in "${payload[@]}"; do [ -f "$f" ] || { echo "land-manifest: payload file missing: $f" >&2; exit 1; }; sha256sum -- "$f"; done | LC_ALL=C sort -k2)
+case ${1:-} in
+  --check) [ "$(cat MANIFEST.sha256 2>/dev/null)" = "$want" ] || { echo "land-manifest: MANIFEST.sha256 is stale: run bin/land-manifest and commit it" >&2; exit 1; }; echo "land-manifest: ok";;
+  "") printf '%s\n' "$want" > MANIFEST.sha256; echo "land-manifest: wrote MANIFEST.sha256 (${#payload[@]} files)";;
+  *) echo "usage: land-manifest [--check]" >&2; exit 2;;
+esac
