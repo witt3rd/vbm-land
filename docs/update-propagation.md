@@ -7,7 +7,7 @@ Status: built (U1 to U4): `land-update --check`, the scheduled workflow, signed 
 Dependencies point one way: **a repository depends on vbm-land; vbm-land does not know what depends on it.** So vbm-land carries into every vendored
 copy two capabilities, a **check** and an **update**, that run in and are owned by the consumer. There is no list of consumers in this repository, no tool
 that reaches into other repositories, no canary order, no rollout, and no version table fed from here. A consumer's pin (`scripts/land/PIN`, a documented
-`key=value` file) is a public, stable interface: anyone who wants a fleet view (a registry, a dashboard) **reads the pins itself**.
+`key=value` file) is a public, stable interface: anyone who wants a view across repositories (a registry, a dashboard) **reads the pins itself**.
 
 ## 1. The check (a scheduled workflow in the consumer)
 
@@ -47,7 +47,7 @@ Auto-update only makes sense where the runner has the toolchain of the consumer'
 
 Same mechanism, no special case. An agent or person who sees the "behind" line runs the `update-vbm-land` skill (`land-update --diff <tag>`, read it, `land-update --land <tag>`).
 Outside consumers (when this repository is public) do exactly the same; what makes it reviewable is the CHANGELOG (one line per interface change, an "Upgrade notes"
-paragraph for any minor or major), the manifest diff, and the signed tag. A fleet owner who wants a reminder builds it on their own side, from the pins and the tags.
+paragraph for any minor or major), the manifest diff, and the signed tag. An owner of many repositories who wants a reminder builds it on their own side, from the pins and the tags.
 
 ## 5. Trust: the lander pushes to main
 

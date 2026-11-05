@@ -5,6 +5,9 @@ Additive changes to it are minor releases; anything else is major.
 
 ## Unreleased
 
+## 0.2.2
+- Skill and docs wording only: no internal name ("fleet") in the vendored skills (a consumer's public-readiness lint refused v0.2.1). v0.2.1 is superseded; roll to v0.2.2.
+
 ## 0.2.1
 - `install` ships the update workflow dispatch-only unless the source's `.github/visibility` says `public` (then weekly too): a private source needs a secret and a scheduled run would be red. Upgrade notes: in an existing repository the workflow is yours; remove its `schedule:` while the source is private; check by hand with `land-update --check`. Flip-to-public checklist item 11 enables the schedule.
 - Tests only (the vendored files are unchanged): the test runner requires ran-evidence from every test script (`ran: NAME: N cases`, N > 0, no SKIPPED line): a script that ran nothing no longer passes (docs/ran-evidence.md).
