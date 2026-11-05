@@ -5,7 +5,7 @@
 sandbox
 S=$T/src
 make_source() {   # make_source VERSION: a scratch source repository (this tree's files, VERSION set, manifest regenerated) with a commit and a tag v<VERSION>
-  mkdir -p "$S"; ( cd "$ROOT" && cp -r bin lib templates skills install VERSION "$S/" )
+  mkdir -p "$S"; ( cd "$ROOT" && cp -r bin lib docs templates skills install VERSION "$S/" )
   ( cd "$S" && { [ -d .git ] || git init -q -b main; } && git config commit.gpgsign false && echo "$1" > VERSION && bin/land-manifest >/dev/null && git add -A && git commit -qm "chore: release $1" && git tag "v$1" )
 }
 make_source 1.0.0

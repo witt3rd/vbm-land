@@ -96,7 +96,7 @@ Hosted CI minutes are usually a budgeted resource. A cheap pattern: run Tier 1 i
 |---|---|
 | `bin/land-direct` | The lander: the configurable core of section 4.3. Lock with a lease, hold and freeze markers, land-time checks, rebase in a scratch worktree, regeneration of generated files, hooks, Tier 1 on the rebased combination, three tries, plain fast-forward push, an exit code that says what to do next, a JSON last line, a metrics log. |
 | `bin/land-red` | The one definition of a red main (4.4): modes `push`, `push+dispatch`, `off`; the infrastructure classifier; the freeze marker. |
-| `lib/` | `conf.sh` (the configuration reader), `infra-re.sh` (the infrastructure classifier), `freeze.sh`. |
+| `lib/` | `conf.sh` (the configuration reader), `infra-re.sh` (the infrastructure classifier), `freeze.sh`, `approvals.sh` (the gate-edit approvals judge, `docs/gate-edit-approvals.md`). |
 | `install`, `bin/land-check`, `bin/land-update`, `bin/land-audit`, `bin/land-manifest`, `MANIFEST.sha256` | Pinned vendoring (6.6): the installer, the drift check, the updater, the audit across repositories, and the manifest of every file a consumer vendors. |
 | `skills/` | Agent skills (`SKILL.md`): new-repo, land-a-change, triage-red, update-vbm-land, hold-and-freeze, adopt-in-existing-repo, release. A consumer gets them in `.agents/skills/` (installed and updated with the tool, drift-checked like it). |
 | `templates/` | A starter `land.conf` with examples for four ecosystems, the agent-instructions block, a CI workflow with Tier 1 on push and Tier 2 on a schedule, the branch and tag rulesets, and the public-repository settings checklist. |
@@ -109,7 +109,7 @@ Not built yet: the revert-first watchdog (the freeze marker and its Tier 2 trigg
 
 Requirements: bash 4+, git 2.30+, util-linux `flock`, `timeout`, `gh` (the red check). The tests also need `jq`. Linux only for now.
 
-**The tests.** Each test script builds a scratch repository with a bare "remote", worker clones and a fake `gh` (answers `run list`/`run view` from files), and drives the real scripts. `test_land_direct.sh` has a negative test for every refusal (each exit code, and that nothing reached the remote); `test_vendor.sh` covers install, update, audit, every kind of drift (an edit, a deleted or extra file, a lost executable bit, a forged pin and tree) and the lander refusing a change to its own vendored copy; `test_mutations.sh` cuts each guard out of a copy of the lander in turn and requires the matching scenario to stop being refused (a guard nothing depends on would be found there); `test_bootstrap.sh` covers the recovery lander; `lint.sh` keeps internal names and local paths out of this repository.
+**The tests.** Each test script builds a scratch repository with a bare "remote", worker clones and a fake `gh` (answers `run list`/`run view` from files), and drives the real scripts. `test_land_direct.sh` has a negative test for every refusal (each exit code, and that nothing reached the remote); `test_vendor.sh` covers install, update, audit, every kind of drift (an edit, a deleted or extra file, a lost executable bit, a forged pin and tree) and the lander refusing a change to its own vendored copy; `test_mutations.sh` cuts each guard out of a copy of the lander in turn and requires the matching scenario to stop being refused (a guard nothing depends on would be found there); `test_approvals.sh` drives the gate-edit approvals through the real lander (every attack on them is refused: a forged approval, a hash over a different diff, a reused approval, a stale one, one removed afterward, the approvals file edited in the same commit or landing as the edit); `test_bootstrap.sh` covers the recovery lander; `lint.sh` keeps internal names and local paths out of this repository.
 
 ### 6.2 Using it
 
@@ -145,6 +145,8 @@ Locks, markers, logs and the scratch worktree live in `<git common dir>/vbm-land
 | `LAND_REQUIRE_TRAILERS` | none | Trailer names every commit must carry (for example `Task-ID`). |
 | `LAND_CONVENTIONAL`, `LAND_COMMIT_TYPES` | `1`, the usual types | Require `type(scope): summary` subjects; git's own `Revert "..."` is accepted. |
 | `LAND_PROTECTED` | none | Shell patterns (`*` matches `/`): the gate-defining set. A change that touches it is judged by the `post-rebase` hook; it never counts as a fix for a red main. |
+| `LAND_GATE_APPEND_ONLY` | none | Shell patterns: gate-defining files that may only GAIN lines. A removed or changed line, a deletion or a mode change is refused (12) unless an approval for exactly that diff is already on base (`docs/gate-edit-approvals.md`). |
+| `LAND_APPROVALS`, `LAND_APPROVAL_DAYS` | `scripts/gate-edit-approvals.txt`, `7` | The gate-edit approvals file (always on, always protected, never empty) and how many days an approval stays usable. Records `FILE \| sha256 of the exact diff \| reason \| YYYY-MM-DD`; `land-direct --print-gate-diff-hash FILE` prints the hash. One-time, read from base, landed alone and announced to the judge first. The honest limit is in the document. |
 | `LAND_FIX_PATHS` | none | When set, a fix for a red main may touch only these paths (tests, CI). |
 | `LAND_RED_MODE` | `push` | `push`, `push+dispatch` or `off` (see 4.4). |
 | `LAND_CI_WORKFLOW`, `LAND_TIER1_JOB`, `LAND_RED_WAIT` | `ci.yml`, `tier1`, `60` | What the red check reads, and how long it waits for a Tier 1 that is still running. |
@@ -165,7 +167,7 @@ Hooks are executables in `scripts/land.d/`, taken from `origin/<base>` (so a cha
 |---|---|---|
 | `prepare` | once, when the scratch worktree is created (warm a cache, for example) | refuses (12) |
 | `pre-rebase` | before the rebase, on your commits | refuses (12) |
-| `post-rebase` | on the rebased and regenerated tree; gets `LAND_TOUCHED_FILE` (the changed paths) and `LAND_PROTECTED_TOUCHED` | refuses (12) |
+| `post-rebase` | on the rebased and regenerated tree; gets `LAND_TOUCHED_FILE` (the changed paths), `LAND_PROTECTED_TOUCHED` and `LAND_GATE_APPROVED_FILE` (`FILE HASH` of every gate-edit approval this landing consumes) | refuses (12) |
 | `post-tier1` | after Tier 1 passed: a gate that judges the tree Tier 1 just built (an attack suite, say) | refuses (12) |
 | `json-fields` | after Tier 1; prints `key=value` lines added to the JSON result (keys `[a-z_]+`; the contract keys cannot be overridden) | ignored |
 | `on-run` | at the end of every run, with `LAND_RESULT` | ignored |
@@ -173,6 +175,8 @@ Hooks are executables in `scripts/land.d/`, taken from `origin/<base>` (so a cha
 ### 6.5 Trust model
 
 The tool is for a repository whose only writers are cooperating agents and people, not for adversaries. It makes mistakes mechanical failures: the gate runs on the exact combination, config and hooks come from main, the push is a plain fast-forward, an unknowable CI state refuses, and a lock with a lease cannot be wedged by a dead holder. A lander runs repository-supplied commands with your credentials; protect the gate-defining set accordingly. The lander is the copy in the worktree it is run from; what protects the main branch is the drift check on the rebased tree (6.6), the configuration and hooks read from main, and the independent push CI.
+
+**Gate-edit approvals.** A gate file that may only gain lines (`LAND_GATE_APPEND_ONLY`) loses or changes a line only on an exact diff-hash approval that is already on main: a record in `scripts/gate-edit-approvals.txt`, landed alone in its own commit, announced to the independent judge BEFORE the edit lands, consumed (removed) by the edit's own landing, valid for 7 days (or withdrawn by an `Approval-Withdrawn:` trailer, also announced). Honest limit: an agent with landing rights could write its own approval line; the control is that approvals are visible one-commit records the judge reads before the edit lands, so the approval commit is announced to the judge before the edit commit, always. `land-direct` prints `APPROVAL COMMIT: announce to the judge before landing the edit` whenever one is on its way. Rules, hash definition and steps: `docs/gate-edit-approvals.md`.
 
 ### 6.6 Installing it into a repository: a pinned, vendored copy
 

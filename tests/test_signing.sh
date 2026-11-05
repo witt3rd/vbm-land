@@ -8,7 +8,7 @@ K=$T/keys; mkdir -p "$K"
 ssh-keygen -q -t ed25519 -N '' -f "$K/maint" -C maint; ssh-keygen -q -t ed25519 -N '' -f "$K/rogue" -C rogue
 echo "maint $(cut -d' ' -f1,2 "$K/maint.pub")" > "$K/signers"; echo "rogue $(cut -d' ' -f1,2 "$K/rogue.pub")" > "$K/rogue-signers"
 O=$T/origin.git; R=$T/rel
-git init -q --bare -b main "$O"; mkdir -p "$R"; ( cd "$ROOT" && cp -r bin lib templates skills install VERSION CHANGELOG.md "$R/" )
+git init -q --bare -b main "$O"; mkdir -p "$R"; ( cd "$ROOT" && cp -r bin lib docs templates skills install VERSION CHANGELOG.md "$R/" )
 ( cd "$R" && git init -q -b main && git config commit.gpgsign false && git remote add origin "$O" && echo 3.0.0 > VERSION && bin/land-manifest >/dev/null && git add -A && git commit -qm "chore: release 3.0.0" && git push -q origin main )
 rel() { ( cd "$R" && LAND_SIGNING_KEY=$K/maint ./bin/land-release "$@" ); }
 bump() { ( cd "$R" && echo "$1" > VERSION && bin/land-manifest >/dev/null && git add -A && git commit -qm "chore: release $1" && git push -q origin main ); }
