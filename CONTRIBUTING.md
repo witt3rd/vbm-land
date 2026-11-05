@@ -11,7 +11,7 @@ Thank you for looking. A short, honest note about how this repository works.
 ## Pull requests and CI
 
 - CI here runs only on a push to `main` and on manual dispatch, on GitHub-hosted runners. It does not run on pull requests, and it must **never** be run on a self-hosted runner for a pull request from a fork: that would run a stranger's code on a machine of ours. A workflow that names `self-hosted` is refused by `tests/lint.sh` when the repository is public.
-- Run the checks yourself: `tests/run.sh` (the lints, then every `tests/test_*.sh`; about half a minute; needs bash 4+, git 2.30+, `flock`, `timeout`, `jq`). It is the same gate the lander runs.
+- Run the checks yourself: `tests/run.sh` (the lints, then every `tests/test_*.sh`; about half a minute; needs bash 4+, git 2.30+, `flock`, `timeout`, `jq`, `python3`, `ps`, `ssh-keygen`). It is the same gate the lander runs.
 
 ## What a good change looks like
 

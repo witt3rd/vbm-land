@@ -11,6 +11,8 @@ Consumers verify the signature against their own `scripts/land.signers` before a
 - The public key is `scripts/land.signers` in this repository. Check the fingerprint out of band before you trust the file: `ssh-keygen -lf <(cut -d' ' -f2- scripts/land.signers)` prints it.
 - The private half lives only on the maintainer's machine (mode 0600, never copied, printed or committed). It is not registered anywhere (not on GitHub): verification is local, against the signers file.
 
+Every release from `v0.2.0` on is signed; `v0.1.0` predates signing and does not verify (a consumer pins `v0.2.0` or later).
+
 ## Trusting it in a consumer
 
 First install: `install --source OWNER/vbm-land --signers scripts/land.signers vX.Y.Z` (the file taken from a source you trust, with its fingerprint checked as above). It is copied to the consumer's `scripts/land.signers`,

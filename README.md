@@ -10,7 +10,7 @@ It is a tool, not a verified library: it is not scored by the [VBM](https://gith
 
 ## Quick start
 
-Requirements: bash 4+, git 2.30+, util-linux `flock`, `timeout`, `gh` (only for the red check, which reads your CI), and `jq` for the tests. Linux only for now.
+Requirements: bash 4+, git 2.30+, util-linux `flock`, `timeout`, `gh` (only for the red check, which reads your CI), and, for the tests, `jq`, `python3`, `ps` (procps) and `ssh-keygen` (openssh-client). Linux only for now.
 
 ```
 # 1. Get a release and check its signature (the maintainer's public key is scripts/land.signers; its fingerprint is in docs/signing.md)
@@ -278,7 +278,7 @@ Pull only: a repository decides when it takes a release. `scripts/land/bin/land-
 
 ## Versions and signed tags
 
-Releases are annotated, ssh-signed tags `vX.Y.Z` made by `bin/land-release`. The tag message records the sha256 of `MANIFEST.sha256`, which lists every file a consumer vendors, so the signature covers the whole vendored tree. A consumer that holds `scripts/land.signers` makes `install` and `land-update` refuse anything that is not a signed tag from a listed signer. The key, its fingerprint (check it out of band), how to verify a tag by hand and how rotation works: [docs/signing.md](docs/signing.md). Each release has a section in [CHANGELOG.md](CHANGELOG.md); a release that adds or changes an interface item carries "Upgrade notes". Pins record the 40-hex commit, never only the tag.
+Releases are annotated, ssh-signed tags `vX.Y.Z` made by `bin/land-release`. The tag message records the sha256 of `MANIFEST.sha256`, which lists every file a consumer vendors, so the signature covers the whole vendored tree. A consumer that holds `scripts/land.signers` makes `install` and `land-update` refuse anything that is not a signed tag from a listed signer. The key, its fingerprint (check it out of band), how to verify a tag by hand and how rotation works: [docs/signing.md](docs/signing.md). Each release has a section in [CHANGELOG.md](CHANGELOG.md); a release that adds or changes an interface item carries "Upgrade notes". Pins record the 40-hex commit, never only the tag. `v0.1.0` predates signing and does not verify; `v0.2.0` is the first signed release.
 
 ## Honest limits
 
