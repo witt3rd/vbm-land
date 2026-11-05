@@ -100,7 +100,7 @@ Hosted CI minutes are usually a budgeted resource. A cheap pattern: run Tier 1 i
 | `install`, `bin/land-check`, `bin/land-update`, `bin/land-audit`, `bin/land-manifest`, `MANIFEST.sha256` | Pinned vendoring (6.6): the installer, the drift check, the updater, the audit across repositories, and the manifest of every file a consumer vendors. |
 | `skills/` | Agent skills (`SKILL.md`): new-repo, land-a-change, triage-red, update-vbm-land, hold-and-freeze, adopt-in-existing-repo, release. A consumer gets them in `.agents/skills/` (installed and updated with the tool, drift-checked like it). |
 | `templates/` | A starter `land.conf` with examples for four ecosystems, the agent-instructions block, a CI workflow with Tier 1 on push and Tier 2 on a schedule, the branch and tag rulesets, and the public-repository settings checklist. |
-| `scripts/land.conf`, `scripts/land-direct` | This repository's own configuration and its stub: the repository lands itself with its own lander. |
+| `scripts/land.conf`, `scripts/land-direct` | This repository's own configuration and entry script: the repository lands itself with its own lander. |
 | `scripts/bootstrap-land` | A minimal, dependency-light lander. It landed this repository's first commits and stays as the recovery path if the full lander is ever broken on main. |
 | `tests/` | The test suite (below). `tests/run.sh` is this repository's Tier 1: the lints, then every `tests/test_*.sh` in parallel (about half a minute). |
 | `.github/workflows/ci.yml` | Tier 1 on a push to main. |
@@ -188,14 +188,14 @@ It writes, and commits nothing (review the diff, commit it as `chore(land): vbm-
 - `scripts/land/MANIFEST.sha256` the hash of every vendored file, copied from the release;
 - `scripts/land/PIN` `source`, `version`, the 40-hex **`commit`** (a tag can move, a commit cannot) and `manifest_sha256`;
 - `.agents/skills/<name>/SKILL.md` the agent skills, one per file in `skills/` of the release;
-- `scripts/land-direct` a three-line stub that runs the vendored lander, so "land with `scripts/land-direct`" stays true;
+- `scripts/land-direct` a three-line entry script that runs the vendored lander, so "land with `scripts/land-direct`" stays true, **only if absent**: it is the repository's own afterwards (add an environment variable before the exec); the drift check only requires that it is executable and still runs `scripts/land/bin/land-direct`;
 - `scripts/land.conf` a starter, **only if there is none**.
 
 Before writing anything the installer checks every file it fetched against the manifest at that same commit, and refuses a release that does not match or has no manifest. `templates/AGENTS-block.md` is the agent-instructions block to paste; `templates/ci.yml.example` is the CI workflow.
 
 **No local patches.** A repository that needs something different adds a configuration key or a hook upstream (one change, one release), or uses a hook of its own; it never edits the copy. The rule is mechanical:
 
-- `scripts/land/bin/land-check` is the **drift check**. Offline (run it in Tier 1; the lander also runs it on the rebased tree and refuses with exit 12): the manifest must hash to the pin, every vendored file must hash to its entry and keep its executable bit, nothing else may sit in `scripts/land/`, and the repository's own `scripts/land.conf` (known keys) and `scripts/land.d/` (hooks have the fixed names above and must be executable; `*.sh` files are helpers the hooks source) must be well formed. Any difference fails: *edit vbm-land, not the copy*.
+- `scripts/land/bin/land-check` is the **drift check**. Offline (run it in Tier 1; the lander also runs it on the rebased tree and refuses with exit 12): the manifest must hash to the pin, every vendored file (the tool, the templates, the skills) must hash to its entry and keep its executable bit, nothing else may sit in `scripts/land/`, and the repository's own `scripts/land.conf` (known keys) and `scripts/land.d/` (hooks have the fixed names above and must be executable; `*.sh` files are helpers the hooks source) must be well formed. Any difference fails: *edit vbm-land, not the copy*.
 - `scripts/land/bin/land-check --upstream` (the scheduled Tier 2, or by hand) also fetches the manifest at the **pinned commit** from the source and requires it to match, so a forged pin and tree edited together fail; it prints when a newer release exists (advice, never a failure) and exits 3 when the source cannot be reached (not verified).
 - `scripts/land/bin/land-update <tag|commit>` replaces the tree and the pin with another release and verifies it; it commits nothing.
 - `bin/land-audit DIR...`, run from this repository, prints for each repository its pin, whether it is intact, and how far behind it is: the rollout table, from the repositories themselves.

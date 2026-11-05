@@ -6,7 +6,7 @@ description: >-
 
 # update-vbm-land
 
-A repository vendors a pinned copy: `scripts/land/` (tool), `scripts/land/PIN` (source, version, 40-hex commit, manifest hash), the `scripts/land-direct` stub, and the vbm-land skills in `.agents/skills/`. `MANIFEST.sha256` lists the hash of every file; all of them are drift-checked.
+A repository vendors a pinned copy: `scripts/land/` (tool), `scripts/land/PIN` (source, version, 40-hex commit, manifest hash), the `scripts/land-direct` entry script (yours after the first install), and the vbm-land skills in `.agents/skills/`. `MANIFEST.sha256` lists the hash of every file; all of them are drift-checked.
 
 ## Check
 
@@ -19,7 +19,7 @@ From a vbm-land checkout, the rollout table across repositories: `bin/land-audit
 ## Update
 
 1. Fresh worktree off `origin/main`.
-2. `timeout 120 scripts/land/bin/land-update vX.Y.Z` (a tag or commit). It replaces `scripts/land/`, the stub, the skills and the PIN, verifies each file against the manifest at that commit, and commits nothing.
+2. `timeout 120 scripts/land/bin/land-update vX.Y.Z` (a tag or commit). It replaces `scripts/land/`, the skills and the PIN (never `scripts/land-direct` or `scripts/land.conf`), verifies each file against the manifest at that commit, and commits nothing.
 3. `scripts/land/bin/land-check` then review `git status` and `CHANGELOG.md` of the release (new keys, exit codes).
 4. One commit: `git add -A && git commit -m 'chore(land): vbm-land vX.Y.Z'`; land it with `scripts/land-direct` (the lander that lands it is the one already on main).
 
@@ -29,6 +29,6 @@ From a vbm-land checkout, the rollout table across repositories: `bin/land-audit
 
 ## Do NOT
 
-- Do not edit `scripts/land/`, the stub, `MANIFEST.sha256`, `PIN` or the vendored skills by hand, and never "fix" drift by regenerating the manifest in a consumer.
+- Do not edit `scripts/land/`, `MANIFEST.sha256`, `PIN` or the vendored skills by hand, and never "fix" drift by regenerating the manifest in a consumer.
 - Do not update to an untagged commit unless asked.
 - Do not mix the update with other changes in one commit.

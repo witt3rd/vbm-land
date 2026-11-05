@@ -2,7 +2,7 @@
 # land-check [--upstream] [--root DIR]: is the vendored copy of this tool in DIR (default: the repository root) still exactly its pin?
 #
 # Offline (the default; in Tier 1; well under a second): scripts/land/PIN names the release (source, version, commit, manifest_sha256); the vendored
-# MANIFEST.sha256 must hash to that value, every file it lists (under scripts/land/, and the stub scripts/land-direct) must hash to its entry and have its
+# MANIFEST.sha256 must hash to that value, every file it lists (under scripts/land/, and the skills in .agents/skills/) must hash to its entry and have its
 # executable bit, and scripts/land/ may hold nothing else. ANY difference fails: edit the tool in its source repository, not the copy.
 # The repository's own files (scripts/land.conf: known keys only; scripts/land.d/: hooks executable and correctly named, `*.sh` helpers allowed) are checked for being well formed, not for content.
 #
@@ -22,18 +22,21 @@ p_source=$(pinval source); p_version=$(pinval version); p_commit=$(pinval commit
 [ -n "$p_source" ] && [[ "$p_commit" =~ ^[0-9a-f]{40}$ ]] && [[ "$p_msha" =~ ^[0-9a-f]{64}$ ]] || { echo "land-check: scripts/land/PIN is unreadable (needs source=, version=, a 40-hex commit= and a manifest_sha256=)" >&2; exit 2; }
 bad=0; drift() { echo "DRIFT: $*" >&2; bad=1; }
 [ "$(sha256sum < "$man" | cut -d' ' -f1)" = "$p_msha" ] || drift "scripts/land/MANIFEST.sha256 does not hash to the pin's manifest_sha256"
-vpath() { case "$1" in templates/land-direct-stub) echo scripts/land-direct;; skills/*) echo ".agents/$1";; *) echo "scripts/land/$1";; esac; }   # where a payload path lives in a consumer
+vpath() { case "$1" in skills/*) echo ".agents/$1";; *) echo "scripts/land/$1";; esac; }   # where a payload path lives in a consumer
 declare -A listed=()
 while read -r h f; do
   [ -n "$f" ] || continue; v=$(vpath "$f"); listed[$v]=1
   if [ ! -f "$root/$v" ]; then drift "$v is missing"; continue; fi
   [ "$(sha256sum < "$root/$v" | cut -d' ' -f1)" = "$h" ] || drift "$v differs from the pinned release"
-  case $f in bin/*|templates/land-direct-stub) [ -x "$root/$v" ] || drift "$v is not executable";; esac
+  case $f in bin/*) [ -x "$root/$v" ] || drift "$v is not executable";; esac
 done < "$man"
 while IFS= read -r f; do f=${f#"$root"/}; case $f in scripts/land/PIN|scripts/land/MANIFEST.sha256) continue;; esac
   [ -n "${listed[$f]:-}" ] || drift "$f is not part of the pinned release (an extra or local file inside the vendored tree)"
 done < <(find "$root/scripts/land" -type f | LC_ALL=C sort)
-# the repository's own files: well formed
+# the repository's own files: well formed. scripts/land-direct is the repository's own entry script (install creates it from templates/land-direct-stub when absent; add what you need before the exec):
+# it must be executable and still run the pinned lander.
+entry=$(grep -v '^[[:space:]]*#' "$root/scripts/land-direct" 2>/dev/null || true)
+{ [ -x "$root/scripts/land-direct" ] && grep -q 'land/bin/land-direct' <<<"$entry"; } || drift "scripts/land-direct is missing, not executable, or does not run the pinned lander (scripts/land/bin/land-direct)"
 . "$here/../lib/conf.sh"; conf_defaults
 if [ -r "$root/scripts/land.conf" ]; then conf_parse scripts/land.conf < "$root/scripts/land.conf" 2>&1 >/dev/null | sed 's/^/DRIFT: /' >&2 && [ "${PIPESTATUS[0]}" = 0 ] || bad=1; fi
 if [ -d "$root/scripts/land.d" ]; then   # hooks have fixed names and must be executable; `*.sh` files are helpers the hooks source; anything else is a hook that would silently never run

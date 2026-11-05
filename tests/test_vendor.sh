@@ -36,7 +36,8 @@ for case_ in "edit:echo '# local patch' >> scripts/land/bin/land-red:differs fro
              "delete:rm scripts/land/lib/infra-re.sh:is missing" \
              "extra file:echo x > scripts/land/lib/local.sh:not part of the pinned release" \
              "not executable:chmod -x scripts/land/bin/land-direct:not executable" \
-             "stub edited:echo '# x' >> scripts/land-direct:differs from the pinned release" \
+             "entry script no longer runs the lander:echo 'exit 0' > scripts/land-direct:does not run the pinned lander" \
+             "entry script removed:rm scripts/land-direct:does not run the pinned lander" \
              "manifest edited:sed -i '1s/^./0/' scripts/land/MANIFEST.sha256:does not hash to the pin" \
              "skill edited:echo x >> .agents/skills/release/SKILL.md:differs from the pinned release" \
              "skill deleted:rm .agents/skills/triage-red/SKILL.md:is missing" \
@@ -56,6 +57,10 @@ rm -rf "$T/d"; cp -a "$T/c1" "$T/d"; echo garbage > "$T/d/scripts/land/PIN"
 expect_exit "an unreadable PIN is refused" 2 chk "$T/d"
 rm -rf "$T/d"; mkdir -p "$T/d"
 expect_exit "a repository without a pinned copy is refused" 2 chk "$T/d"; out_has "not installed"
+rm -rf "$T/d"; cp -a "$T/c1" "$T/d"; sed -i '1a # my repository: an extra variable before the exec\nexport MY_VAR=1' "$T/d/scripts/land-direct"
+expect_exit "the entry script is the repository's own: extra lines before the exec are fine" 0 chk "$T/d"
+cp -a "$T/c1" "$T/d4"; echo "# mine" >> "$T/d4/scripts/land-direct"; "$S/install" --source "$S" --target "$T/d4" v1.0.0 >/dev/null
+check "re-installing never overwrites the repository's own entry script" grep -q '^# mine' "$T/d4/scripts/land-direct"
 echo "## a forged copy: tree, manifest and PIN edited together pass offline and fail upstream"
 rm -rf "$T/d"; cp -a "$T/c1" "$T/d"
 ( cd "$T/d/scripts/land" && echo '# evil' >> bin/land-red && h=$(sha256sum bin/land-red | cut -d' ' -f1) && sed -i "s|^[0-9a-f]*  bin/land-red\$|$h  bin/land-red|" MANIFEST.sha256 \
