@@ -20,6 +20,7 @@ check "the stub is executable and runs the vendored lander" bash -c "'$T/c1/scri
 check "PIN records source, version, a 40-hex commit and the manifest hash" bash -c "cd '$T/c1/scripts/land' && grep -q '^source=$S\$' PIN && grep -q '^version=v1.0.0\$' PIN && grep -qE '^commit=[0-9a-f]{40}\$' PIN && grep -qE '^manifest_sha256=[0-9a-f]{64}\$' PIN"
 check "the pinned commit is the source's tag" bash -c "grep -q \"^commit=\$(git -C '$S' rev-parse v1.0.0)\$\" '$T/c1/scripts/land/PIN'"
 check "the skills are vendored into .agents/skills/" bash -c "cd '$T/c1' && for n in new-repo land-a-change triage-red update-vbm-land hold-and-freeze adopt-in-existing-repo release; do grep -q \"^name: \$n\\\$\" .agents/skills/\$n/SKILL.md || exit 1; done"
+check "the templates the skills point at are vendored under scripts/land/templates/" bash -c "cd '$T/c1/scripts/land/templates' && test -f AGENTS-block.md -a -f ci.yml.example -a -f ruleset-protect-main.json -a -f ruleset-protect-release-tags.json -a -f PUBLIC-REPO-SETTINGS.md"
 check "a starter scripts/land.conf was created" test -f "$T/c1/scripts/land.conf"
 echo "LAND_TEST_CMD=my-own-tests" > "$T/c1/scripts/land.conf"
 "$S/install" --source "$S" --target "$T/c1" v1.0.0 >/dev/null
@@ -92,6 +93,30 @@ expect_exit "audit fails when a repository has drift or no copy" 1 "$S/bin/land-
 cp -a "$T/c3" "$T/c3x"; echo '# x' >> "$T/c3x/scripts/land/bin/land-red"
 expect_exit "audit shows drift" 1 "$S/bin/land-audit" "$T/c3x"; out_has DRIFT
 expect_exit "audit passes when every repository is intact" 0 "$S/bin/land-audit" "$T/c1" "$T/c3"
+
+echo "## audit: warns when the default branch is not protected"
+cat > "$T/ghprot" <<'SH'
+#!/usr/bin/env bash
+case "$2" in
+  repos/o/prot/rules/branches/main) printf 'deletion\nnon_fast_forward\n';;
+  repos/o/half/rules/branches/main) printf 'deletion\n';;
+  repos/o/none/rules/branches/main) ;;
+  *) exit 1;;
+esac
+SH
+chmod +x "$T/ghprot"
+for n in prot half none down; do consumer "pr-$n"; "$S/install" --source "$S" --target "$T/pr-$n" v1.0.0 >/dev/null; git -C "$T/pr-$n" remote set-url origin "git@github.com:o/$n.git"; done
+GH=$T/ghprot expect_exit "audit marks a protected default branch and warns about none, and about one without non-fast-forward (a warning, not a failure)" 0 "$S/bin/land-audit" "$T/pr-prot" "$T/pr-half" "$T/pr-none"
+out_has "WARNING"; out_has "protected"; check "exactly the protected one says yes" bash -c "grep -c ' yes ' '$T/out' | grep -qx 1 && grep -c ' NO ' '$T/out' | grep -qx 2"
+GH=$T/ghprot expect_exit "audit says unknown when GitHub cannot be asked (offline, error), without a warning" 0 "$S/bin/land-audit" "$T/pr-down"; out_has unknown; check "no warning for unknown" bash -c "! grep -q WARNING '$T/out'"
+expect_exit "a remote that is not on GitHub is unknown" 0 "$S/bin/land-audit" "$T/c1"; out_has unknown
+check "the ruleset templates are valid and refuse deletion and force-push / tag update" python3 - "$ROOT" <<'PY'
+import json, sys
+r = sys.argv[1]
+m = json.load(open(r + "/templates/ruleset-protect-main.json")); t = json.load(open(r + "/templates/ruleset-protect-release-tags.json"))
+assert m["target"] == "branch" and {x["type"] for x in m["rules"]} == {"deletion", "non_fast_forward"} and m["bypass_actors"] == [] and m["enforcement"] == "active"
+assert t["target"] == "tag" and {x["type"] for x in t["rules"]} == {"deletion", "update"} and t["bypass_actors"] == []
+PY
 
 echo "## the lander and its own vendored copy"
 consumer l1; "$S/install" --source "$S" --target "$T/l1" v1.0.0 >/dev/null

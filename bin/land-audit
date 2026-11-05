@@ -2,20 +2,34 @@
 # land-audit DIR...   (source repository only)
 # For each repository DIR that vendors this tool: its pin, whether the offline drift check passes, and how far behind this checkout it is.
 # This replaces a hand-kept rollout table: the facts come from the repositories themselves, on the day you ask.
+# It also WARNS (never fails) when a repository's default branch is not protected against deletion and non-fast-forward updates (a ruleset: templates/ruleset-protect-main.json),
+# asked of GitHub through `gh` (GH overrides it); offline, or for a remote that is not on GitHub, it says "unknown" and moves on.
 #   exit 0 when every DIR is installed, intact; 1 when any has drift, is not installed, or cannot be read.
 set -euo pipefail
 export LC_ALL=C
 root=$(cd "$(dirname "$0")/.." && pwd)
 [ $# -gt 0 ] || { echo "usage: land-audit DIR..." >&2; exit 2; }
 head=$(git -C "$root" rev-parse HEAD 2>/dev/null || true); latest=$(git -C "$root" tag --list 'v[0-9]*' 2>/dev/null | LC_ALL=C sort -V | tail -n1 || true)
-printf '%-28s %-14s %-14s %-8s %s\n' repository pinned commit check behind; bad=0
+gh=${GH:-gh}
+protection() {   # protection DIR: yes | NO | unknown
+  local url slug branch rules
+  url=$(git -C "$1" remote get-url origin 2>/dev/null) || { echo unknown; return; }
+  slug=$(sed -n 's#^\(git@github\.com:\|https://github\.com/\|ssh://git@github\.com/\)\([^/]*/[^/]*\)$#\2#p' <<<"$url"); slug=${slug%.git}
+  [ -n "$slug" ] || { echo unknown; return; }
+  branch=$(git -C "$1" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##' || true); [ -n "$branch" ] || branch=main
+  rules=$(timeout 30 "$gh" api "repos/$slug/rules/branches/$branch" --jq '.[].type' 2>/dev/null) || { echo unknown; return; }
+  if grep -qx deletion <<<"$rules" && grep -qx non_fast_forward <<<"$rules"; then echo yes; else echo NO; fi
+}
+printf '%-28s %-14s %-14s %-8s %-9s %s\n' repository pinned commit check protected behind; bad=0; warn=0
 for d in "$@"; do
   name=$(basename "$(cd "$d" 2>/dev/null && pwd || echo "$d")"); pin=$d/scripts/land/PIN
-  if [ ! -r "$pin" ]; then printf '%-28s %-14s %-14s %-8s %s\n' "$name" - - none "not installed (its own copy of the tool, if any, is unmanaged)"; bad=1; continue; fi
+  if [ ! -r "$pin" ]; then printf '%-28s %-14s %-14s %-8s %-9s %s\n' "$name" - - none - "not installed (its own copy of the tool, if any, is unmanaged)"; bad=1; continue; fi
   v=$(sed -n 's/^version=//p' "$pin" | sed -n 1p); c=$(sed -n 's/^commit=//p' "$pin" | sed -n 1p)
   if "$root/bin/land-check" --root "$d" >/dev/null 2>&1; then chk=ok; else chk=DRIFT; bad=1; fi
   behind=?; if [ -n "$head" ] && git -C "$root" cat-file -e "$c^{commit}" 2>/dev/null; then behind="$(git -C "$root" rev-list --count "$c..$head") commit(s)"; [ "$behind" != "0 commit(s)" ] || behind=current; fi
-  printf '%-28s %-14s %-14s %-8s %s\n' "$name" "$v" "${c:0:12}" "$chk" "$behind"
+  prot=$(protection "$d"); [ "$prot" != NO ] || warn=1
+  printf '%-28s %-14s %-14s %-8s %-9s %s\n' "$name" "$v" "${c:0:12}" "$chk" "$prot" "$behind"
 done
+[ "$warn" = 0 ] || echo "land-audit: WARNING: a default branch above is not protected against deletion and force-push: apply templates/ruleset-protect-main.json (see templates/PUBLIC-REPO-SETTINGS.md)" >&2
 [ -z "$latest" ] || echo "latest tag in this checkout: $latest"
 exit "$bad"

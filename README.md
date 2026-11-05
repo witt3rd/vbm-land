@@ -2,7 +2,7 @@
 
 A small, language-neutral tool for landing changes **directly on the main branch** of a repository that only your own agents (or you) work in: one lander, a mechanical gate, a single definition of "main is red", and a hold switch. Plain bash, git and `gh`. Nothing in it knows what language your repository is written in.
 
-> **Status: early (0.3, not tagged).** The lander, the red check, pinned vendoring with a drift check, and the test suite exist ([6.1](#61-what-is-here-today)). The watchdog, the known-flaky list and group landing are not built yet.
+> **Status: early (0.1.0).** The lander, the red check, pinned vendoring with a drift check, and the test suite exist ([6.1](#61-what-is-here-today)). The watchdog, the known-flaky list and group landing are not built yet.
 
 The rest of this file is the landing guide: the policy first, then the tool.
 
@@ -99,7 +99,7 @@ Hosted CI minutes are usually a budgeted resource. A cheap pattern: run Tier 1 i
 | `lib/` | `conf.sh` (the configuration reader), `infra-re.sh` (the infrastructure classifier), `freeze.sh`. |
 | `install`, `bin/land-check`, `bin/land-update`, `bin/land-audit`, `bin/land-manifest`, `MANIFEST.sha256` | Pinned vendoring (6.6): the installer, the drift check, the updater, the audit across repositories, and the manifest of every file a consumer vendors. |
 | `skills/` | Agent skills (`SKILL.md`): new-repo, land-a-change, triage-red, update-vbm-land, hold-and-freeze, adopt-in-existing-repo, release. A consumer gets them in `.agents/skills/` (installed and updated with the tool, drift-checked like it). |
-| `templates/` | A starter `land.conf` with examples for four ecosystems, the agent-instructions block, a CI workflow with Tier 1 on push and Tier 2 on a schedule. |
+| `templates/` | A starter `land.conf` with examples for four ecosystems, the agent-instructions block, a CI workflow with Tier 1 on push and Tier 2 on a schedule, the branch and tag rulesets, and the public-repository settings checklist. |
 | `scripts/land.conf`, `scripts/land-direct` | This repository's own configuration and its stub: the repository lands itself with its own lander. |
 | `scripts/bootstrap-land` | A minimal, dependency-light lander. It landed this repository's first commits and stays as the recovery path if the full lander is ever broken on main. |
 | `tests/` | The test suite (below). `tests/run.sh` is this repository's Tier 1: the lints, then every `tests/test_*.sh` in parallel (about half a minute). |
@@ -201,6 +201,10 @@ Before writing anything the installer checks every file it fetched against the m
 - `bin/land-audit DIR...`, run from this repository, prints for each repository its pin, whether it is intact, and how far behind it is: the rollout table, from the repositories themselves.
 
 A release is a tag whose commit has a fresh `MANIFEST.sha256` (`bin/land-manifest`; Tier 1 here fails on a stale one). Additive changes to the interface (configuration keys, exit codes, the JSON line, hook names, marker names) are minor, anything else is major; `CHANGELOG.md` has a line per interface change.
+
+### 6.7 Protecting the branch
+
+The lander **never force-pushes**: it pushes a plain fast-forward (`git push <remote> <sha>:<branch>`), so a remote that refuses non-fast-forward updates changes nothing about how it works, and a test and a mutation self-test keep it that way. Make the remote say the same: apply `templates/ruleset-protect-main.json` to the default branch (deletion and non-fast-forward updates refused; **no required pull request and no bypass list**, so a fast-forward landing still works) and `templates/ruleset-protect-release-tags.json` to release tags (no deletion, no update: a pin by tag cannot be moved). `templates/PUBLIC-REPO-SETTINGS.md` is the checklist for a repository that is, or is about to be, public (approval of fork pull-request workflows for all outside contributors, a read-only workflow token that cannot approve pull requests, private vulnerability reporting, secret scanning with push protection, deleting merged branches). `bin/land-audit` warns when a repository's default branch lacks the branch protection (asked of GitHub through `gh`; offline it says "unknown"). `skills/new-repo/SKILL.md` is the whole sequence for a new repository.
 
 ## License
 
