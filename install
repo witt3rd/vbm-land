@@ -28,7 +28,8 @@ while [ $# -gt 0 ]; do case $1 in
 target=$(cd "$target" && pwd); git -C "$target" rev-parse --git-dir >/dev/null 2>&1 || { echo "install: $target is not a git repository" >&2; exit 2; }
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/vbm-land-install.XXXXXX"); trap 'rm -rf "$tmp"' EXIT
 if [[ "$src" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] && [ ! -e "$src" ]; then
-  "${GH:-gh}" repo clone "$src" "$tmp/src" -- --quiet --bare >/dev/null 2>&1 || { echo "install: cannot clone $src with gh" >&2; exit 1; }
+  GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true timeout 120 git -c credential.helper= clone -q --bare -- "${VBM_LAND_URL_BASE:-https://github.com}/$src.git" "$tmp/src" >/dev/null 2>&1 || { rm -rf "$tmp/src"   # anonymous https first (a public source needs no token), then gh (a private one)
+    "${GH:-gh}" repo clone "$src" "$tmp/src" -- --quiet --bare >/dev/null 2>&1 || { echo "install: cannot clone $src (anonymously over https, nor with gh)" >&2; exit 1; }; }
 else git clone -q --bare -- "$src" "$tmp/src" >/dev/null 2>&1 || { echo "install: cannot clone $src" >&2; exit 1; }; fi
 commit=$(git -C "$tmp/src" rev-parse --verify -q "$ref^{commit}") || { echo "install: $src has no tag or commit '$ref'" >&2; exit 1; }
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "install: unexpected commit id for $ref" >&2; exit 1; }

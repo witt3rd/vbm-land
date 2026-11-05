@@ -5,6 +5,9 @@ Additive changes to it are minor releases; anything else is major.
 
 ## Unreleased
 
+## 0.3.3
+- Fix: the upstream check (`land-check --upstream`), `land-update` and `install` clone a GitHub `OWNER/NAME` source ANONYMOUSLY over https first, and use `gh` only when that fails (a private source). A public source therefore needs no token, no `gh` login and no secret: on a hosted runner without a login the check used to fail with "cannot clone OWNER/NAME with gh" (exit 3). `VBM_LAND_URL_BASE` replaces `https://github.com` (the tests serve a local copy). The update workflow template says a public source needs no secret. Upgrade notes: none required; a private source still needs `GH_TOKEN` (the secret `VBM_LAND_TOKEN`).
+
 ## 0.3.2
 - Gate-edit approvals: an approval commit adds exactly ONE line (one record), removes none and changes no other file; the landing that carries it is the same (one approval per landing, no tidying alongside): refused (12) otherwise. The `APPROVAL COMMIT` reminder now says the announcement to the judge carries the diff hash and the FULL edit diff. Upgrade notes: a landing that added several records at once, or tidied stale ones in the approval's landing, must now be split (one approval per landing; a stale record is tidied in a landing of its own).
 
