@@ -25,4 +25,7 @@ if grep -lE 'self-hosted' .github/workflows/* >/dev/null 2>&1 && [ "$(cat .githu
 # under `set -o pipefail` a producer piped into an early-exiting consumer (`grep -q`, `grep -m`, `head`) can die of SIGPIPE: capture then test, or let the consumer drain the pipe (a repository that vendors this tool lints for it too)
 hits=$(grep -nE '\|[[:space:]]*(grep[[:space:]]+(-[A-Za-z]*[qm][A-Za-z0-9]*|--quiet|--max-count)([[:space:]]|=)|head([[:space:]]|$))' bin/* lib/*.sh install 2>/dev/null | grep -v 'pipefail-ok' || true)
 [ -z "$hits" ] || fail "a pipe into an early-exiting consumer (SIGPIPE under pipefail): $(echo "$hits" | head -2 | tr '\n' ' ')"
+# the heavy-host guard: this repository's own helper carries it, refuses with a marker present, and the vendored template is that helper
+bin/no-build-guard --selftest >/dev/null && bin/no-build-guard --lint . >/dev/null || fail "the heavy-host guard lint (bin/no-build-guard --lint .) fails"
+cmp -s scripts/run-scoped.sh templates/run-scoped.sh || fail "templates/run-scoped.sh differs from scripts/run-scoped.sh (the template is the helper a consumer copies)"
 exit "$bad"
