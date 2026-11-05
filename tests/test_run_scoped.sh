@@ -21,7 +21,7 @@ for mode in $modes; do
   else fail "$mode: the scoped child never started"; fi
 done
 # tests/run.sh: aborted, it stops the test jobs it started (a copy of run.sh with a fake lint and one fake test that has a grandchild)
-mkdir -p "$tmp/t/tests" "$tmp/t/scripts"; cp "$ROOT/tests/run.sh" "$tmp/t/tests/"; cp "$ROOT/scripts/lib-reap.sh" "$tmp/t/scripts/"
+mkdir -p "$tmp/t/tests" "$tmp/t/scripts"; cp "$ROOT/tests/run.sh" "$tmp/t/tests/"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/t/tests/lint.sh"
 printf '#!/usr/bin/env bash\nsleep 300 & echo $! > "$1/g"\nwait\n' > "$tmp/t/tests/test_x.sh"; sed -i 's|"\$1/g"|'"$tmp"'/rg|' "$tmp/t/tests/test_x.sh"; chmod +x "$tmp/t/tests/"*.sh
 unset RUN_SCOPED_NO_SYSTEMD; rm -f "$tmp/rg"
