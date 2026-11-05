@@ -22,7 +22,7 @@ p_source=$(pinval source); p_version=$(pinval version); p_commit=$(pinval commit
 [ -n "$p_source" ] && [[ "$p_commit" =~ ^[0-9a-f]{40}$ ]] && [[ "$p_msha" =~ ^[0-9a-f]{64}$ ]] || { echo "land-check: scripts/land/PIN is unreadable (needs source=, version=, a 40-hex commit= and a manifest_sha256=)" >&2; exit 2; }
 bad=0; drift() { echo "DRIFT: $*" >&2; bad=1; }
 [ "$(sha256sum < "$man" | cut -d' ' -f1)" = "$p_msha" ] || drift "scripts/land/MANIFEST.sha256 does not hash to the pin's manifest_sha256"
-vpath() { [ "$1" = templates/land-direct-stub ] && echo scripts/land-direct || echo "scripts/land/$1"; }   # where a payload path lives in a consumer
+vpath() { case "$1" in templates/land-direct-stub) echo scripts/land-direct;; skills/*) echo ".agents/$1";; *) echo "scripts/land/$1";; esac; }   # where a payload path lives in a consumer
 declare -A listed=()
 while read -r h f; do
   [ -n "$f" ] || continue; v=$(vpath "$f"); listed[$v]=1

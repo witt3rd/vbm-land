@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # install [--source SRC] [--target DIR] <tag|commit>
 #
-# Vendors a PINNED copy of vbm-land into a repository: scripts/land/ (the tool, read-only by contract), scripts/land/PIN, a three-line stub scripts/land-direct
+# Vendors a PINNED copy of vbm-land into a repository: scripts/land/ (the tool, read-only by contract), scripts/land/PIN, the agent skills in .agents/skills/<name>/SKILL.md (drift-checked too), a three-line stub scripts/land-direct
 # that execs it (so "land with scripts/land-direct" stays true), and, only when absent, a starter scripts/land.conf. It commits nothing: review the diff and commit
 # it as one change (`chore(land): vbm-land <version>`). Re-running it with another ref is the update.
 #
@@ -37,7 +37,8 @@ while read -r h f; do
   [ -f "$tmp/tree/$f" ] && [ "$(sha256sum < "$tmp/tree/$f" | cut -d' ' -f1)" = "$h" ] || { echo "install: $f at $ref does not match its manifest entry: refusing" >&2; exit 1; }
 done < "$tmp/MANIFEST.sha256"
 version=v$(cat "$tmp/tree/VERSION")
-vpath() { [ "$1" = templates/land-direct-stub ] && echo scripts/land-direct || echo "scripts/land/$1"; }
+vpath() { case "$1" in templates/land-direct-stub) echo scripts/land-direct;; skills/*) echo ".agents/$1";; *) echo "scripts/land/$1";; esac; }
+[ ! -r "$target/scripts/land/MANIFEST.sha256" ] || while read -r _ f; do case $f in skills/*) rm -f "$target/$(vpath "$f")";; esac; done < "$target/scripts/land/MANIFEST.sha256"   # skills the new release dropped
 rm -rf "$target/scripts/land"; mkdir -p "$target/scripts/land"
 while read -r h f; do
   [ -n "$f" ] || continue; v=$(vpath "$f"); mkdir -p "$target/$(dirname "$v")"; cp "$tmp/tree/$f" "$target/$v"

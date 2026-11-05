@@ -5,7 +5,7 @@
 sandbox
 S=$T/src
 make_source() {   # make_source VERSION: a scratch source repository (this tree's files, VERSION set, manifest regenerated) with a commit and a tag v<VERSION>
-  mkdir -p "$S"; ( cd "$ROOT" && cp -r bin lib templates install VERSION "$S/" )
+  mkdir -p "$S"; ( cd "$ROOT" && cp -r bin lib templates skills install VERSION "$S/" )
   ( cd "$S" && { [ -d .git ] || git init -q -b main; } && git config commit.gpgsign false && echo "$1" > VERSION && bin/land-manifest >/dev/null && git add -A && git commit -qm "chore: release $1" && git tag "v$1" )
 }
 make_source 1.0.0
@@ -19,6 +19,7 @@ check "scripts/land/ has the tool, the manifest and the PIN" bash -c "cd '$T/c1/
 check "the stub is executable and runs the vendored lander" bash -c "'$T/c1/scripts/land-direct' --version | grep -q 'land-direct 1.0.0'"
 check "PIN records source, version, a 40-hex commit and the manifest hash" bash -c "cd '$T/c1/scripts/land' && grep -q '^source=$S\$' PIN && grep -q '^version=v1.0.0\$' PIN && grep -qE '^commit=[0-9a-f]{40}\$' PIN && grep -qE '^manifest_sha256=[0-9a-f]{64}\$' PIN"
 check "the pinned commit is the source's tag" bash -c "grep -q \"^commit=\$(git -C '$S' rev-parse v1.0.0)\$\" '$T/c1/scripts/land/PIN'"
+check "the skills are vendored into .agents/skills/" bash -c "cd '$T/c1' && for n in new-repo land-a-change triage-red update-vbm-land hold-and-freeze adopt-in-existing-repo release; do grep -q \"^name: \$n\\\$\" .agents/skills/\$n/SKILL.md || exit 1; done"
 check "a starter scripts/land.conf was created" test -f "$T/c1/scripts/land.conf"
 echo "LAND_TEST_CMD=my-own-tests" > "$T/c1/scripts/land.conf"
 "$S/install" --source "$S" --target "$T/c1" v1.0.0 >/dev/null
@@ -36,6 +37,8 @@ for case_ in "edit:echo '# local patch' >> scripts/land/bin/land-red:differs fro
              "not executable:chmod -x scripts/land/bin/land-direct:not executable" \
              "stub edited:echo '# x' >> scripts/land-direct:differs from the pinned release" \
              "manifest edited:sed -i '1s/^./0/' scripts/land/MANIFEST.sha256:does not hash to the pin" \
+             "skill edited:echo x >> .agents/skills/release/SKILL.md:differs from the pinned release" \
+             "skill deleted:rm .agents/skills/triage-red/SKILL.md:is missing" \
              "bad conf key:echo LAND_TYPO=1 >> scripts/land.conf:unknown key"; do
   name=${case_%%:*}; rest=${case_#*:}; cmd=${rest%:*}; want=${rest##*:}
   rm -rf "$T/d"; cp -a "$T/c1" "$T/d"

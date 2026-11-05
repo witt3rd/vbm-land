@@ -5,6 +5,7 @@ Additive changes to it are minor releases; anything else is major.
 
 ## Unreleased (0.3.0-dev)
 - Pinned vendoring: `install`, `scripts/land/PIN`, `MANIFEST.sha256`, `bin/land-check` (offline and `--upstream`), `bin/land-update`, `bin/land-audit`, `bin/land-manifest`; the lander refuses (exit 12) a change that makes the vendored copy differ from its pin.
+- `skills/<name>/SKILL.md` (new-repo, land-a-change, triage-red, update-vbm-land, hold-and-freeze, adopt-in-existing-repo, release): agent skills, in the manifest; `install` / `land-update` copy them to `.agents/skills/` of the consumer and `land-check` drift-checks them.
 - Mutation self-test: every guard of the lander is cut out in turn and its scenario must stop being refused.
 - `templates/`: starter `land.conf`, agent-instructions block, CI workflow.
 
