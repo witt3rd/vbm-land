@@ -44,6 +44,10 @@ for case_ in "edit:echo '# local patch' >> scripts/land/bin/land-red:differs fro
 done
 rm -rf "$T/d"; cp -a "$T/c1" "$T/d"; mkdir -p "$T/d/scripts/land.d"; printf '#!/bin/sh\n' > "$T/d/scripts/land.d/post-rebase"
 expect_exit "a hook that is not executable fails (it would silently never run)" 1 chk "$T/d"; out_has "not executable"
+rm -rf "$T/d"; cp -a "$T/c1" "$T/d"; mkdir -p "$T/d/scripts/land.d"; printf '#!/bin/sh\n' > "$T/d/scripts/land.d/post-rebasee"; chmod +x "$T/d/scripts/land.d/post-rebasee"
+expect_exit "a misspelled hook name fails (it would silently never run)" 1 chk "$T/d"; out_has "not a hook name"
+rm -rf "$T/d"; cp -a "$T/c1" "$T/d"; mkdir -p "$T/d/scripts/land.d"; echo ': helper' > "$T/d/scripts/land.d/judge.sh"; printf '#!/bin/sh\n' > "$T/d/scripts/land.d/post-rebase"; chmod +x "$T/d/scripts/land.d/post-rebase"
+expect_exit "a *.sh helper next to executable hooks is fine" 0 chk "$T/d"
 rm -rf "$T/d"; cp -a "$T/c1" "$T/d"; echo garbage > "$T/d/scripts/land/PIN"
 expect_exit "an unreadable PIN is refused" 2 chk "$T/d"
 rm -rf "$T/d"; mkdir -p "$T/d"
