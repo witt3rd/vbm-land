@@ -273,7 +273,7 @@ for attempt in 1 2 3; do
   if [ -n "$LAND_GATES_CMD" ]; then (cd "$wt" && bounded "$lt" "Tier 1 gates" bash -c "$LAND_GATES_CMD") >"$state/tier1.log" 2>&1 || { tail -15 "$state/tier1.log" >&2; stop 13 tier1 "Tier 1 (gates) fails on the rebased commits (log: $state/tier1.log); nothing lands."; }; fi
   if [ -n "$LAND_TEST_CMD" ]; then (cd "$wt" && bounded "$lt" "Tier 1 tests" bash -c "$LAND_TEST_CMD") >>"$state/tier1.log" 2>&1 || { tail -15 "$state/tier1.log" >&2; stop 13 tier1 "Tier 1 (tests) fails on the rebased commits (log: $state/tier1.log); nothing lands."; }; fi
   t1=$(( $(date +%s) - ts ))
-  run_hook post-tier1 || stop 13 tier1 "the post-tier1 hook refused this change"
+  run_hook post-tier1 || stop 12 refused "the post-tier1 hook refused this change (a gate that judges the tree after Tier 1, such as an attack suite; see above)"
   # Tier 1 may render generated files: dirty only in generated paths = they were stale: commit them as a commit of the lander (carrying the tip's trailers)
   dirty=$(g status --porcelain | sed 's/^...//'); strays=$(grep -vxFf <(printf '%s\n' "$gen") <<<"$dirty" || true)
   [ -z "$strays" ] || stop 13 tier1 "Tier 1 left changes outside the generated paths: $(echo $strays); not landing."

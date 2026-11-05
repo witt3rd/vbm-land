@@ -161,7 +161,7 @@ Hooks are executables in `scripts/land.d/`, taken from `origin/<base>` (so a cha
 | `prepare` | once, when the scratch worktree is created (warm a cache, for example) | refuses (12) |
 | `pre-rebase` | before the rebase, on your commits | refuses (12) |
 | `post-rebase` | on the rebased and regenerated tree; gets `LAND_TOUCHED_FILE` (the changed paths) and `LAND_PROTECTED_TOUCHED` | refuses (12) |
-| `post-tier1` | after Tier 1 passed | refuses (13) |
+| `post-tier1` | after Tier 1 passed: a gate that judges the tree Tier 1 just built (an attack suite, say) | refuses (12) |
 | `json-fields` | after Tier 1; prints `key=value` lines added to the JSON result (keys `[a-z_]+`; the contract keys cannot be overridden) | ignored |
 | `on-run` | at the end of every run, with `LAND_RESULT` | ignored |
 

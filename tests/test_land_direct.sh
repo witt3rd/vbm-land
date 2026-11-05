@@ -205,7 +205,7 @@ refused "a pre-rebase hook can refuse (exit 12)" 12 "$T/o4"
 seed_exec scripts/land.d/post-tier1 '#!/usr/bin/env bash
 test ! -e NOPE2'
 worker o5; commit "$T/o5" NOPE2 1
-refused "a post-tier1 hook can refuse (exit 13)" 13 "$T/o5"
+refused "a post-tier1 hook can refuse (exit 12)" 12 "$T/o5"
 seed_exec scripts/land.d/on-run '#!/usr/bin/env bash
 echo "$LAND_RESULT" >> "$LAND_STATE_DIR/on-run.log"'
 worker o6; commit "$T/o6" o6.txt 1
