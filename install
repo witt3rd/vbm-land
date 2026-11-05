@@ -2,7 +2,7 @@
 # install [--source SRC] [--target DIR] <tag|commit>
 #
 # Vendors a PINNED copy of vbm-land into a repository: scripts/land/ (the tool, read-only by contract), scripts/land/PIN, the agent skills in .agents/skills/<name>/SKILL.md (drift-checked too), the entry script scripts/land-direct (three lines that exec it, so "land with
-# scripts/land-direct" stays true) and a starter scripts/land.conf, each only when absent (they are yours afterwards). It commits nothing: review the diff and commit
+# scripts/land-direct" stays true), a starter scripts/land.conf and the scheduled check .github/workflows/vbm-land-update.yml, each only when absent (they are yours afterwards). It commits nothing: review the diff and commit
 # it as one change (`chore(land): vbm-land <version>`). Re-running it with another ref is the update.
 #
 #   SRC     where the source repository is: OWNER/NAME (GitHub, through `gh`, so a private repository works), or anything git can clone (URL, path).
@@ -48,6 +48,7 @@ cp "$tmp/MANIFEST.sha256" "$target/scripts/land/MANIFEST.sha256"
 printf 'source=%s\nversion=%s\ncommit=%s\nmanifest_sha256=%s\n' "$src" "$version" "$commit" "$(sha256sum < "$tmp/MANIFEST.sha256" | cut -d' ' -f1)" > "$target/scripts/land/PIN"
 created=
 if [ ! -e "$target/scripts/land-direct" ]; then cp "$tmp/tree/templates/land-direct-stub" "$target/scripts/land-direct"; chmod +x "$target/scripts/land-direct"; created="$created and the entry script scripts/land-direct"; fi
+if [ ! -e "$target/.github/workflows/vbm-land-update.yml" ]; then mkdir -p "$target/.github/workflows"; cp "$tmp/tree/templates/vbm-land-update.yml" "$target/.github/workflows/vbm-land-update.yml"; created="$created and the scheduled check .github/workflows/vbm-land-update.yml"; fi
 if [ ! -e "$target/scripts/land.conf" ]; then cp "$tmp/tree/templates/land.conf.example" "$target/scripts/land.conf"; created="$created and a starter scripts/land.conf (edit it: at least LAND_TEST_CMD or LAND_GATES_CMD)"; fi
 "$target/scripts/land/bin/land-check" --root "$target" >/dev/null || { echo "install: the installed copy fails its own drift check" >&2; exit 1; }
 echo "install: vbm-land $version ($commit) vendored into $target/scripts/land$created."

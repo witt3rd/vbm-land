@@ -12,6 +12,7 @@ sandbox() {   # sandbox [base-branch]: $T/remote.git (bare), $T/seed (one commit
   local base=${1:-main}
   T=$(mktemp -d "${TMPDIR:-/tmp}/vbm-land-test.XXXXXX"); BASE=$base
   # the main shell removes every sandbox and the results file; a ( subshell ) or $( substitution ) that made a sandbox removes only its own
+  export GIT_CEILING_DIRECTORIES=$(dirname "$T")   # a scratch directory must never be inside some enclosing repository
   SANDBOXES+=("$T"); trap 'if [ "$BASHPID" = "$MAINPID" ]; then rm -rf "${SANDBOXES[@]}" "$RESULTS"; else rm -rf "$T"; fi' EXIT
   git init -q --bare -b "$base" "$T/remote.git"
   git init -q -b "$base" "$T/seed"

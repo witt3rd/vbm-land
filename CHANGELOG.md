@@ -3,6 +3,10 @@
 Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last line, the hook names and the marker file names.
 Additive changes to it are minor releases; anything else is major.
 
+## Unreleased
+- `land-update --check`: read-only comparison of the pin with the source's release tags (`pinned X, latest Y, behind N (patch|minor|major)`; exit 0 current, 1 behind, 3 unreachable).
+- `templates/vbm-land-update.yml`: a scheduled, read-only, non-gating workflow that `install` adds when absent (drift check with `--upstream`, then `land-update --check`).
+
 ## 0.1.0
 - `bin/land-audit` warns when a repository's default branch is not protected against deletion and force-push; `templates/ruleset-protect-main.json`, `ruleset-protect-release-tags.json`, `PUBLIC-REPO-SETTINGS.md`, `skills/new-repo`.
 - The drift check knows hook names (`*.sh` helpers allowed, a misspelled hook fails).

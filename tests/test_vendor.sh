@@ -92,6 +92,29 @@ cp -a "$T/c1" "$T/d3"; sed -i "s|^version=.*|version=v1.0.0|; s|^commit=.*|commi
 ( cd "$T/d3" && "$S/install" --source "$S" --target "$T/d3" v1.0.0 >/dev/null )
 expect_exit "re-pinning an older release works and verifies" 0 chk "$T/d3" --upstream; out_has "newer release exists: v1.1.0"
 
+echo "## update check (read-only: pinned vs the source's release tags)"
+upd() { "$1/scripts/land/bin/land-update" --check --root "$1"; }
+expect_exit "pinned at the latest release: up to date" 0 upd "$T/c1"; out_has "up to date"
+git -C "$S" commit -q --allow-empty -m "fix: patch"; git -C "$S" tag v1.1.1
+expect_exit "one patch release behind" 1 upd "$T/c1"; out_has "pinned v1.1.0, latest v1.1.1: behind 1 release (patch)"
+git -C "$S" commit -q --allow-empty -m "feat: minor"; git -C "$S" tag v1.2.0
+expect_exit "a patch and a minor behind: the class is the largest distance" 1 upd "$T/c1"; out_has "latest v1.2.0: behind 2 releases (minor)"
+git -C "$S" commit -q --allow-empty -m "feat!: major"; git -C "$S" tag v2.0.0
+expect_exit "a major release behind" 1 upd "$T/c1"; out_has "latest v2.0.0: behind 3 releases (major)"
+check "tags that are not plain releases (v1.0.1-broken, untagged...) are ignored" bash -c "grep -q 'v2.0.0' '$T/out' && ! grep -q 'broken' '$T/out'"
+cp -a "$T/c1" "$T/d5"; sed -i 's/^version=.*/version=v1.1.0-dev/' "$T/d5/scripts/land/PIN"
+expect_exit "a pre-release pin is behind its own release" 1 upd "$T/d5"; out_has "behind 4 releases"
+before=$(git -C "$T/c1" status --porcelain | sort | md5sum); upd "$T/c1" >/dev/null 2>&1 || true
+check "--check changes nothing in the repository" test "$(git -C "$T/c1" status --porcelain | sort | md5sum)" = "$before"
+GITHUB_ACTIONS=true GITHUB_STEP_SUMMARY=$T/summary expect_exit "under Actions it annotates and writes the summary line" 1 upd "$T/c1"; out_has "::warning title=vbm-land update available::"
+check "the summary line was written" grep -q "behind 3 releases (major)" "$T/summary"
+expect_exit "an unreachable source is exit 3, never 'up to date'" 3 upd "$T/d2"; out_has "NOT verified up to date"
+rm -rf "$T/d"; mkdir -p "$T/d"; expect_exit "a repository without a pin is exit 2" 2 "$T/c1/scripts/land/bin/land-update" --check --root "$T/d"
+check "install wrote the scheduled workflow (weekly, dispatch, read-only, a separate file from the gate)" bash -c "f='$T/c1/.github/workflows/vbm-land-update.yml'; grep -q 'schedule:' \$f && grep -q 'workflow_dispatch' \$f && grep -q 'contents: read' \$f && grep -q 'land-update --check' \$f && grep -q 'land-check --upstream' \$f"
+echo '# mine' >> "$T/c1/.github/workflows/vbm-land-update.yml"; "$S/install" --source "$S" --target "$T/c1" v1.0.0 >/dev/null
+check "re-installing never overwrites the repository's own workflow" grep -q '^# mine' "$T/c1/.github/workflows/vbm-land-update.yml"
+"$S/install" --source "$S" --target "$T/c1" v1.1.0 >/dev/null
+
 echo "## audit"
 consumer c3; "$S/install" --source "$S" --target "$T/c3" v1.0.0 >/dev/null; mkdir -p "$T/plain"
 expect_exit "audit fails when a repository has drift or no copy" 1 "$S/bin/land-audit" "$T/c1" "$T/c3" "$T/plain"; out_has "none"; out_has "ok"
