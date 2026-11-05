@@ -115,6 +115,22 @@ echo '# mine' >> "$T/c1/.github/workflows/vbm-land-update.yml"; "$S/install" --s
 check "re-installing never overwrites the repository's own workflow" grep -q '^# mine' "$T/c1/.github/workflows/vbm-land-update.yml"
 "$S/install" --source "$S" --target "$T/c1" v1.1.0 >/dev/null
 
+echo "## land-update --land: the whole update through the repository's own lander"
+consumer lu1; "$S/install" --source "$S" --target "$T/lu1" v1.0.0 >/dev/null
+printf 'LAND_TEST_CMD=true\nLAND_RED_MODE=off\nLAND_REQUIRE_TRAILERS=Task-ID\n' > "$T/lu1/scripts/land.conf"
+git -C "$T/lu1" add -A; git -C "$T/lu1" commit -qm "chore(land): vbm-land v1.0.0" -m "Task-ID: setup"; ( cd "$T/lu1" && scripts/land-direct >/dev/null 2>&1 )
+check "setup: the consumer landed its first copy" bash -c "git -C '$T/remote.git' show main:scripts/land/PIN | grep -q '^version=v1.0.0\$'"
+git -C "$T/lu1" fetch -q origin; git -C "$T/lu1" checkout -q -B main origin/main
+echo dirty >> "$T/lu1/scripts/land.conf"; expect_exit "--land refuses a dirty worktree" 1 "$T/lu1/scripts/land/bin/land-update" --land v1.1.0 --root "$T/lu1"; out_has "clean worktree"; git -C "$T/lu1" checkout -q scripts/land.conf
+( cd "$T/lu1" && scripts/land-direct --hold "not now" >/dev/null )
+before=$(remote_head); expect_exit "a hold stops the landed update (exit 14); nothing reaches the remote" 14 "$T/lu1/scripts/land/bin/land-update" --land v1.1.0 --root "$T/lu1"; out_has "NOT landed"
+check "main did not move" test "$(remote_head)" = "$before"
+check "the update commit stays local to look at" bash -c "git -C '$T/lu1' log -1 --format=%s | grep -q '^chore(land): vbm-land v1.1.0\$'"
+( cd "$T/lu1" && scripts/land-direct --release >/dev/null ); git -C "$T/lu1" reset -q --hard origin/main
+expect_exit "--land verifies, commits, and lands through the repository's own lander" 0 "$T/lu1/scripts/land/bin/land-update" --land v1.1.0 --root "$T/lu1"; out_has "pristine clone"; out_has '"result":"landed"'
+check "main pins v1.1.0, in one commit carrying the required trailer" bash -c "git -C '$T/remote.git' show main:scripts/land/PIN | grep -q '^version=v1.1.0\$' && git -C '$T/remote.git' log -1 --format=%B main | grep -q '^Task-ID: vbm-land-update-v1.1.0\$'"
+check "no temporary clone is left behind" bash -c "! ls '$TMPDIR'/land-update.* 2>/dev/null | grep -q ."
+
 echo "## audit"
 consumer c3; "$S/install" --source "$S" --target "$T/c3" v1.0.0 >/dev/null; mkdir -p "$T/plain"
 expect_exit "audit fails when a repository has drift or no copy" 1 "$S/bin/land-audit" "$T/c1" "$T/c3" "$T/plain"; out_has "none"; out_has "ok"
