@@ -5,13 +5,14 @@ set -euo pipefail
 export LC_ALL=C GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-T=
+T=; RESULTS=; SANDBOXES=()
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
 
 sandbox() {   # sandbox [base-branch]: $T/remote.git (bare), $T/seed (one commit pushed), $T/bin/gh (fake), PATH set
   local base=${1:-main}
   T=$(mktemp -d "${TMPDIR:-/tmp}/vbm-land-test.XXXXXX"); BASE=$base
-  trap 'rm -rf "$T"' EXIT
+  if [ -z "$RESULTS" ]; then RESULTS=$(mktemp "${TMPDIR:-/tmp}/vbm-land-results.XXXXXX"); fi   # outlives the sandboxes of one script
+  SANDBOXES+=("$T"); trap 'rm -rf "${SANDBOXES[@]}" "$RESULTS"' EXIT
   git init -q --bare -b "$base" "$T/remote.git"
   git init -q -b "$base" "$T/seed"
   ( cd "$T/seed" && git config commit.gpgsign false && echo seed > a.txt && git add a.txt && git commit -qm "chore: seed" && git remote add origin "$T/remote.git" && git push -q origin "$base" )
@@ -47,6 +48,16 @@ GH
   chmod +x "$T/bin/gh"; mkdir -p "$T/gh"; echo ok > "$T/gh/mode"
   export FAKE_GH_DIR=$T/gh GH=$T/bin/gh PATH=$T/bin:$PATH
 }
+seed_push() {   # seed_push FILE CONTENT [SUBJECT]: commit a file straight onto the remote's base branch (through the seed clone)
+  local f=$1 c=$2 m=${3:-"chore: seed $1"}
+  ( cd "$T/seed" && git pull -q origin "$BASE" && mkdir -p "$(dirname "$f")" && printf '%s\n' "$c" > "$f" && git add -- "$f" && git commit -qm "$m" -m "Task-ID: seed" && git push -q origin "$BASE" )
+}
+seed_exec() {   # seed_exec FILE CONTENT [SUBJECT]: the same, executable
+  seed_push "$@"; ( cd "$T/seed" && chmod +x "$1" && git add -- "$1" && git commit -qm "chore: make $1 executable" -m "Task-ID: seed" && git push -q origin "$BASE" )
+}
+set_conf() {   # set_conf LINES...: the repository's scripts/land.conf on the remote's base branch (one LAND_KEY=value per argument)
+  local c; c=$(printf '%s\n' "$@"); seed_push scripts/land.conf "$c" "chore: land.conf"
+}
 gh_mode() { echo "$1" > "$T/gh/mode"; }
 worker() {    # worker NAME: a fresh clone of the remote at $T/NAME
   git clone -q "$T/remote.git" "$T/$1"; git -C "$T/$1" config commit.gpgsign false
@@ -58,8 +69,8 @@ commit() {    # commit DIR FILE CONTENT [SUBJECT]: write FILE and commit it
 remote_head() { git -C "$T/remote.git" rev-parse "$BASE"; }
 remote_has()  { git -C "$T/remote.git" cat-file -e "$BASE:$1" 2>/dev/null; }
 # results are appended to a file, so a check run inside a ( subshell ) still counts
-pass() { echo P >> "$T/.results"; echo "ok   $*"; }
-fail() { echo F >> "$T/.results"; echo "FAIL $*" >&2; }
+pass() { echo P >> "$RESULTS"; echo "ok   $*"; }
+fail() { echo F >> "$RESULTS"; echo "FAIL $*" >&2; }
 check() {     # check DESCRIPTION CMD...: the command must succeed
   local d=$1; shift; if "$@" >/dev/null 2>&1; then pass "$d"; else fail "$d"; fi
 }
@@ -70,6 +81,6 @@ expect_exit() {   # expect_exit DESCRIPTION CODE CMD...: run CMD (stdout+stderr 
 out_has() { grep -q -- "$1" "$T/out" && pass "output says: $1" || { fail "output lacks: $1"; sed 's/^/     | /' "$T/out" >&2; }; }
 json_last() { tail -n1 "$T/out"; }
 finish() {
-  local p f; p=$(grep -c P "$T/.results" 2>/dev/null || true); f=$(grep -c F "$T/.results" 2>/dev/null || true)
+  local p f; p=$(grep -c P "$RESULTS" 2>/dev/null || true); f=$(grep -c F "$RESULTS" 2>/dev/null || true)
   echo "== $(basename "$0"): ${p:-0} passed, ${f:-0} failed"; [ "${f:-0}" = 0 ] && [ "${p:-0}" -gt 0 ]
 }

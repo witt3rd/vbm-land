@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# This repository lands itself with its own lander (see README): the source tree is the tool, so there is no vendored copy to point at.
+exec "$(cd "$(dirname "$0")" && pwd)/../bin/land-direct" "$@"

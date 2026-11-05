@@ -2,7 +2,7 @@
 
 A small, language-neutral tool for landing changes **directly on the main branch** of a repository that only your own agents (or you) work in: one lander, a mechanical gate, a single definition of "main is red", and a hold switch. Plain bash, git and `gh`. Nothing in it knows what language your repository is written in.
 
-> **Status: early.** What exists today is listed in [What is here](#what-is-here-today). The policy below is the contract the tool is being built to; the sections on install, configuration and drift checks are added as the tool lands them.
+> **Status: early (0.2, not tagged).** The lander, the red check and the test suite exist ([6.1](#61-what-is-here-today)). Pinned vendoring, the drift check, the watchdog and the known-flaky list are not built yet.
 
 The rest of this file is the landing guide: the policy first, then the tool.
 
@@ -88,17 +88,82 @@ Measure the same three numbers in every repository:
 
 Hosted CI minutes are usually a budgeted resource. A cheap pattern: run Tier 1 in CI only on a push to main (an independent check of what the lander already ran locally) and Tier 2 on a schedule, not on every pull request.
 
-## What is here today
+## 6. The tool
+
+### 6.1 What is here today
 
 | Path | What it is |
 |---|---|
-| `scripts/bootstrap-land` | The minimal, dependency-light lander (lock, hold marker, red check, rebase, Tier 1 on the combination, three tries, plain fast-forward push). It lands this repository's own first commits and stays as the recovery path if the full lander is ever broken. |
-| `tests/` | The test suite: every test builds a scratch repository with a bare remote and exercises the lander, including a negative test for each refusal. `tests/run.sh` is this repository's Tier 1. |
+| `bin/land-direct` | The lander: the configurable core of section 4.3. Lock with a lease, hold and freeze markers, land-time checks, rebase in a scratch worktree, regeneration of generated files, hooks, Tier 1 on the rebased combination, three tries, plain fast-forward push, an exit code that says what to do next, a JSON last line, a metrics log. |
+| `bin/land-red` | The one definition of a red main (4.4): modes `push`, `push+dispatch`, `off`; the infrastructure classifier; the freeze marker. |
+| `lib/` | `conf.sh` (the configuration reader), `infra-re.sh` (the infrastructure classifier), `freeze.sh`. |
+| `scripts/land.conf`, `scripts/land-direct` | This repository's own configuration and its stub: the repository lands itself with its own lander. |
+| `scripts/bootstrap-land` | A minimal, dependency-light lander. It landed this repository's first commits and stays as the recovery path if the full lander is ever broken on main. |
+| `tests/` | The test suite: every test builds a scratch repository with a bare remote and drives the lander, with a negative test for each refusal. `tests/run.sh` is this repository's Tier 1 (about half a minute). |
 | `.github/workflows/ci.yml` | Tier 1 on a push to main. |
 
-Requirements: bash 4+, git 2.30+, util-linux `flock`, `timeout`, and `gh` (the red check). The tests also need `jq`. Linux only for now.
+Not built yet: pinned vendoring and the drift check, the revert-first watchdog, the known-flaky list, group (batch) landing, a macOS lock fallback.
 
-Landing this repository: `scripts/bootstrap-land` from a worktree with local commits; see the header of the script for the exit codes.
+Requirements: bash 4+, git 2.30+, util-linux `flock`, `timeout`, `gh` (the red check). The tests also need `jq`. Linux only for now.
+
+### 6.2 Using it
+
+A repository that lands with this tool has a `scripts/land.conf` (below) and tells its agents to run the lander from their worktree:
+
+```
+bin/land-direct                       # land the local commits that are not on origin/main yet
+bin/land-direct --dry-run             # everything except the push
+bin/land-direct --check               # only the land-time checks (commit messages, size budget)
+bin/land-direct --hold "reason"       # stop every landing in this clone (even one in flight, right before its push) ...
+bin/land-direct --release             # ... until released
+bin/land-direct --freeze "reason" --owner NAME --for 6h   # only fixes and reverts land, until the expiry, --thaw, or a landed fix
+bin/land-direct --status
+```
+
+Exit codes: `0` landed; `1` stopped with a message (base kept moving, push refused, a bad commit message, over the size budget); `2` bad input or bad configuration; `10` main is red or cannot be known; `11` rebase conflict (the files are named; rebase in your worktree and run again); `12` refused by a hook, by the regeneration, or by the drift check; `13` Tier 1 failed (nothing landed); `14` held or frozen; `15` busy (run it again). The last line of standard output is JSON: `{"sha","commits","tier1_seconds","result","exit"}` plus any keys a `json-fields` hook adds.
+
+Locks, markers, logs and the scratch worktree live in `<git common dir>/vbm-land/`, shared by every worktree of the clone. The lander never runs `git worktree prune` and never removes a worktree it did not create: other lanes' worktrees live in the same clone.
+
+### 6.3 Configuration
+
+`scripts/land.conf` is **data**: one `LAND_KEY=value` per line, `#` comment lines, nothing is expanded or executed while it is read, and an unknown key is an error, so a typo cannot silently switch a gate off. The lander reads it from `origin/<base>`, not from your change: a commit cannot loosen the rules it is judged by (only the very first landing, when main has no such file yet, uses the working tree's copy).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `LAND_BASE`, `LAND_REMOTE` | `main`, `origin` | The branch landed on and the remote that holds it. |
+| `LAND_GATES_CMD`, `LAND_TEST_CMD` | none | **Tier 1**: the gates command, then the test command, run with `bash -c` in the scratch worktree on the rebased combination. At least one is required. |
+| `LAND_REGEN_CMD` | none | Regenerates generated files after a rebase conflict confined to them (the conflict takes base's file, then this runs). Failing refuses (exit 12). |
+| `LAND_GEN_CMD` | none | Always run on the rebased tree; anything it changes lands as a commit of the lander. |
+| `LAND_GENERATED_LIST` | none | Path of a file listing generated paths, one per line, read from base. |
+| `LAND_PROD_PATHS`, `LAND_BUDGET_LINES` | none, `150` | The size budget: changed lines under these paths (not generated ones) may not exceed the budget unless a commit carries a `Diff-Budget: <decomposition note>` trailer. |
+| `LAND_REQUIRE_TRAILERS` | none | Trailer names every commit must carry (for example `Task-ID`). |
+| `LAND_CONVENTIONAL`, `LAND_COMMIT_TYPES` | `1`, the usual types | Require `type(scope): summary` subjects; git's own `Revert "..."` is accepted. |
+| `LAND_PROTECTED` | none | Shell patterns (`*` matches `/`): the gate-defining set. A change that touches it is judged by the `post-rebase` hook; it never counts as a fix for a red main. |
+| `LAND_FIX_PATHS` | none | When set, a fix for a red main may touch only these paths (tests, CI). |
+| `LAND_RED_MODE` | `push` | `push`, `push+dispatch` or `off` (see 4.4). |
+| `LAND_CI_WORKFLOW`, `LAND_TIER1_JOB`, `LAND_RED_WAIT` | `ci.yml`, `tier1`, `60` | What the red check reads, and how long it waits for a Tier 1 that is still running. |
+| `LAND_HOOKS_DIR` | `scripts/land.d` | Where the repository's hooks live. |
+| `LAND_LOCALE` | `C` | Pinned for collation and glob order. |
+| `LAND_LOCK_WAIT`, `LAND_TIER1_TIMEOUT`, `LAND_STEP_TIMEOUT`, `LAND_GIT_TIMEOUT` | `90`, `1800`, `600`, `180` s | The lock wait and the bound on every step. A step that runs over is killed with one plain line and the run stops as that step's failure. |
+
+Policy is never read from the environment. The operator may set `GH` (the `gh` binary), `LAND_CONF` (another config file), `LAND_FIX_FOR_RED=1` (declare this change the fix for a red main), `LAND_LOCK_WAIT_SECONDS`, `LAND_LEASE_STALE_SECONDS`, `LAND_DIRECT_LOG` and the three timeouts. Commands the lander runs see `LAND_TOP`, `LAND_BASE_REF` (`origin/main`), `LAND_STATE_DIR` and `LAND_TASK`.
+
+### 6.4 Hooks
+
+Hooks are executables in `scripts/land.d/`, taken from `origin/<base>` (so a change cannot rewrite the check that judges it) and run in the scratch worktree, bounded. A hook is gate-defining code: put the directory in `LAND_PROTECTED`.
+
+| Hook | When | A non-zero exit |
+|---|---|---|
+| `prepare` | once, when the scratch worktree is created (warm a cache, for example) | refuses (12) |
+| `pre-rebase` | before the rebase, on your commits | refuses (12) |
+| `post-rebase` | on the rebased and regenerated tree; gets `LAND_TOUCHED_FILE` (the changed paths) and `LAND_PROTECTED_TOUCHED` | refuses (12) |
+| `post-tier1` | after Tier 1 passed | refuses (13) |
+| `json-fields` | after Tier 1; prints `key=value` lines added to the JSON result (keys `[a-z_]+`; the contract keys cannot be overridden) | ignored |
+| `on-run` | at the end of every run, with `LAND_RESULT` | ignored |
+
+### 6.5 Trust model
+
+The tool is for a repository whose only writers are cooperating agents and people, not for adversaries. It makes mistakes mechanical failures: the gate runs on the exact combination, config and hooks come from main, the push is a plain fast-forward, an unknowable CI state refuses, and a lock with a lease cannot be wedged by a dead holder. A lander runs repository-supplied commands with your credentials; protect the gate-defining set accordingly.
 
 ## License
 

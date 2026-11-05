@@ -35,8 +35,8 @@ red() {   # red = the Tier 1 job of the base branch's latest push run failed (fi
     if grep -q 'HTTP 404.*workflow .* not found' "$err"; then rm -f "$err"; echo "bootstrap-land: no CI workflow on $base yet: nothing can be red" >&2; return 0; fi   # the very first landing adds the workflow
     rm -f "$err"; stop 10 blocked-red "cannot tell whether $base is red (gh failed): not landing"; }
   rm -f "$err"; [ -n "$r" ] || return 0; id=$r
-  jobs=$("$gh" run view "$id" --json jobs --jq '.jobs[]|[.name,.conclusion,(.databaseId|tostring)]|@tsv') || stop 10 blocked-red "cannot tell whether $base is red (gh failed): not landing"
-  while IFS=$'\t' read -r n c j; do if [ "$n" = "${LAND_TIER1_JOB:-tier1}" ]; then l1=$c; j1=${j:-}; fi; done <<<"$jobs"
+  jobs=$("$gh" run view "$id" --json jobs --jq '.jobs[]|[.name,(.conclusion // ""),(.databaseId|tostring)]|join("\u001f")') || stop 10 blocked-red "cannot tell whether $base is red (gh failed): not landing"
+  while IFS=$'\x1f' read -r n c j; do if [ "$n" = "${LAND_TIER1_JOB:-tier1}" ]; then l1=$c; j1=${j:-}; fi; done <<<"$jobs"
   case $l1 in failure|timed_out)
     . "$(dirname "$0")/../lib/infra-re.sh"
     if infra_failure "$id" "$j1"; then echo "bootstrap-land: $base is red for an infrastructure reason (run $id): not blocking" >&2; return 0; fi
