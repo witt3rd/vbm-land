@@ -12,10 +12,13 @@ for f in $files; do
   case $f in *.conf|*.txt|*.md|*.signers) ;; bin/*|install|scripts/*|tests/*.sh) [ -x "$f" ] || [ "$f" = tests/lib.sh ] || fail "$f is not executable";; esac
 done
 # names that must never appear in this repository (internal projects, hosts, people, local paths)
-deny='(first''mate|rog''er|mcfee''ly|sp''ire|ja''nus|/hom''e/|c''aptain|\bk''ing\b|\bpr''ince\b)'
+deny='(first''mate|rog''er|mcfee''ly|sp''ire|ja''nus|/hom''e/|c''aptain|\bk''ing\b|\bpr''ince\b|fle''et|\blu''ng\b)'
 for f in $files; do
   [ -f "$f" ] && [ "$f" != LICENSE ] || continue
-  if grep -nEi -- "$deny" "$f" >/dev/null 2>&1; then fail "$f names something internal: $(grep -nEi -- "$deny" "$f" | head -2 | tr '\n' ' ')"; fi
+  # while the repository is private, a workflow's self-hosted line (the runner label) is exempt; the flip-day change removes it
+  src=$f; [ "$(cat .github/visibility 2>/dev/null)" = private ] && case $f in .github/workflows/*) src=/dev/stdin;; esac
+  if [ "$src" = "$f" ]; then hits=$(grep -nEi -- "$deny" "$f" || true); else hits=$(grep -v 'self-hosted' "$f" | grep -nEi -- "$deny" || true); fi
+  if [ -n "$hits" ]; then fail "$f names something internal: $(echo "$hits" | tr '\n' ' ' | cut -c1-200)"; fi
 done
 # a workflow may name a self-hosted runner only while .github/visibility says exactly "private" (missing or anything else = public)
 if grep -lE 'self-hosted' .github/workflows/* >/dev/null 2>&1 && [ "$(cat .github/visibility 2>/dev/null)" != private ]; then fail "a workflow names self-hosted but .github/visibility is not 'private': runs-on back to hosted before going public"; fi
