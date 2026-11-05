@@ -31,7 +31,7 @@ if [ -s "$tmp/rg" ]; then g=$(cat "$tmp/rg"); kill -TERM "$w"; wait "$w" || true
   if kill -0 "$g" 2>/dev/null; then fail "tests/run.sh: an aborted run left a test's child alive"; kill "$g"; else pass "tests/run.sh: an aborted run leaves no test child"; fi
 else fail "tests/run.sh: the fake test never started"; fi
 # the check can fail: the same run without the reaper leaves the child (it is then stopped here by its recorded pid)
-sed -i 's|reap_pids "${pids\[@\]}"; ||' "$tmp/t/tests/run.sh"; grep -q 'reap_pids' "$tmp/t/tests/run.sh" && fail "self-test: the reaper was not removed from the copy"
+sed -i 's|reap_pids "${pids\[@\]}"; ||' "$tmp/t/tests/run.sh"; grep -q "trap 'reap_pids" "$tmp/t/tests/run.sh" && fail "self-test: the reaper was not removed from the copy"
 rm -f "$tmp/rg"; bash "$tmp/t/tests/run.sh" >/dev/null 2>&1 & w=$!
 for _ in $(seq 50); do [ -s "$tmp/rg" ] && break; sleep 0.1; done
 g=$(cat "$tmp/rg"); kill -TERM "$w"; wait "$w" || true; sleep 0.5
