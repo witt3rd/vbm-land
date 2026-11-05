@@ -2,9 +2,10 @@
 # Tier 1 of this repository: the lints, then every tests/test_*.sh (each in its own scratch sandbox, all in parallel). Run from anywhere.
 set -euo pipefail
 export LC_ALL=C
-here=$(cd "$(dirname "$0")" && pwd); out=$(mktemp -d "${TMPDIR:-/tmp}/vbm-land-run.XXXXXX"); trap 'rm -rf "$out"' EXIT
+here=$(cd "$(dirname "$0")" && pwd); out=$(mktemp -d "${TMPDIR:-/tmp}/vbm-land-run.XXXXXX"); . "$here/../scripts/lib-reap.sh"   # an abort or exit stops the test jobs by the pids held in pids[] (each `timeout` job is its own process group); never by pattern
+pids=(); trap 'reap_pids "${pids[@]}"; rm -rf "$out"' EXIT; trap 'exit 143' INT TERM HUP
 "$here/lint.sh"
-pids=(); names=()
+names=()
 for t in "$here"/test_*.sh; do
   n=$(basename "$t"); names+=("$n")
   timeout --kill-after=10 300 "$t" >"$out/$n.log" 2>&1 & pids+=($!)
