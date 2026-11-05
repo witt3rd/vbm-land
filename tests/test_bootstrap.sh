@@ -28,6 +28,11 @@ rm -f "$T/w2/.git/vbm-land/hold"
 
 # a red main refuses (and a gh that fails is red: not knowing is not green)
 gh_mode red;  ( cd "$T/w2" && expect_exit "red main refuses" 10 "$L" )
+# an infrastructure failure (billing, runner, network) is not red; a code failure with an unreadable log still is
+gh_mode infra; ( cd "$T/w2" && expect_exit "infrastructure red (log) does not block" 0 "$L" --dry-run ); out_has "infrastructure reason"
+gh_mode red; echo "The job was not started because recent account payments have failed" > "$T/gh/annotations"
+( cd "$T/w2" && expect_exit "infrastructure red (annotation) does not block" 0 "$L" --dry-run ); rm -f "$T/gh/annotations"
+gh_mode red; ( cd "$T/w2" && expect_exit "code red still blocks" 10 "$L" )
 gh_mode fail; ( cd "$T/w2" && expect_exit "unknowable main refuses" 10 "$L" )
 gh_mode noworkflow; ( cd "$T/w2" && expect_exit "no CI workflow on main yet is not red" 0 "$L" )
 worker w2b; commit "$T/w2b" twob.txt 2

@@ -39,6 +39,7 @@ case "$1 $2" in
       *--json\ attempt*) echo '{"attempt":'"$(cat "$d/attempt" 2>/dev/null || echo 1)"'}' | emit;;
       *--json\ jobs*) echo "{\"jobs\":[{\"name\":\"tier1\",\"conclusion\":$(q $t1),\"databaseId\":7},{\"name\":\"tier2\",\"conclusion\":$(q $t2),\"databaseId\":8}]}" | emit;;
       *) exit 0;; esac;;
+  api*) [ -r "$d/annotations" ] && cat "$d/annotations"; exit 0;;
   "variable get") [ -r "$d/var.$3" ] && cat "$d/var.$3" || exit 1;;
   *) exit 0;;
 esac

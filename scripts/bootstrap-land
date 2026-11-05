@@ -27,17 +27,20 @@ bounded() { local s=$1 label=$2 rc=0; shift 2; timeout --kill-after=30 "$s" "$@"
 top=$(git rev-parse --show-toplevel) || exit 2
 common=$(git -C "$top" rev-parse --path-format=absolute --git-common-dir); state=$common/vbm-land; mkdir -p "$state"
 hold() { [ ! -e "$state/hold" ] || stop 14 held "HOLD in force: $(sed -n 1p "$state/hold"); not landing."; }
-red() {   # red = the Tier 1 job of the base branch's latest push run failed (finished or not); no run yet is not red; gh failing is red
+red() {   # red = the Tier 1 job of the base branch's latest push run failed (finished or not) for a reason that is not the infrastructure's; no run yet is not red; gh failing is red
   [ "${LAND_RED_CHECK:-on}" = on ] || return 0
-  local r id jobs c
-  local err; err=$(mktemp)
+  local r id jobs err n c j j1= l1=
+  err=$(mktemp)
   r=$("$gh" run list --workflow "${LAND_CI_WORKFLOW:-ci.yml}" --branch "$base" --limit 20 --json databaseId,event --jq '[.[]|select(.event=="push")]|.[0].databaseId // empty' 2>"$err") || {
     if grep -q 'HTTP 404.*workflow .* not found' "$err"; then rm -f "$err"; echo "bootstrap-land: no CI workflow on $base yet: nothing can be red" >&2; return 0; fi   # the very first landing adds the workflow
     rm -f "$err"; stop 10 blocked-red "cannot tell whether $base is red (gh failed): not landing"; }
-  rm -f "$err"
-  [ -n "$r" ] || return 0; id=$r
-  jobs=$("$gh" run view "$id" --json jobs --jq ".jobs[]|select(.name==\"${LAND_TIER1_JOB:-tier1}\")|.conclusion") || stop 10 blocked-red "cannot tell whether $base is red (gh failed): not landing"
-  case $jobs in failure|timed_out) stop 10 blocked-red "$base is red: Tier 1 of its latest push failed (run $id). Land the fix first.";; esac
+  rm -f "$err"; [ -n "$r" ] || return 0; id=$r
+  jobs=$("$gh" run view "$id" --json jobs --jq '.jobs[]|[.name,.conclusion,(.databaseId|tostring)]|@tsv') || stop 10 blocked-red "cannot tell whether $base is red (gh failed): not landing"
+  while IFS=$'\t' read -r n c j; do if [ "$n" = "${LAND_TIER1_JOB:-tier1}" ]; then l1=$c; j1=${j:-}; fi; done <<<"$jobs"
+  case $l1 in failure|timed_out)
+    . "$(dirname "$0")/../lib/infra-re.sh"
+    if infra_failure "$id" "$j1"; then echo "bootstrap-land: $base is red for an infrastructure reason (run $id): not blocking" >&2; return 0; fi
+    stop 10 blocked-red "$base is red: Tier 1 of its latest push failed (run $id). Land the fix first.";; esac
 }
 hold
 bounded "${LAND_GIT_TIMEOUT:-180}" fetch git -C "$top" fetch -q "$remote" "$base" || stop 1 error "cannot fetch $remote $base"
