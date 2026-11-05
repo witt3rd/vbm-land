@@ -12,7 +12,7 @@ permissions:
   contents: read
 jobs:
   tier1:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, fleet]   # private phase only: back to ubuntu-latest before going public (.github/visibility, tests/lint.sh)
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4

@@ -17,4 +17,6 @@ for f in $files; do
   [ -f "$f" ] && [ "$f" != LICENSE ] || continue
   if grep -nEi -- "$deny" "$f" >/dev/null 2>&1; then fail "$f names something internal: $(grep -nEi -- "$deny" "$f" | head -2 | tr '\n' ' ')"; fi
 done
+# a workflow may name a self-hosted runner only while .github/visibility says exactly "private" (missing or anything else = public)
+if grep -lE 'self-hosted' .github/workflows/* >/dev/null 2>&1 && [ "$(cat .github/visibility 2>/dev/null)" != private ]; then fail "a workflow names self-hosted but .github/visibility is not 'private': runs-on back to hosted before going public"; fi
 exit "$bad"

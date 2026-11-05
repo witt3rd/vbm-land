@@ -20,3 +20,4 @@ push or a branch deletion cannot happen to the default branch).
 7. **Delete head branches after merge:** `gh api -X PATCH repos/OWNER/REPO -F delete_branch_on_merge=true`
 8. **Workflows:** no `pull_request_target`; a `pull_request` trigger runs without secrets; `permissions:` is declared (read-only) in every workflow.
 9. **A `SECURITY.md`** says how to report a vulnerability, and no secret is in the history (scan before flipping).
+10. **Runners:** `runs-on` back to a hosted runner in every workflow (no `self-hosted`), the repository's self-hosted runner removed, `LAND_RED_MODE` unchanged (`push`), and `.github/visibility` set to `public` (a repository's lint fails when a workflow names `self-hosted` and it is not `private`).
