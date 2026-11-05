@@ -1,6 +1,6 @@
 # Update propagation: how a repository that vendored vbm-land gets the next release
 
-Status: built (U1 to U4): `land-update --check`, the scheduled workflow, signed releases and verification, `--diff`, `--land`, `LAND_AUTO_UPDATE` with `--auto`. U5 (skill and conventions) remains.
+Status: built (U1 to U4): `land-update --check`, the scheduled workflow, signed releases and verification, `--diff`, `--land`, `LAND_AUTO_UPDATE` with `--auto`. U5 (the skill and the upgrade-notes convention) is done.
 
 ## The rule: pull only
 
