@@ -28,12 +28,14 @@ The history was **not** re-written or re-rooted. Every commit, signed tag and co
 The runner label cannot be removed before the repository is public: until then CI runs on the owner's self-hosted runner (the hosted runners are unavailable to this private repository), and `tests/lint.sh` allows that label only while `.github/visibility` says `private`. So the change that returns CI to hosted runners is prepared as a patch (`runs-on: ubuntu-latest`, `.github/visibility` set to `public`) and lands right after the visibility change:
 
 1. The owner changes the visibility and checks that an anonymous `git clone` works.
-2. At once, the settings below (the API refuses the fork-pull-request policy on a private repository, so it can only be set now). While the runner is still registered, CI has no `pull_request` trigger, so no outside code reaches it.
+2. At once, the settings below (the fork pull-request policy can only be set on a public repository). While the runner is still registered, CI has no `pull_request` trigger, so no outside code reaches it.
 3. Land the flip-day change with `scripts/land-direct` (local Tier 1 runs the lint on the patched tree) and read the push CI on a hosted runner: it must be green.
 4. Deregister the runner (`gh api repos/witt3rd/vbm-land/actions/runners` lists none).
 5. Tell the consumers (below) and update the registry entry of the VBM standard.
 
-## Settings at the flip (replace nothing; each has a read-back)
+## Settings at the flip (each has a read-back)
+
+State read while the repository was still private: item 2 (read-only token), item 5 (delete branch on merge) and the `main` ruleset of item 6 were already set; the tag ruleset (7), the fork-pull-request policy (1), private vulnerability reporting (3) and secret scanning (4) are not set (the last three need a public repository).
 
 1. Fork pull-request workflows need approval for **all outside collaborators**: `gh api -X PUT repos/witt3rd/vbm-land/actions/permissions/fork-pr-contributor-approval -f approval_policy=all_external_contributors`.
 2. Read-only workflow token that cannot approve pull requests: `gh api -X PUT repos/witt3rd/vbm-land/actions/permissions/workflow -f default_workflow_permissions=read -F can_approve_pull_request_reviews=false`.
