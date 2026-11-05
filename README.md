@@ -203,6 +203,8 @@ Before writing anything the installer checks every file it fetched against the m
 
 How a repository gets the next release (pull only: a scheduled check and `land-update` in the consumer) is designed in [docs/update-propagation.md](docs/update-propagation.md).
 
+**Signed releases.** A release is a signed, annotated tag made by `bin/land-release` (maintainer only; an ssh key in `LAND_SIGNING_KEY`, no gpg): the tag message records the hash of `MANIFEST.sha256`, so the signature binds the manifest and, through it, every vendored file. A consumer lists the public keys it trusts in its own `scripts/land.signers` (an ssh allowed-signers file, taken from the source out of band: `install --signers FILE`). With that file present, `install` and `land-update` **refuse**, before anything of the new release runs or is written, a ref that is not a signed annotated tag, a signature that does not verify against the file, an unknown signer, or a tag whose recorded manifest hash differs from the manifest at that commit. Without a signers file they say `UNVERIFIED` and go on (the pin records `signature=unverified`). `land-update --diff <tag>` verifies the release and prints what it would change (changed, added and removed files with their diffs, and the CHANGELOG entries newer than the pin) without changing anything.
+
 A release is a tag whose commit has a fresh `MANIFEST.sha256` (`bin/land-manifest`; Tier 1 here fails on a stale one). Additive changes to the interface (configuration keys, exit codes, the JSON line, hook names, marker names) are minor, anything else is major; `CHANGELOG.md` has a line per interface change.
 
 ### 6.7 Protecting the branch

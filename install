@@ -9,6 +9,8 @@
 #           Default: $VBM_LAND_SOURCE.
 #   ref     a tag or a commit. The pin records the 40-hex COMMIT (a tag can move, a commit cannot) and the hash of the release's manifest.
 #   --target DIR   the repository to install into (default: the current repository's root).
+#   --signers FILE an ssh allowed-signers file (the maintainer's public key, taken from a source you trust, out of band): copied to scripts/land.signers when absent. With a signers file the
+#                  release MUST be a signed tag from an allowed signer that records the manifest it points at, or nothing is written; without one the install says UNVERIFIED.
 #
 # One command, from the target repository:
 #   gh api repos/OWNER/vbm-land/contents/install?ref=<tag> -H 'Accept: application/vnd.github.raw' | bash -s -- --source OWNER/vbm-land <tag>
@@ -16,9 +18,9 @@
 # Nothing is fetched or run at landing time: the vendored tree is committed, so a worktree is self-contained and offline.
 set -euo pipefail
 export LC_ALL=C
-src=${VBM_LAND_SOURCE:-}; target=; ref=
+src=${VBM_LAND_SOURCE:-}; target=; ref=; signers_arg=
 while [ $# -gt 0 ]; do case $1 in
-  --source) src=${2:?--source needs a value}; shift;; --target) target=${2:?--target needs a directory}; shift;;
+  --source) src=${2:?--source needs a value}; shift;; --target) target=${2:?--target needs a directory}; shift;; --signers) signers_arg=${2:?--signers needs a file}; shift;;
   -h|--help) sed -n '2,17p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0;;
   -*) echo "usage: install [--source SRC] [--target DIR] <tag|commit>" >&2; exit 2;; *) ref=$1;; esac; shift; done
 [ -n "$src" ] && [ -n "$ref" ] || { echo "usage: install [--source SRC] [--target DIR] <tag|commit>   (SRC: OWNER/NAME or a git URL or path)" >&2; exit 2; }
@@ -30,6 +32,21 @@ if [[ "$src" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] && [ ! -e "$src" ]; then
 else git clone -q --bare -- "$src" "$tmp/src" >/dev/null 2>&1 || { echo "install: cannot clone $src" >&2; exit 1; }; fi
 commit=$(git -C "$tmp/src" rev-parse --verify -q "$ref^{commit}") || { echo "install: $src has no tag or commit '$ref'" >&2; exit 1; }
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "install: unexpected commit id for $ref" >&2; exit 1; }
+signers=; if [ -n "$signers_arg" ]; then signers=$signers_arg; elif [ -r "$target/scripts/land.signers" ]; then signers=$target/scripts/land.signers; fi
+src_verify() {   # the same rules as lib/source.sh (the installer of a first install is self-contained)
+  local dest=$1 r=$2 sg=${3:-} kind want got
+  if [ -z "$sg" ]; then echo "UNVERIFIED: no signers file (scripts/land.signers): the release signature was not checked"; return 10; fi
+  [ -r "$sg" ] || { echo "REFUSED: signers file $sg is not readable" >&2; return 1; }
+  kind=$(git -C "$dest" cat-file -t "refs/tags/$r" 2>/dev/null) || { echo "REFUSED: $r is not a release tag, and this repository requires signed releases (scripts/land.signers); pass the tag, not a commit" >&2; return 1; }
+  [ "$kind" = tag ] || { echo "REFUSED: $r is a lightweight tag: a signed, annotated release tag is required" >&2; return 1; }
+  git -C "$dest" -c gpg.format=ssh -c "gpg.ssh.allowedSignersFile=$sg" verify-tag "$r" >/dev/null 2>&1 || { echo "REFUSED: the signature of tag $r does not verify against $sg (unsigned, or an unknown signer)" >&2; return 1; }
+  want=$(git -C "$dest" tag -l --format='%(contents)' "$r" | sed -n 's/^manifest_sha256=//p' | sed -n 1p)
+  got=$(git -C "$dest" show "$r^{commit}:MANIFEST.sha256" 2>/dev/null | sha256sum | cut -d' ' -f1)
+  [ -n "$want" ] && [ "$want" = "$got" ] || { echo "REFUSED: tag $r records manifest_sha256=${want:-none}, but the manifest at that commit hashes to $got" >&2; return 1; }
+  echo "verified: tag $r is signed by an allowed signer and records this manifest"; return 0
+}
+vrc=0; vmsg=$(src_verify "$tmp/src" "$ref" "$signers") || vrc=$?
+[ "$vrc" != 1 ] || exit 1
 git -C "$tmp/src" show "$commit:MANIFEST.sha256" > "$tmp/MANIFEST.sha256" 2>/dev/null || { echo "install: $ref has no MANIFEST.sha256: not a release of this tool" >&2; exit 1; }
 mkdir -p "$tmp/tree"; git -C "$tmp/src" archive "$commit" | tar -x -C "$tmp/tree"
 # verify what was fetched against the manifest at that same commit before touching the target
@@ -45,11 +62,13 @@ while read -r h f; do
   case $f in bin/*) chmod +x "$target/$v";; *) chmod -x "$target/$v";; esac
 done < "$tmp/MANIFEST.sha256"
 cp "$tmp/MANIFEST.sha256" "$target/scripts/land/MANIFEST.sha256"
-printf 'source=%s\nversion=%s\ncommit=%s\nmanifest_sha256=%s\n' "$src" "$version" "$commit" "$(sha256sum < "$tmp/MANIFEST.sha256" | cut -d' ' -f1)" > "$target/scripts/land/PIN"
+printf 'source=%s\nversion=%s\ncommit=%s\nmanifest_sha256=%s\nsignature=%s\n' "$src" "$version" "$commit" "$(sha256sum < "$tmp/MANIFEST.sha256" | cut -d' ' -f1)" "$([ "$vrc" = 0 ] && echo verified || echo unverified)" > "$target/scripts/land/PIN"
+[ -z "$signers_arg" ] || [ -e "$target/scripts/land.signers" ] || cp "$signers_arg" "$target/scripts/land.signers"
 created=
 if [ ! -e "$target/scripts/land-direct" ]; then cp "$tmp/tree/templates/land-direct-stub" "$target/scripts/land-direct"; chmod +x "$target/scripts/land-direct"; created="$created and the entry script scripts/land-direct"; fi
 if [ ! -e "$target/.github/workflows/vbm-land-update.yml" ]; then mkdir -p "$target/.github/workflows"; cp "$tmp/tree/templates/vbm-land-update.yml" "$target/.github/workflows/vbm-land-update.yml"; created="$created and the scheduled check .github/workflows/vbm-land-update.yml"; fi
 if [ ! -e "$target/scripts/land.conf" ]; then cp "$tmp/tree/templates/land.conf.example" "$target/scripts/land.conf"; created="$created and a starter scripts/land.conf (edit it: at least LAND_TEST_CMD or LAND_GATES_CMD)"; fi
 "$target/scripts/land/bin/land-check" --root "$target" >/dev/null || { echo "install: the installed copy fails its own drift check" >&2; exit 1; }
+echo "install: $vmsg"
 echo "install: vbm-land $version ($commit) vendored into $target/scripts/land$created."
 echo "install: review and commit it as one change: chore(land): vbm-land $version. Agent-instructions block: templates/AGENTS-block.md in the source."
