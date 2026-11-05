@@ -8,7 +8,7 @@
 # The keys and their defaults are the stable interface of this tool (README, "Configuration"): conf_defaults sets them, conf_parse reads a file.
 land_conf_keys="LAND_BASE LAND_REMOTE LAND_CI_WORKFLOW LAND_TIER1_JOB LAND_RED_MODE LAND_RED_WAIT LAND_GATES_CMD LAND_TEST_CMD LAND_REGEN_CMD LAND_GEN_CMD
  LAND_GENERATED_LIST LAND_PROD_PATHS LAND_BUDGET_LINES LAND_REQUIRE_TRAILERS LAND_CONVENTIONAL LAND_COMMIT_TYPES LAND_PROTECTED LAND_FIX_PATHS
- LAND_HOOKS_DIR LAND_LOCALE LAND_LOCK_WAIT LAND_TIER1_TIMEOUT LAND_STEP_TIMEOUT LAND_GIT_TIMEOUT"
+ LAND_HOOKS_DIR LAND_AUTO_UPDATE LAND_LOCALE LAND_LOCK_WAIT LAND_TIER1_TIMEOUT LAND_STEP_TIMEOUT LAND_GIT_TIMEOUT"
 
 conf_defaults() {
   LAND_BASE=main; LAND_REMOTE=origin            # the branch landed on, and the remote that holds it
@@ -23,6 +23,7 @@ conf_defaults() {
   LAND_COMMIT_TYPES="feat fix docs chore refactor test perf build ci style revert"
   LAND_PROTECTED=; LAND_FIX_PATHS=              # shell patterns (* matches /): the protected set; the only paths a fix for a red main may touch
   LAND_HOOKS_DIR=scripts/land.d                 # repository-owned hooks (README, "Hooks")
+  LAND_AUTO_UPDATE=none                          # none | patch | minor: what the scheduled workflow may update by itself (land-update --auto); a major release never
   LAND_LOCALE=C                                 # pinned for collation, glob and sort order
   LAND_LOCK_WAIT=90; LAND_TIER1_TIMEOUT=1800; LAND_STEP_TIMEOUT=600; LAND_GIT_TIMEOUT=180   # seconds
 }
@@ -52,6 +53,7 @@ conf_validate() {
   for k in LAND_BUDGET_LINES LAND_RED_WAIT LAND_LOCK_WAIT LAND_TIER1_TIMEOUT LAND_STEP_TIMEOUT LAND_GIT_TIMEOUT; do
     [[ "${!k}" =~ ^[0-9]+$ ]] || b "$k must be a whole number (is '${!k}')"
   done
+  case $LAND_AUTO_UPDATE in none|patch|minor) ;; *) b "LAND_AUTO_UPDATE must be none, patch or minor (is '$LAND_AUTO_UPDATE'; a major release is never automatic)";; esac
   [[ "$LAND_REQUIRE_TRAILERS" =~ ^[A-Za-z0-9\ -]*$ ]] || b "LAND_REQUIRE_TRAILERS: trailer names are letters, digits and - separated by spaces"
   [ -n "$LAND_GATES_CMD$LAND_TEST_CMD" ] || b "neither LAND_GATES_CMD nor LAND_TEST_CMD is set: there is no Tier 1, so nothing could gate a landing"
   [ -z "$bad" ] || { echo "land.conf: $bad" >&2; return 2; }

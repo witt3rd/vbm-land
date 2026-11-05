@@ -4,6 +4,7 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 ## Unreleased
+- `LAND_AUTO_UPDATE=none|patch|minor` (new key, default none) and `land-update --auto`: the scheduled workflow lands the newest release of the allowed class through the repository's own lander; a major never; the workflow template uses it.
 - `land-update --land`: verify, stage, commit and land the update through the repository's own lander from a pristine clone of the base branch; stops on the first refusal.
 - Signed releases: `bin/land-release` (signed annotated tag recording the manifest hash), `scripts/land.signers`, verification in `install` and `land-update` before anything is written or run, `install --signers`, `land-update --diff`; the PIN gains `signature=verified|unverified`.
 - `land-update --check`: read-only comparison of the pin with the source's release tags (`pinned X, latest Y, behind N (patch|minor|major)`; exit 0 current, 1 behind, 3 unreachable).

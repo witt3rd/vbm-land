@@ -148,6 +148,7 @@ Locks, markers, logs and the scratch worktree live in `<git common dir>/vbm-land
 | `LAND_RED_MODE` | `push` | `push`, `push+dispatch` or `off` (see 4.4). |
 | `LAND_CI_WORKFLOW`, `LAND_TIER1_JOB`, `LAND_RED_WAIT` | `ci.yml`, `tier1`, `60` | What the red check reads, and how long it waits for a Tier 1 that is still running. |
 | `LAND_HOOKS_DIR` | `scripts/land.d` | Where the repository's hooks live. |
+| `LAND_AUTO_UPDATE` | `none` | `none`, `patch` or `minor`: what the scheduled update workflow may land by itself (`land-update --auto`); a major release never. |
 | `LAND_LOCALE` | `C` | Pinned for collation and glob order. |
 | `LAND_LOCK_WAIT`, `LAND_TIER1_TIMEOUT`, `LAND_STEP_TIMEOUT`, `LAND_GIT_TIMEOUT` | `90`, `1800`, `600`, `180` s | The lock wait and the bound on every step. A step that runs over is killed with one plain line and the run stops as that step's failure. |
 
@@ -189,7 +190,7 @@ It writes, and commits nothing (review the diff, commit it as `chore(land): vbm-
 - `scripts/land/PIN` `source`, `version`, the 40-hex **`commit`** (a tag can move, a commit cannot) and `manifest_sha256`;
 - `.agents/skills/<name>/SKILL.md` the agent skills, one per file in `skills/` of the release;
 - `scripts/land-direct` a three-line entry script that runs the vendored lander, so "land with `scripts/land-direct`" stays true, **only if absent**: it is the repository's own afterwards (add an environment variable before the exec); the drift check only requires that it is executable and still runs `scripts/land/bin/land-direct`;
-- `.github/workflows/vbm-land-update.yml` the scheduled check (weekly and on dispatch, read-only, a workflow of its own so it can never make the base branch red): the drift check with `--upstream`, then `scripts/land/bin/land-update --check`, which reports `pinned X, latest Y, behind N (patch|minor|major)` as a warning and a summary line; only if absent;
+- `.github/workflows/vbm-land-update.yml` the scheduled check (weekly and on dispatch, read-only, a workflow of its own so it can never make the base branch red): the drift check with `--upstream`, then `scripts/land/bin/land-update --auto`: with the default `LAND_AUTO_UPDATE=none` it only reports `pinned X, latest Y, behind N (patch|minor|major)` as a warning and a summary line (like `--check`); with `LAND_AUTO_UPDATE=patch` or `minor` in `scripts/land.conf` it lands the newest release of that class itself through the repository's own lander (`land-update --land`), using a push token the repository holds (`VBM_LAND_PUSH_TOKEN`) on a runner that has its Tier 1 toolchain; a major release is never automatic, and a red or a refusal stops it with a failing job; only if absent;
 - `scripts/land.conf` a starter, **only if there is none**.
 
 Before writing anything the installer checks every file it fetched against the manifest at that same commit, and refuses a release that does not match or has no manifest. `templates/AGENTS-block.md` is the agent-instructions block to paste; `templates/ci.yml.example` is the CI workflow.

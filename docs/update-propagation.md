@@ -1,6 +1,6 @@
 # Update propagation: how a repository that vendored vbm-land gets the next release
 
-Status: design (nothing below is built yet except the offline drift check and `land-update`, which stages an update by hand).
+Status: built (U1 to U4): `land-update --check`, the scheduled workflow, signed releases and verification, `--diff`, `--land`, `LAND_AUTO_UPDATE` with `--auto`. U5 (skill and conventions) remains.
 
 ## The rule: pull only
 

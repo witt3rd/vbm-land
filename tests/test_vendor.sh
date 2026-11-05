@@ -94,12 +94,13 @@ expect_exit "re-pinning an older release works and verifies" 0 chk "$T/d3" --ups
 
 echo "## update check (read-only: pinned vs the source's release tags)"
 upd() { "$1/scripts/land/bin/land-update" --check --root "$1"; }
+rel_tag() { ( cd "$S" && echo "$1" > VERSION && bin/land-manifest >/dev/null && git add -A && git commit -qm "release $1" && git tag "v$1" ); }   # a real release: VERSION and manifest move
 expect_exit "pinned at the latest release: up to date" 0 upd "$T/c1"; out_has "up to date"
-git -C "$S" commit -q --allow-empty -m "fix: patch"; git -C "$S" tag v1.1.1
+rel_tag 1.1.1
 expect_exit "one patch release behind" 1 upd "$T/c1"; out_has "pinned v1.1.0, latest v1.1.1: behind 1 release (patch)"
-git -C "$S" commit -q --allow-empty -m "feat: minor"; git -C "$S" tag v1.2.0
+rel_tag 1.2.0
 expect_exit "a patch and a minor behind: the class is the largest distance" 1 upd "$T/c1"; out_has "latest v1.2.0: behind 2 releases (minor)"
-git -C "$S" commit -q --allow-empty -m "feat!: major"; git -C "$S" tag v2.0.0
+rel_tag 2.0.0
 expect_exit "a major release behind" 1 upd "$T/c1"; out_has "latest v2.0.0: behind 3 releases (major)"
 check "tags that are not plain releases (v1.0.1-broken, untagged...) are ignored" bash -c "grep -q 'v2.0.0' '$T/out' && ! grep -q 'broken' '$T/out'"
 cp -a "$T/c1" "$T/d5"; sed -i 's/^version=.*/version=v1.1.0-dev/' "$T/d5/scripts/land/PIN"
@@ -110,7 +111,7 @@ GITHUB_ACTIONS=true GITHUB_STEP_SUMMARY=$T/summary expect_exit "under Actions it
 check "the summary line was written" grep -q "behind 3 releases (major)" "$T/summary"
 expect_exit "an unreachable source is exit 3, never 'up to date'" 3 upd "$T/d2"; out_has "NOT verified up to date"
 rm -rf "$T/d"; mkdir -p "$T/d"; expect_exit "a repository without a pin is exit 2" 2 "$T/c1/scripts/land/bin/land-update" --check --root "$T/d"
-check "install wrote the scheduled workflow (weekly, dispatch, read-only, a separate file from the gate)" bash -c "f='$T/c1/.github/workflows/vbm-land-update.yml'; grep -q 'schedule:' \$f && grep -q 'workflow_dispatch' \$f && grep -q 'contents: read' \$f && grep -q 'land-update --check' \$f && grep -q 'land-check --upstream' \$f"
+check "install wrote the scheduled workflow (weekly, dispatch, read-only, a separate file from the gate)" bash -c "f='$T/c1/.github/workflows/vbm-land-update.yml'; grep -q 'schedule:' \$f && grep -q 'workflow_dispatch' \$f && grep -q 'contents: read' \$f && grep -q 'land-update --auto' \$f && grep -q 'land-check --upstream' \$f"
 echo '# mine' >> "$T/c1/.github/workflows/vbm-land-update.yml"; "$S/install" --source "$S" --target "$T/c1" v1.0.0 >/dev/null
 check "re-installing never overwrites the repository's own workflow" grep -q '^# mine' "$T/c1/.github/workflows/vbm-land-update.yml"
 "$S/install" --source "$S" --target "$T/c1" v1.1.0 >/dev/null
@@ -130,6 +131,34 @@ check "the update commit stays local to look at" bash -c "git -C '$T/lu1' log -1
 expect_exit "--land verifies, commits, and lands through the repository's own lander" 0 "$T/lu1/scripts/land/bin/land-update" --land v1.1.0 --root "$T/lu1"; out_has "pristine clone"; out_has '"result":"landed"'
 check "main pins v1.1.0, in one commit carrying the required trailer" bash -c "git -C '$T/remote.git' show main:scripts/land/PIN | grep -q '^version=v1.1.0\$' && git -C '$T/remote.git' log -1 --format=%B main | grep -q '^Task-ID: vbm-land-update-v1.1.0\$'"
 check "no temporary clone is left behind" bash -c "! ls '$TMPDIR'/land-update.* 2>/dev/null | grep -q ."
+
+echo "## land-update --auto: LAND_AUTO_UPDATE decides what may update itself"
+mk_auto() {   # mk_auto NAME POLICY FROM-TAG: a consumer (with a remote of its own) that landed FROM-TAG with LAND_AUTO_UPDATE=POLICY
+  local n=$1; rm -rf "$T/$n" "$T/$n.git"; git init -q --bare -b main "$T/$n.git"; git clone -q "$T/$n.git" "$T/$n" 2>/dev/null; git -C "$T/$n" config commit.gpgsign false
+  git -C "$T/$n" commit -q --allow-empty -m "chore: init"; git -C "$T/$n" push -q origin main; "$S/install" --source "$S" --target "$T/$n" "$3" >/dev/null
+  printf 'LAND_TEST_CMD=true\nLAND_RED_MODE=off\nLAND_AUTO_UPDATE=%s\n' "$2" > "$T/$n/scripts/land.conf"
+  git -C "$T/$n" add -A; git -C "$T/$n" commit -qm "chore(land): vbm-land $3"; ( cd "$T/$n" && scripts/land-direct >/dev/null 2>&1 ) || true; git -C "$T/$n" fetch -q origin; git -C "$T/$n" checkout -q -B main origin/main
+}
+auto() { "$T/$1/scripts/land/bin/land-update" --auto --root "$T/$1"; }
+pinof() { git -C "$T/$1.git" show main:scripts/land/PIN | sed -n 's/^version=//p'; }
+mk_auto au0 none v1.1.0; before=$(git -C "$T/au0.git" rev-parse main)
+expect_exit "policy none only reports" 1 auto au0; out_has "reporting only"; check "and lands nothing" test "$(git -C "$T/au0.git" rev-parse main)" = "$before"
+mk_auto au1 patch v1.1.0
+expect_exit "policy patch takes the newest patch release (v1.1.1), not the minor or the major" 0 auto au1; out_has "updating to v1.1.1"
+check "main pins v1.1.1" test "$(pinof au1)" = v1.1.1
+mk_auto au2 minor v1.1.1
+expect_exit "policy minor takes the newest release of the same major (v1.2.0), never the major" 0 auto au2; out_has "updating to v1.2.0"
+check "main pins v1.2.0" test "$(pinof au2)" = v1.2.0
+mk_auto au3 minor v1.2.0; before=$(git -C "$T/au3.git" rev-parse main)
+expect_exit "a major release is never automatic: only reported" 1 auto au3; out_has "a major waits for a person"
+check "and lands nothing" test "$(git -C "$T/au3.git" rev-parse main)" = "$before"
+mk_auto au4 minor v2.0.0
+expect_exit "up to date: nothing to do" 0 auto au4; out_has "up to date"
+mk_auto au5 sometimes v1.1.0; check "the lander itself refuses a config with a bad LAND_AUTO_UPDATE (nothing was landed)" test ! -e "$T/au5/scripts/land"
+mk_auto au5 none v1.1.0; sed -i 's/^LAND_AUTO_UPDATE=.*/LAND_AUTO_UPDATE=sometimes/' "$T/au5/scripts/land.conf"; git -C "$T/au5" commit -qam "chore: bad policy"; ( cd "$T/au5" && scripts/land-direct >/dev/null 2>&1 ) || true; before=$(git -C "$T/au5.git" rev-parse main)
+expect_exit "a bad LAND_AUTO_UPDATE value that reached main never updates" 1 auto au5; check "and lands nothing" test "$(git -C "$T/au5.git" rev-parse main)" = "$before"
+mk_auto au6 patch v1.1.0; ( cd "$T/au6" && scripts/land-direct --hold "freeze for the test" >/dev/null ); before=$(git -C "$T/au6.git" rev-parse main)
+expect_exit "an auto update stops on a refusal (a hold) with the lander's exit code and lands nothing" 14 auto au6; check "main did not move" test "$(git -C "$T/au6.git" rev-parse main)" = "$before"
 
 echo "## audit"
 consumer c3; "$S/install" --source "$S" --target "$T/c3" v1.0.0 >/dev/null; mkdir -p "$T/plain"
