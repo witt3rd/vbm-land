@@ -43,6 +43,8 @@ sc_ga_removed()   { ga_prelude; h=$(ga_h); seed_push $AP "gate.sh | $h | r | $ga
 sc_ga_net_alone() { ga_prelude; worker w; echo "gate.sh | $ga_hz | r | $ga_today" > "$T/w/$AP"; gacm "$T/w" "chore: approval"; echo n > "$T/w/n.txt"; gacm "$T/w" "feat: n"; ga_go "$1"; }
 sc_ga_early()     { ga_prelude; worker w; echo "gate.sh | $ga_hz | r | $ga_today" > "$T/w/$AP"; echo n > "$T/w/n.txt"; gacm "$T/w" "chore: approval and n"; git -C "$T/w" rm -q n.txt; gacm "$T/w" "chore: no n"; ga_go "$1"; }
 sc_ga_wd_alone() { ga_prelude; h=$(ga_h); seed_push $AP "gate.sh | $h | r | $ga_today"; worker w; : > "$T/w/$AP"; echo n > "$T/w/n.txt"; git -C "$T/w" add -A; git -C "$T/w" commit -qm 'chore: withdraw' -m "Approval-Withdrawn: gate.sh ${h:0:12}"; ga_go "$1"; }
+sc_ga_one_early() { ga_prelude; worker w; { echo "gate.sh | $ga_hz | r | $ga_today"; echo "gate.sh | $(printf '%064x' 8) | r2 | $ga_today"; } > "$T/w/$AP"; gacm "$T/w" "chore: two approvals"; sed -i 2d "$T/w/$AP"; gacm "$T/w" "chore: one is enough"; ga_go "$1"; }
+sc_ga_one_net()   { ga_prelude; worker w; echo "gate.sh | $ga_hz | r | $ga_today" > "$T/w/$AP"; gacm "$T/w" "chore: approval 1"; echo "gate.sh | $(printf '%064x' 8) | r2 | $ga_today" >> "$T/w/$AP"; gacm "$T/w" "chore: approval 2"; ga_go "$1"; }
 sc_ga_window()    { ga_prelude; worker w; echo "gate.sh | $ga_hz | r | $ga_old" > "$T/w/$AP"; gacm "$T/w" "chore: approval"; ga_go "$1"; }
 sc_ga_self()      { ga_prelude; worker w; echo "$AP | $ga_hz | r | $ga_today" > "$T/w/$AP"; gacm "$T/w" "chore: approval"; ga_go "$1"; }
 sc_ga_malformed() { ga_prelude; worker w; echo "gate.sh | nothash | r | $ga_today" > "$T/w/$AP"; gacm "$T/w" "chore: approval"; ga_go "$1"; }
@@ -76,6 +78,8 @@ gate edit: removed without consumption|12|sc_ga_removed|lib/approvals.sh|s/ga_re
 gate edit: approval alone in its landing|12|sc_ga_net_alone|lib/approvals.sh|s/\[ -z "\$others" \] || ga_refuse "this landing adds/: "this landing adds/
 gate edit: approval alone in its commit|12|sc_ga_early|-|s/^ga_early "\$top" "\$commits" "\$LAND_APPROVALS" ||/true ||/
 gate edit: a withdrawal lands alone|12|sc_ga_wd_alone|lib/approvals.sh|s/\[ -z "\$others" \] || ga_refuse "the approval for/: "the approval for/
+gate edit: one line per approval commit|12|sc_ga_one_early|lib/approvals.sh|s/^    if \[ "\$ns" != "1"\$'\\t'"0" \]; then$/    if false; then/
+gate edit: one approval per landing|12|sc_ga_one_net|lib/approvals.sh|s/^    \[ "\$ns" = "1"\$'\\t'"0" \] || ga_refuse/    : || ga_refuse/
 gate edit: approval window on add|12|sc_ga_window|lib/approvals.sh|s/ga_fresh "\$d" "\$days" || ga_refuse "an approval dated/true || : "an approval dated/
 gate edit: no approval of the approvals file|12|sc_ga_self|lib/approvals.sh|s/\[ "\$f" != "\$ap" \] || ga_refuse/true || :/
 gate edit: malformed record|12|sc_ga_malformed|lib/approvals.sh|s/ga_refuse "\$ap: a line that is not an approval record/: "\$ap: a line that is not an approval record/

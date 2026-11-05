@@ -5,6 +5,9 @@ Additive changes to it are minor releases; anything else is major.
 
 ## Unreleased
 
+## 0.3.2
+- Gate-edit approvals: an approval commit adds exactly ONE line (one record), removes none and changes no other file; the landing that carries it is the same (one approval per landing, no tidying alongside): refused (12) otherwise. The `APPROVAL COMMIT` reminder now says the announcement to the judge carries the diff hash and the FULL edit diff. Upgrade notes: a landing that added several records at once, or tidied stale ones in the approval's landing, must now be split (one approval per landing; a stale record is tidied in a landing of its own).
+
 ## 0.3.1
 - Fix: `lib/approvals.sh` no longer pipes into `head` under `set -o pipefail` (a repository's pipefail lint refused v0.3.0). v0.3.0 is superseded; roll to v0.3.1. `tests/lint.sh` now lints bin/ and lib/ for that class (`grep -q`, `grep -m`, `head` after a pipe).
 
