@@ -67,7 +67,7 @@ printf 'source=%s\nversion=%s\ncommit=%s\nmanifest_sha256=%s\nsignature=%s\n' "$
 [ -z "$signers_arg" ] || [ -e "$target/scripts/land.signers" ] || cp "$signers_arg" "$target/scripts/land.signers"
 created=
 if [ "$first" = 1 ] && [ ! -e "$target/scripts/land-direct" ]; then cp "$tmp/tree/templates/land-direct-stub" "$target/scripts/land-direct"; chmod +x "$target/scripts/land-direct"; created="$created and the entry script scripts/land-direct"; fi
-if [ "$first" = 1 ] && [ ! -e "$target/.github/workflows/vbm-land-update.yml" ]; then mkdir -p "$target/.github/workflows"; cp "$tmp/tree/templates/vbm-land-update.yml" "$target/.github/workflows/vbm-land-update.yml"; created="$created and the scheduled check .github/workflows/vbm-land-update.yml"; fi
+if [ "$first" = 1 ] && [ ! -e "$target/.github/workflows/vbm-land-update.yml" ]; then mkdir -p "$target/.github/workflows"; w="$target/.github/workflows/vbm-land-update.yml"; if [ "$(cat "$tmp/tree/.github/visibility" 2>/dev/null)" = public ]; then sed 's/ *#weekly$//' "$tmp/tree/templates/vbm-land-update.yml" > "$w"; sched="weekly and on dispatch"; else grep -v '#weekly$' "$tmp/tree/templates/vbm-land-update.yml" > "$w"; sched="on dispatch only: the source is not public"; fi; created="$created and the update check .github/workflows/vbm-land-update.yml ($sched)"; fi
 if [ "$first" = 1 ] && [ ! -e "$target/scripts/land.conf" ]; then cp "$tmp/tree/templates/land.conf.example" "$target/scripts/land.conf"; created="$created and a starter scripts/land.conf (edit it: at least LAND_TEST_CMD or LAND_GATES_CMD)"; fi
 "$target/scripts/land/bin/land-check" --root "$target" >/dev/null || { echo "install: the installed copy fails its own drift check" >&2; exit 1; }
 echo "install: $vmsg"

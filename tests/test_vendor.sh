@@ -111,7 +111,11 @@ GITHUB_ACTIONS=true GITHUB_STEP_SUMMARY=$T/summary expect_exit "under Actions it
 check "the summary line was written" grep -q "behind 3 releases (major)" "$T/summary"
 expect_exit "an unreachable source is exit 3, never 'up to date'" 3 upd "$T/d2"; out_has "NOT verified up to date"
 rm -rf "$T/d"; mkdir -p "$T/d"; expect_exit "a repository without a pin is exit 2" 2 "$T/c1/scripts/land/bin/land-update" --check --root "$T/d"
-check "install wrote the scheduled workflow (weekly, dispatch, read-only, a separate file from the gate)" bash -c "f='$T/c1/.github/workflows/vbm-land-update.yml'; grep -q 'schedule:' \$f && grep -q 'workflow_dispatch' \$f && grep -q 'contents: read' \$f && grep -q 'land-update --auto' \$f && grep -q 'land-check --upstream' \$f"
+check "install wrote the update workflow (dispatch only: this source is not public; read-only, a separate file from the gate)" bash -c "f='$T/c1/.github/workflows/vbm-land-update.yml'; ! grep -q 'schedule:\|cron' \$f && ! grep -q '#weekly' \$f && grep -q 'workflow_dispatch' \$f && grep -q 'contents: read' \$f && grep -q 'land-update --auto' \$f && grep -q 'land-check --upstream' \$f"
+mkdir -p "$T/c1p" && git init -q "$T/c1p" && ( cd "$S" && mkdir -p .github && echo public > .github/visibility && git add -A && git -c commit.gpgsign=false commit -qm "chore: mark public" && git tag v1.0.0-pub )
+"$S/install" --source "$S" --target "$T/c1p" v1.0.0-pub >/dev/null
+check "a PUBLIC source ships the weekly schedule too (marker stripped, valid yaml shape)" bash -c "f='$T/c1p/.github/workflows/vbm-land-update.yml'; grep -q '^  schedule:\$' \$f && grep -q \"cron: '23 6 \\* \\* 1'\\$\" \$f && grep -q workflow_dispatch \$f && ! grep -q '#weekly' \$f"
+( cd "$S" && git reset -q --hard v1.0.0 && git tag -d v1.0.0-pub >/dev/null && git clean -fdq )
 echo '# mine' >> "$T/c1/.github/workflows/vbm-land-update.yml"; "$S/install" --source "$S" --target "$T/c1" v1.0.0 >/dev/null
 check "re-installing never overwrites the repository's own workflow" grep -q '^# mine' "$T/c1/.github/workflows/vbm-land-update.yml"
 rm "$T/c1/.github/workflows/vbm-land-update.yml"; "$S/install" --source "$S" --target "$T/c1" v1.0.0 >/dev/null
