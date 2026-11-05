@@ -9,7 +9,7 @@ files=$(git ls-files 2>/dev/null || find . -type f -not -path './.git/*' | sed '
 for f in $files; do
   [ -f "$f" ] || continue
   if head -n1 "$f" | grep -q '^#!.*\(bash\|sh\)'; then bash -n "$f" || fail "$f does not parse"; fi
-  case $f in *.conf|*.txt|*.md) ;; bin/*|install|scripts/*|tests/*.sh) [ -x "$f" ] || [ "$f" = tests/lib.sh ] || fail "$f is not executable";; esac
+  case $f in *.conf|*.txt|*.md|*.signers) ;; bin/*|install|scripts/*|tests/*.sh) [ -x "$f" ] || [ "$f" = tests/lib.sh ] || fail "$f is not executable";; esac
 done
 # names that must never appear in this repository (internal projects, hosts, people, local paths)
 deny='(first''mate|rog''er|mcfee''ly|sp''ire|ja''nus|/hom''e/|c''aptain|\bk''ing\b|\bpr''ince\b)'
