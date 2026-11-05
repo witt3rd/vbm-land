@@ -200,6 +200,8 @@ Before writing anything the installer checks every file it fetched against the m
 - `scripts/land/bin/land-update <tag|commit>` replaces the tree and the pin with another release and verifies it; it commits nothing.
 - `bin/land-audit DIR...`, run from this repository, prints for each repository its pin, whether it is intact, and how far behind it is: the rollout table, from the repositories themselves.
 
+How a repository gets the next release (pull only: a scheduled check and `land-update` in the consumer) is designed in [docs/update-propagation.md](docs/update-propagation.md).
+
 A release is a tag whose commit has a fresh `MANIFEST.sha256` (`bin/land-manifest`; Tier 1 here fails on a stale one). Additive changes to the interface (configuration keys, exit codes, the JSON line, hook names, marker names) are minor, anything else is major; `CHANGELOG.md` has a line per interface change.
 
 ### 6.7 Protecting the branch
