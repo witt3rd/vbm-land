@@ -5,6 +5,9 @@ Additive changes to it are minor releases; anything else is major.
 
 ## Unreleased
 
+## 0.3.4
+- Crash-probe hygiene (new vendored files `bin/run-probe`, `bin/no-crash-record`, `lib/no-crash-record.sh`, `docs/crash-probes.md`). Residual hole, accepted: an orphan that also setsid's, runs from a shared dir and leaves our scope is NOT caught. `no-crash-record end` fails only for a crash record that belongs to the landing's own tree (pid tree with start-time identity, session, own transient scope, own private TMPDIR or repository), never for another process's crash on the host; it fails closed (no begin state, a bad time, no scope id: the broad old filter). `run-probe CMD...` runs a deliberate-crash probe in a private TMPDIR with `ulimit -c 0` PLUS the dumpable-clear preload (`ulimit` alone still writes a crash-journal record: measured); `run-probe --require` refuses (exit 2) a probe not launched that way; `run-probe --lint LIST` finds a listed probe binary run outside the helper. Upgrade notes: a consumer's own `lib-no-crash-record.sh` and `no-crash-record.sh` become thin wrappers over the vendored lib (`exec scripts/land/bin/no-crash-record "$@"`); records are read from `journalctl -o json` (needs `jq`), `NOCRASH_JOURNALCTL` replaces the old `NOCRASH_COREDUMPCTL`.
+
 ## 0.3.3
 - Fix: the upstream check (`land-check --upstream`), `land-update` and `install` clone a GitHub `OWNER/NAME` source ANONYMOUSLY over https first, and use `gh` only when that fails (a private source). A public source therefore needs no token, no `gh` login and no secret: on a hosted runner without a login the check used to fail with "cannot clone OWNER/NAME with gh" (exit 3). `VBM_LAND_URL_BASE` replaces `https://github.com` (the tests serve a local copy). The update workflow template says a public source needs no secret. Upgrade notes: none required; a private source still needs `GH_TOKEN` (the secret `VBM_LAND_TOKEN`).
 
