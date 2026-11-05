@@ -5,6 +5,7 @@ Additive changes to it are minor releases; anything else is major.
 
 ## Unreleased (0.3.0-dev)
 - Pinned vendoring: `install`, `scripts/land/PIN`, `MANIFEST.sha256`, `bin/land-check` (offline and `--upstream`), `bin/land-update`, `bin/land-audit`, `bin/land-manifest`; the lander refuses (exit 12) a change that makes the vendored copy differ from its pin.
+- Mutation self-test: every guard of the lander is cut out in turn and its scenario must stop being refused.
 - `templates/`: starter `land.conf`, agent-instructions block, CI workflow.
 
 - `bin/land-direct`: configurable lander (lock with lease, hold and freeze markers, land-time checks, regeneration of generated files, hooks, bounded steps, metrics log).

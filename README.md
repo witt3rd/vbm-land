@@ -101,12 +101,14 @@ Hosted CI minutes are usually a budgeted resource. A cheap pattern: run Tier 1 i
 | `templates/` | A starter `land.conf` with examples for four ecosystems, the agent-instructions block, a CI workflow with Tier 1 on push and Tier 2 on a schedule. |
 | `scripts/land.conf`, `scripts/land-direct` | This repository's own configuration and its stub: the repository lands itself with its own lander. |
 | `scripts/bootstrap-land` | A minimal, dependency-light lander. It landed this repository's first commits and stays as the recovery path if the full lander is ever broken on main. |
-| `tests/` | The test suite: every test builds a scratch repository with a bare remote and drives the lander, with a negative test for each refusal. `tests/run.sh` is this repository's Tier 1 (about half a minute). |
+| `tests/` | The test suite (below). `tests/run.sh` is this repository's Tier 1: the lints, then every `tests/test_*.sh` in parallel (about half a minute). |
 | `.github/workflows/ci.yml` | Tier 1 on a push to main. |
 
 Not built yet: the revert-first watchdog, the known-flaky list, group (batch) landing, a macOS lock fallback.
 
 Requirements: bash 4+, git 2.30+, util-linux `flock`, `timeout`, `gh` (the red check). The tests also need `jq`. Linux only for now.
+
+**The tests.** Each test script builds a scratch repository with a bare "remote", worker clones and a fake `gh` (answers `run list`/`run view` from files), and drives the real scripts. `test_land_direct.sh` has a negative test for every refusal (each exit code, and that nothing reached the remote); `test_vendor.sh` covers install, update, audit, every kind of drift (an edit, a deleted or extra file, a lost executable bit, a forged pin and tree) and the lander refusing a change to its own vendored copy; `test_mutations.sh` cuts each guard out of a copy of the lander in turn and requires the matching scenario to stop being refused (a guard nothing depends on would be found there); `test_bootstrap.sh` covers the recovery lander; `lint.sh` keeps internal names and local paths out of this repository.
 
 ### 6.2 Using it
 

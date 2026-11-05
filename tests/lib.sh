@@ -5,14 +5,14 @@ set -euo pipefail
 export LC_ALL=C GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-T=; RESULTS=; SANDBOXES=()
+T=; SANDBOXES=(); MAINPID=$$; RESULTS=$(mktemp "${TMPDIR:-/tmp}/vbm-land-results.XXXXXX")   # results outlive the sandboxes; subshells append to the file
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
 
 sandbox() {   # sandbox [base-branch]: $T/remote.git (bare), $T/seed (one commit pushed), $T/bin/gh (fake), PATH set
   local base=${1:-main}
   T=$(mktemp -d "${TMPDIR:-/tmp}/vbm-land-test.XXXXXX"); BASE=$base
-  if [ -z "$RESULTS" ]; then RESULTS=$(mktemp "${TMPDIR:-/tmp}/vbm-land-results.XXXXXX"); fi   # outlives the sandboxes of one script
-  SANDBOXES+=("$T"); trap 'rm -rf "${SANDBOXES[@]}" "$RESULTS"' EXIT
+  # the main shell removes every sandbox and the results file; a ( subshell ) or $( substitution ) that made a sandbox removes only its own
+  SANDBOXES+=("$T"); trap 'if [ "$BASHPID" = "$MAINPID" ]; then rm -rf "${SANDBOXES[@]}" "$RESULTS"; else rm -rf "$T"; fi' EXIT
   git init -q --bare -b "$base" "$T/remote.git"
   git init -q -b "$base" "$T/seed"
   ( cd "$T/seed" && git config commit.gpgsign false && echo seed > a.txt && git add a.txt && git commit -qm "chore: seed" && git remote add origin "$T/remote.git" && git push -q origin "$base" )
