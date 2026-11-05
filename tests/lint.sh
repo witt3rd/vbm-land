@@ -19,4 +19,7 @@ for f in $files; do
 done
 # a workflow may name a self-hosted runner only while .github/visibility says exactly "private" (missing or anything else = public)
 if grep -lE 'self-hosted' .github/workflows/* >/dev/null 2>&1 && [ "$(cat .github/visibility 2>/dev/null)" != private ]; then fail "a workflow names self-hosted but .github/visibility is not 'private': runs-on back to hosted before going public"; fi
+# under `set -o pipefail` a producer piped into an early-exiting consumer (`grep -q`, `grep -m`, `head`) can die of SIGPIPE: capture then test, or let the consumer drain the pipe (a repository that vendors this tool lints for it too)
+hits=$(grep -nE '\|[[:space:]]*(grep[[:space:]]+(-[A-Za-z]*[qm][A-Za-z0-9]*|--quiet|--max-count)([[:space:]]|=)|head([[:space:]]|$))' bin/* lib/*.sh install 2>/dev/null | grep -v 'pipefail-ok' || true)
+[ -z "$hits" ] || fail "a pipe into an early-exiting consumer (SIGPIPE under pipefail): $(echo "$hits" | head -2 | tr '\n' ' ')"
 exit "$bad"

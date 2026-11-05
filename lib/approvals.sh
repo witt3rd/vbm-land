@@ -131,7 +131,7 @@ ga_judge() {
       if [ -n "$h" ] && grep -qxF -- "$f $h" "$state/approved-gate-edits.txt"; then echo "land-direct: gate edit APPROVED: $f (${h:0:12}) removes or changes lines; the approval is consumed by this landing"
       else
         ga_refuse "$f is a gate-defining file that may only GAIN lines (LAND_GATE_APPEND_ONLY) and this landing removes or changes some ($del removed${mode:+, mode changed}): refused unless an approval for exactly this diff is already on the base branch. The approval is a record in $ap, landed ALONE and announced to the judge BEFORE the edit; hash: $h (land-direct --print-gate-diff-hash $f)."
-        git -C "$wt" diff -U0 --no-renames "$base" HEAD -- "$f" | grep -E '^-[^-]' | head -6 | sed 's/^/land-direct:   /' >&2 || true
+        git -C "$wt" diff -U0 --no-renames "$base" HEAD -- "$f" | grep -E '^-[^-]' | sed -n '1,6s/^/land-direct:   /p' >&2 || true
       fi
     done <<<"$changed"
   fi
