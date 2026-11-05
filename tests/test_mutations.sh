@@ -48,6 +48,23 @@ sc_ga_one_net()   { ga_prelude; worker w; echo "gate.sh | $ga_hz | r | $ga_today
 sc_ga_window()    { ga_prelude; worker w; echo "gate.sh | $ga_hz | r | $ga_old" > "$T/w/$AP"; gacm "$T/w" "chore: approval"; ga_go "$1"; }
 sc_ga_self()      { ga_prelude; worker w; echo "$AP | $ga_hz | r | $ga_today" > "$T/w/$AP"; gacm "$T/w" "chore: approval"; ga_go "$1"; }
 sc_ga_malformed() { ga_prelude; worker w; echo "gate.sh | nothash | r | $ga_today" > "$T/w/$AP"; gacm "$T/w" "chore: approval"; ga_go "$1"; }
+# protected sets (lib/approvals.sh ga_protected): PL = the protected-paths list, PP = the approvals file of their own; the lander computes the hash
+PL=scripts/protected-paths.txt; PP=scripts/protected-approvals.txt
+ps_prelude() { scn_prelude; set_conf 'LAND_TEST_CMD=true' "LAND_PROTECTED_LIST=$PL" "$@"; seed_push gate.sh $'a\nb\nc'; seed_push spec/x $'1\n2'; seed_push "$PL" $'gate.sh\nspec/'; }
+ps_h() { worker h; ga_drop "$T/h"; ( cd "$T/h" && "$ROOT/bin/land-direct" --print-gate-diff-hash "${1:-gate.sh}" 2>/dev/null ); }
+sc_ps_none()    { ps_prelude; worker w; ga_drop "$T/w"; ga_go "$1"; }
+sc_ps_set()     { ps_prelude; h=$(ps_h); seed_push $AP "gate.sh,spec/x | $h | r | $ga_today"; worker w; ga_drop "$T/w"; : > "$T/w/$AP"; gacm "$T/w" "chore: consume"; ga_go "$1"; }
+sc_ps_empty()   { ps_prelude; seed_push $PL "# no entries"; worker w; commit "$T/w" z.txt 1; ga_go "$1"; }
+sc_ps_union()   { ps_prelude; worker h; echo 'new/' >> "$T/h/$PL"; gacm "$T/h" "feat: entry"; hl=$( cd "$T/h" && "$ROOT/bin/land-direct" --print-gate-diff-hash "$PL" 2>/dev/null ); seed_push $AP "$PL | $hl | r | $ga_today"
+                  worker w; echo 'new/' >> "$T/w/$PL"; mkdir "$T/w/new"; echo n > "$T/w/new/f"; : > "$T/w/$AP"; gacm "$T/w" "feat: entry and a file under it"; ga_go "$1"; }
+sc_ps_list()    { ps_prelude; worker w; sed -i '/^gate.sh$/d' "$T/w/$PL"; gacm "$T/w" "feat: loosen the list"; ga_go "$1"; }
+sc_ps_rename()  { ps_prelude; worker w; git -C "$T/w" mv gate.sh moved.sh; gacm "$T/w" "feat: move the gate out"; ga_go "$1"; }
+sc_ps_onetime() { ps_prelude; h=$(ps_h); seed_push $AP "gate.sh | $h | r | $ga_today"; worker w; ga_drop "$T/w"; ga_go "$1"; }
+sc_ps_sep()     { ps_prelude "LAND_PROTECTED_APPROVALS=$PP"; h=$(ps_h); seed_push $AP "gate.sh | $h | r | $ga_today"; worker w; ga_drop "$T/w"; : > "$T/w/$AP"; gacm "$T/w" "chore: consume"; ga_go "$1"; }
+sc_ps_early()   { ps_prelude "LAND_PROTECTED_APPROVALS=$PP"; worker w; echo "gate.sh | $ga_hz | r | $ga_today" > "$T/w/$PP"; echo n > "$T/w/n.txt"; gacm "$T/w" "chore: approval and n"; git -C "$T/w" rm -q n.txt; gacm "$T/w" "chore: no n"; ga_go "$1"; }
+sc_ps_key()     { ps_prelude; worker w; echo "spec/x,gate.sh | $ga_hz | r | $ga_today" > "$T/w/$AP"; gacm "$T/w" "chore: approval"; ga_go "$1"; }
+sc_ps_conf()    { ps_prelude; worker w; echo '# x' >> "$T/w/scripts/land.conf"; gacm "$T/w" "feat: touch the configuration"; ga_go "$1"; }
+sc_ps_regen()   { scn_prelude; set_conf 'LAND_TEST_CMD=echo regenerated > gen.txt' 'LAND_GENERATED_LIST=scripts/generated.txt' "LAND_PROTECTED_LIST=$PL"; seed_push scripts/generated.txt gen.txt; seed_push gen.txt stale; seed_push $PL $'gate.sh\ngen.txt'; worker w; commit "$T/w" z.txt 1; ga_go "$1"; }
 sc_nothing_pushed_on_failure() { scn_prelude; set_conf 'LAND_TEST_CMD=false'; worker w; commit "$T/w" a.txt 1; b=$(remote_head); ( cd "$T/w" && "$1" >/dev/null 2>&1 ) || true; [ "$(remote_head)" = "$b" ] && echo 13 || echo 0; }
 
 # NAME | expected exit with the real lander | scenario | sed that cuts the guard out
@@ -76,13 +93,25 @@ gate edit: one-time consumption|12|sc_ga_onetime|lib/approvals.sh|s/"\$REM" || g
 gate edit: stale approval|12|sc_ga_stale|lib/approvals.sh|s/^    if ga_fresh "\$d" "\$days"; then$/    if true; then/
 gate edit: removed without consumption|12|sc_ga_removed|lib/approvals.sh|s/ga_refuse "the approval for \$f (\${h:0:12}) was removed/: "the approval for/
 gate edit: approval alone in its landing|12|sc_ga_net_alone|lib/approvals.sh|s/\[ -z "\$others" \] || ga_refuse "this landing adds/: "this landing adds/
-gate edit: approval alone in its commit|12|sc_ga_early|-|s/^ga_early "\$top" "\$commits" "\$LAND_APPROVALS" ||/true ||/
+gate edit: approval alone in its commit|12|sc_ga_early|-|s/^ga_early "\$top" "\$commits" "\$LAND_APPROVALS" \&\&/true \&\&/
 gate edit: a withdrawal lands alone|12|sc_ga_wd_alone|lib/approvals.sh|s/\[ -z "\$others" \] || ga_refuse "the approval for/: "the approval for/
 gate edit: one line per approval commit|12|sc_ga_one_early|lib/approvals.sh|s/^    if \[ "\$ns" != "1"\$'\\t'"0" \]; then$/    if false; then/
 gate edit: one approval per landing|12|sc_ga_one_net|lib/approvals.sh|s/^    \[ "\$ns" = "1"\$'\\t'"0" \] || ga_refuse/    : || ga_refuse/
 gate edit: approval window on add|12|sc_ga_window|lib/approvals.sh|s/ga_fresh "\$d" "\$days" || ga_refuse "an approval dated/true || : "an approval dated/
-gate edit: no approval of the approvals file|12|sc_ga_self|lib/approvals.sh|s/\[ "\$f" != "\$ap" \] || ga_refuse/true || :/
+gate edit: no approval of the approvals file|12|sc_ga_self|lib/approvals.sh|s/\[ "\$p" != "\$x" \] || ga_refuse/true || :/
 gate edit: malformed record|12|sc_ga_malformed|lib/approvals.sh|s/ga_refuse "\$ap: a line that is not an approval record/: "\$ap: a line that is not an approval record/
+protected set: approval required|12|sc_ps_none|lib/approvals.sh|s/^  ga_refuse "this landing touches the protected set/  : "this landing touches the protected set/
+protected set: the approval's set is exactly the touched set|12|sc_ps_set|lib/approvals.sh|s/grep -qxF -- "\$key \$h" "\$used"/grep -qF -- " $h" "$used"/
+protected set: an empty list fails closed|12|sc_ps_empty|lib/approvals.sh|s/if \[ ! -s "\$st\/ga-pe-base" \]; then ga_ptfail=/if false; then ga_ptfail=/
+protected set: the change's own list counts too|12|sc_ps_union|lib/approvals.sh|s/\[ \${#X\[@\]} -eq 0 \] || E+=("\${X\[@\]}")/:/
+protected set: the list itself is protected|12|sc_ps_list|-|s/^prot_extra=\$LAND_PROTECTED_LIST;/prot_extra=;/
+protected set: the configuration is protected|12|sc_ps_conf|-|s/prot_extra="\$prot_extra \$confpath"/:/
+protected set: no rename detection|12|sc_ps_rename|lib/approvals.sh|s/--name-only -z --no-renames/--name-only -z/
+protected set: one-time consumption|12|sc_ps_onetime|lib/approvals.sh|s/"\$REM" || ga_refuse "the approval for/"\$REM" || : "the approval for/
+protected set: its own approvals file|12|sc_ps_sep|lib/approvals.sh|s/pused=\$UP; fi/pused=$U; fi/
+protected set: approval alone in its commit (own file)|12|sc_ps_early|-|s/ga_early "\$top" "\$commits" "\$pap"/true/
+protected set: a set key is canonical|12|sc_ps_key|lib/approvals.sh|s/\[ -z "\$prev" \] || \[\[ "\$prev" < "\$p" \]\] || return 1;/:;/
+protected set: judged again after Tier 1 regenerates files|12|sc_ps_regen|-|s/^    \[ -z "\$LAND_PROTECTED_LIST" \] || ga_judge_run/    true || ga_judge_run/
 LIST
 got=$(sc_nothing_pushed_on_failure "$ROOT/bin/land-direct"); [ "$got" = 13 ] && pass "a Tier 1 failure leaves the remote untouched" || fail "a Tier 1 failure moved the remote"
 finish

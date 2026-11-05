@@ -161,8 +161,8 @@ lands "(control) one commit, one line, only the approvals file: lands" "$T/o5"; 
 
 echo "## the judge fails closed"
 sandbox; conf; seed_gate; mkdir -p "$T/mut"; cp -r "$ROOT/bin" "$ROOT/lib" "$ROOT/VERSION" "$T/mut/"
-sed -i 's/^  : > "\$state\/approved-gate-edits.txt"; : > "\$USED"$/  : > "$state\/approved-gate-edits.txt"; : > "$USED"; false/' "$T/mut/lib/approvals.sh"
-check "(the crash is in the copy)" grep -q '"\$USED"; false' "$T/mut/lib/approvals.sh"
+sed -i 's/^  ga_refused=0$/  ga_refused=0; false/' "$T/mut/lib/approvals.sh"
+check "(the crash is in the copy)" grep -q 'ga_refused=0; false' "$T/mut/lib/approvals.sh"
 worker k1; commit "$T/k1" z.txt 1
 ( cd "$T/k1" && "$T/mut/bin/land-direct" >"$T/out" 2>&1 ) && rc=0 || rc=$?
 [ "$rc" = 12 ] && pass "a judge that crashes part-way refuses the landing (exit 12)" || fail "a crashing judge gave exit $rc"; out_has "failed unexpectedly"
