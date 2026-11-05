@@ -105,7 +105,7 @@ Hosted CI minutes are usually a budgeted resource. A cheap pattern: run Tier 1 i
 | `tests/` | The test suite (below). `tests/run.sh` is this repository's Tier 1: the lints, then every `tests/test_*.sh` in parallel (about half a minute). |
 | `.github/workflows/ci.yml` | Tier 1 on a push to main. |
 
-Not built yet: the revert-first watchdog, the known-flaky list, group (batch) landing, a macOS lock fallback.
+Not built yet: the revert-first watchdog (the freeze marker and its Tier 2 trigger exist; the revert does not), a batch coordinator (the lander has its half: `--group`, `LAND_LOCK_HELD`), a known-flaky list lint, a macOS lock fallback.
 
 Requirements: bash 4+, git 2.30+, util-linux `flock`, `timeout`, `gh` (the red check). The tests also need `jq`. Linux only for now.
 
@@ -119,6 +119,7 @@ A repository that lands with this tool has a `scripts/land.conf` (below) and tel
 bin/land-direct                       # land the local commits that are not on origin/main yet
 bin/land-direct --dry-run             # everything except the push
 bin/land-direct --check               # only the land-time checks (commit messages, size budget)
+bin/land-direct --group               # a batch coordinator's entries: the size budget is waived (it checked each one); with LAND_LOCK_HELD=1 in the environment the coordinator holds the lock and none is taken
 bin/land-direct --hold "reason"       # stop every landing in this clone (even one in flight, right before its push) ...
 bin/land-direct --release             # ... until released
 bin/land-direct --freeze "reason" --owner NAME --for 6h   # only fixes and reverts land, until the expiry, --thaw, or a landed fix
@@ -147,6 +148,8 @@ Locks, markers, logs and the scratch worktree live in `<git common dir>/vbm-land
 | `LAND_FIX_PATHS` | none | When set, a fix for a red main may touch only these paths (tests, CI). |
 | `LAND_RED_MODE` | `push` | `push`, `push+dispatch` or `off` (see 4.4). |
 | `LAND_CI_WORKFLOW`, `LAND_TIER1_JOB`, `LAND_RED_WAIT` | `ci.yml`, `tier1`, `60` | What the red check reads, and how long it waits for a Tier 1 that is still running. |
+| `LAND_KNOWN_FLAKY`, `LAND_FLAKY_RERUN_WAIT` | none, `300` | Path (in the repository, read from base) of the **known-flaky list** (`name owner YYYY-MM-DD issue`, one per line; an entry that is expired or lacks an owner or an issue is not listed: entries are debt), and the seconds to wait for the one rerun. When Tier 1 of base failed and **every** test its failed log names (`FAIL <path>` or `FLAKY <path>`) is listed, the failed job is rerun once (never a second time, never for an unlisted failure); green means not red. Each rerun is a line in `<git common dir>/vbm-land/known-flaky.log`. |
+| `LAND_TIER2_JOB` | none | The name of the Tier 2 job. When set, a real failure of it in the latest completed run freezes landing for 24 h (owner `land-red`; an infrastructure failure does not), a green run lifts the freeze `land-red` set (never one a person set); a fix or a revert still lands. |
 | `LAND_HOOKS_DIR` | `scripts/land.d` | Where the repository's hooks live. |
 | `LAND_AUTO_UPDATE` | `none` | `none`, `patch` or `minor`: what the scheduled update workflow may land by itself (`land-update --auto`); a major release never. |
 | `LAND_LOCALE` | `C` | Pinned for collation and glob order. |

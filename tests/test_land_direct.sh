@@ -232,6 +232,70 @@ check "two racing workers both land" bash -c "[ $rc1 = 0 ] && [ $rc2 = 0 ] && gi
 check "history stays linear" test -z "$(git -C "$T/remote.git" rev-list --merges main)"
 set_conf 'LAND_TEST_CMD=true'
 
+echo "## group mode (a batch coordinator): --group and LAND_LOCK_HELD"
+set_conf 'LAND_TEST_CMD=test -z "$LAND_LOCK_HELD"' 'LAND_PROD_PATHS=src' 'LAND_BUDGET_LINES=3'
+worker gp1; mkdir -p "$T/gp1/src"; seq 1 40 > "$T/gp1/src/f"; git -C "$T/gp1" add src; git -C "$T/gp1" commit -qm "feat: big entry" -m "Task-ID: t"
+refused "over the budget without --group is refused" 1 "$T/gp1"
+before=$(remote_head); ( cd "$T/gp1" && "$L" --group >"$T/out" 2>&1 ) && rc=0 || rc=$?; [ "$rc" = 0 ] && pass "--group waives the size budget (the coordinator checked each entry)" || { fail "--group: exit $rc"; cat "$T/out" >&2; }
+out_has "by --group"
+worker gp2; commit "$T/gp2" gp2.txt 1
+mkdir -p "$T/gp2/.git/vbm-land"; ( exec 8>"$T/gp2/.git/vbm-land/lock"; flock 8; sleep 6 ) & holder=$!; sleep 0.3
+refused "another holder of the lock: busy" 15 "$T/gp2" LAND_LOCK_WAIT_SECONDS=1
+lands "LAND_LOCK_HELD=1: the caller holds the lock, none is taken; Tier 1 does not inherit the variable" "$T/gp2" LAND_LOCK_HELD=1; out_has "the caller holds the lock"
+kill "$holder" 2>/dev/null || true; wait "$holder" 2>/dev/null || true
+set_conf 'LAND_TEST_CMD=true'
+
+echo "## known flaky: a listed failure is rerun once"
+gh_mode ok
+seed_push scripts/known-flaky.txt "# name owner expiry issue
+test_flaky.sh alice 2099-01-01 123
+test_other_flaky.sh alice 2099-01-01 124
+test_old.sh bob 2000-01-01 5
+test_bad.sh alice 2099-01-01"
+set_conf 'LAND_TEST_CMD=true' 'LAND_KNOWN_FLAKY=scripts/known-flaky.txt' 'LAND_FLAKY_RERUN_WAIT=3'
+kfcase() {   # kfcase LOGTEXT: a red main whose failed log is LOGTEXT; attempt 1, no refused rerun
+  gh_mode red; rm -f "$T/gh/attempt" "$T/gh/rerun_refused" "$T/gh/rerun_conclusion"; printf '%s\n' "$1" > "$T/gh/failedlog"; : > "$T/gh/calls.log"
+}
+reran() { grep -c 'run rerun' "$T/gh/calls.log" || true; }
+kfcase "FAIL scripts/test_flaky.sh: exit 1"; worker kf1; commit "$T/kf1" kf1.txt 1
+lands "a failure naming only a listed test: rerun once, green: not red, lands" "$T/kf1"; out_has "rerunning the failed job once"; check "exactly one rerun was asked for" test "$(reran)" = 1
+check "the rerun is logged" grep -q "known-flaky test_flaky.sh: rerun --failed: green" "$T/kf1/.git/vbm-land/known-flaky.log"
+kfcase "FLAKY scripts/test_flaky.sh
+FAIL scripts/test_other_flaky.sh"; echo failure > "$T/gh/rerun_conclusion"; worker kf2; commit "$T/kf2" kf2.txt 1
+refused "listed, but the rerun is red: red main refuses" 10 "$T/kf2"; out_has "rerun of 100"; out_has ": red"
+kfcase "FAIL scripts/test_unlisted.sh"; worker kf3; commit "$T/kf3" kf3.txt 1
+refused "an unlisted failure is not rerun: red" 10 "$T/kf3"; out_has "not on the known-flaky list"; check "and no rerun was asked for" test "$(reran)" = 0
+kfcase "FAIL scripts/test_flaky.sh
+FAIL scripts/test_unlisted.sh"; worker kf4; commit "$T/kf4" kf4.txt 1
+refused "listed AND unlisted failures: red" 10 "$T/kf4"; check "no rerun" test "$(reran)" = 0
+kfcase "FAIL scripts/test_old.sh"; worker kf5; commit "$T/kf5" kf5.txt 1
+refused "an expired entry is not listed: red" 10 "$T/kf5"; check "no rerun" test "$(reran)" = 0
+kfcase "FAIL scripts/test_bad.sh"; worker kf6; commit "$T/kf6" kf6.txt 1
+refused "a malformed entry (no issue) is not listed: red" 10 "$T/kf6"; check "no rerun" test "$(reran)" = 0
+kfcase "FAIL scripts/test_flaky.sh"; echo 2 > "$T/gh/attempt"; echo failure > "$T/gh/rerun_conclusion"; worker kf7; commit "$T/kf7" kf7.txt 1
+refused "a run that was already rerun is never rerun again: red" 10 "$T/kf7"; out_has "already rerun"; check "no rerun" test "$(reran)" = 0
+kfcase "FAIL scripts/test_flaky.sh"; touch "$T/gh/rerun_refused"; worker kf8; commit "$T/kf8" kf8.txt 1
+refused "a refused rerun is red" 10 "$T/kf8"; out_has "refused"
+kfcase "FAIL scripts/test_unlisted_by_main.sh"; worker kf9; commit "$T/kf9" scripts/known-flaky.txt "test_unlisted_by_main.sh me 2099-01-01 1"
+refused "a change cannot list its own flaky test: the list is main's" 10 "$T/kf9"; check "no rerun" test "$(reran)" = 0
+kfcase "FAIL scripts/test_flaky.sh"; worker kf10; commit "$T/kf10" kf10.txt 1 "fix(tests): repair"
+lands "a fix lands on a red main without a rerun being needed" "$T/kf10" LAND_FIX_FOR_RED=1
+
+echo "## Tier 2 freeze, read from the CI runs"
+rm -f "$T/gh/failedlog" "$T/gh/attempt" "$T/gh/rerun_refused" "$T/gh/rerun_conclusion"
+set_conf 'LAND_TEST_CMD=true' 'LAND_TIER2_JOB=tier2' 'LAND_FIX_PATHS=tests/*'
+gh_mode t2red; worker tf1; commit "$T/tf1" tf1.txt 1
+refused "Tier 1 green but Tier 2 failed: landing is frozen (14)" 14 "$T/tf1"; out_has "FROZEN"; check "the marker names land-red as its owner and has an expiry" bash -c "grep -q '^owner=land-red' '$T/tf1/.git/vbm-land/freeze' && grep -q '^expires=[0-9]' '$T/tf1/.git/vbm-land/freeze'"
+worker tf2; commit "$T/tf2" tests/tier2-fix.sh 1 "fix(tests): repair"
+lands "a fix lands on the frozen main" "$T/tf2"; check "and lifted the freeze" test ! -e "$T/tf2/.git/vbm-land/freeze"
+gh_mode t2red; printf 'fatal: unable to access https://x/: Could not resolve host\n' > "$T/gh/failedlog"; worker tf3; commit "$T/tf3" tf3.txt 1
+lands "a Tier 2 failure that is the infrastructure's does not freeze" "$T/tf3"; out_has "not freezing"; rm -f "$T/gh/failedlog"
+gh_mode t2red; worker tf4; commit "$T/tf4" tf4.txt 1; ( cd "$T/tf4" && "$L" >/dev/null 2>&1 ) || true
+gh_mode ok; lands "a green Tier 2 lifts the freeze that land-red set" "$T/tf4"; out_has "freeze is lifted"
+worker tf5; commit "$T/tf5" tf5.txt 1; ( cd "$T/tf5" && "$L" --freeze "person" --owner alice --for 1h >/dev/null )
+refused "a green Tier 2 never lifts a freeze a person set" 14 "$T/tf5"
+set_conf 'LAND_TEST_CMD=true'
+
 echo "## never force, never prune"
 check "no force push in the lander" bash -c "! grep -nE -- '--force|push +-f|push[^#]*\\+(refs|\\\$)' '$L' | grep -v 'no force\\|never'"
 check "no worktree prune in the lander" bash -c "! grep -n 'worktree prune' '$L' '$ROOT/bin/land-red' | grep -v ':[0-9]*:[^#]*#'"

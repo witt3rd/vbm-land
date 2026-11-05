@@ -4,6 +4,7 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 ## Unreleased
+- `land-red`: known-flaky rerun (`LAND_KNOWN_FLAKY`, `LAND_FLAKY_RERUN_WAIT`; the list is main's) and the Tier 2 freeze read from the CI runs (`LAND_TIER2_JOB`; lifts on green, never lifts a person's freeze). `land-direct`: `--group` (size budget waived for a coordinator's entries) and `LAND_LOCK_HELD=1` (the caller holds the lock; not inherited by Tier 1 or the hooks). Upgrade notes: new keys, all optional; the lock file for a coordinator is `<git common dir>/vbm-land/lock`.
 - The `update-vbm-land` skill describes the pull flow: the behind report, `--diff`, `--land`, `LAND_AUTO_UPDATE`, signed releases. Convention: a release that adds or changes an interface item (key, exit code, hook, marker) carries an "Upgrade notes" line in its CHANGELOG section; `land-update --diff` prints those sections.
 - `LAND_AUTO_UPDATE=none|patch|minor` (new key, default none) and `land-update --auto`: the scheduled workflow lands the newest release of the allowed class through the repository's own lander; a major never; the workflow template uses it.
 - `land-update --land`: verify, stage, commit and land the update through the repository's own lander from a pristine clone of the base branch; stops on the first refusal.

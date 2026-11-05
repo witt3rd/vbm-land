@@ -31,11 +31,13 @@ jq_expr=; args=("$@"); for ((i=0;i<${#args[@]};i++)); do [ "${args[i]}" = --jq ]
 emit() { if [ -n "$jq_expr" ]; then jq -r "$jq_expr"; else cat; fi; }
 t1=success t2=$(cat "$d/tier2" 2>/dev/null || echo success) ev=push
 case $mode in red|infra|dispatch) t1=failure;; running) t1=null;; t2red) t2=failure;; esac
+[ "$(cat "$d/attempt" 2>/dev/null)" != 2 ] || [ "$t1" != failure ] || t1=$(cat "$d/rerun_conclusion" 2>/dev/null || echo success)   # the rerun's result (default green)
 [ "$mode" != dispatch ] || ev=workflow_dispatch
 q() { [ "$1" = null ] && echo null || echo "\"$1\""; }
 case "$1 $2" in
   "run list") [ "$mode" = none ] && { echo '[]' | emit; exit 0; }
      echo "[{\"databaseId\":100,\"headSha\":\"deadbeefdeadbeef\",\"displayTitle\":\"some title\",\"event\":\"$ev\",\"status\":\"completed\"}]" | emit;;
+  "run rerun") [ -e "$d/rerun_refused" ] && exit 1; echo 2 > "$d/attempt"; exit 0;;
   "run view") case "$*" in
       *--log-failed*) if [ -r "$d/failedlog" ]; then cat "$d/failedlog"; elif [ "$mode" = infra ]; then echo "fatal: unable to access 'https://x/': Could not resolve host"; else echo "FAIL tests/test_x.sh: real failure"; fi;;
       *--json\ attempt*) echo '{"attempt":'"$(cat "$d/attempt" 2>/dev/null || echo 1)"'}' | emit;;
