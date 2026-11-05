@@ -2,7 +2,7 @@
 # install [--source SRC] [--target DIR] <tag|commit>
 #
 # Vendors a PINNED copy of vbm-land into a repository: scripts/land/ (the tool, read-only by contract), scripts/land/PIN, the agent skills in .agents/skills/<name>/SKILL.md (drift-checked too), the entry script scripts/land-direct (three lines that exec it, so "land with
-# scripts/land-direct" stays true), a starter scripts/land.conf and the scheduled check .github/workflows/vbm-land-update.yml, each only when absent (they are yours afterwards). It commits nothing: review the diff and commit
+# scripts/land-direct" stays true), a starter scripts/land.conf and the scheduled check .github/workflows/vbm-land-update.yml, each only on the FIRST install and only when absent (they are yours afterwards: delete the workflow if your repository cannot use it and no update brings it back). It commits nothing: review the diff and commit
 # it as one change (`chore(land): vbm-land <version>`). Re-running it with another ref is the update.
 #
 #   SRC     where the source repository is: OWNER/NAME (GitHub, through `gh`, so a private repository works), or anything git can clone (URL, path).
@@ -56,6 +56,7 @@ done < "$tmp/MANIFEST.sha256"
 version=v$(cat "$tmp/tree/VERSION")
 vpath() { case "$1" in skills/*) echo ".agents/$1";; *) echo "scripts/land/$1";; esac; }
 [ ! -r "$target/scripts/land/MANIFEST.sha256" ] || while read -r _ f; do case $f in skills/*) rm -f "$target/$(vpath "$f")";; esac; done < "$target/scripts/land/MANIFEST.sha256"   # skills the new release dropped
+first=0; [ -e "$target/scripts/land/PIN" ] || first=1   # the repository's own files are created by the FIRST install only
 rm -rf "$target/scripts/land"; mkdir -p "$target/scripts/land"
 while read -r h f; do
   [ -n "$f" ] || continue; v=$(vpath "$f"); mkdir -p "$target/$(dirname "$v")"; cp "$tmp/tree/$f" "$target/$v"
@@ -65,9 +66,9 @@ cp "$tmp/MANIFEST.sha256" "$target/scripts/land/MANIFEST.sha256"
 printf 'source=%s\nversion=%s\ncommit=%s\nmanifest_sha256=%s\nsignature=%s\n' "$src" "$version" "$commit" "$(sha256sum < "$tmp/MANIFEST.sha256" | cut -d' ' -f1)" "$([ "$vrc" = 0 ] && echo verified || echo unverified)" > "$target/scripts/land/PIN"
 [ -z "$signers_arg" ] || [ -e "$target/scripts/land.signers" ] || cp "$signers_arg" "$target/scripts/land.signers"
 created=
-if [ ! -e "$target/scripts/land-direct" ]; then cp "$tmp/tree/templates/land-direct-stub" "$target/scripts/land-direct"; chmod +x "$target/scripts/land-direct"; created="$created and the entry script scripts/land-direct"; fi
-if [ ! -e "$target/.github/workflows/vbm-land-update.yml" ]; then mkdir -p "$target/.github/workflows"; cp "$tmp/tree/templates/vbm-land-update.yml" "$target/.github/workflows/vbm-land-update.yml"; created="$created and the scheduled check .github/workflows/vbm-land-update.yml"; fi
-if [ ! -e "$target/scripts/land.conf" ]; then cp "$tmp/tree/templates/land.conf.example" "$target/scripts/land.conf"; created="$created and a starter scripts/land.conf (edit it: at least LAND_TEST_CMD or LAND_GATES_CMD)"; fi
+if [ "$first" = 1 ] && [ ! -e "$target/scripts/land-direct" ]; then cp "$tmp/tree/templates/land-direct-stub" "$target/scripts/land-direct"; chmod +x "$target/scripts/land-direct"; created="$created and the entry script scripts/land-direct"; fi
+if [ "$first" = 1 ] && [ ! -e "$target/.github/workflows/vbm-land-update.yml" ]; then mkdir -p "$target/.github/workflows"; cp "$tmp/tree/templates/vbm-land-update.yml" "$target/.github/workflows/vbm-land-update.yml"; created="$created and the scheduled check .github/workflows/vbm-land-update.yml"; fi
+if [ "$first" = 1 ] && [ ! -e "$target/scripts/land.conf" ]; then cp "$tmp/tree/templates/land.conf.example" "$target/scripts/land.conf"; created="$created and a starter scripts/land.conf (edit it: at least LAND_TEST_CMD or LAND_GATES_CMD)"; fi
 "$target/scripts/land/bin/land-check" --root "$target" >/dev/null || { echo "install: the installed copy fails its own drift check" >&2; exit 1; }
 echo "install: $vmsg"
 echo "install: vbm-land $version ($commit) vendored into $target/scripts/land$created."

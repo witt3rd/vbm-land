@@ -114,6 +114,8 @@ rm -rf "$T/d"; mkdir -p "$T/d"; expect_exit "a repository without a pin is exit 
 check "install wrote the scheduled workflow (weekly, dispatch, read-only, a separate file from the gate)" bash -c "f='$T/c1/.github/workflows/vbm-land-update.yml'; grep -q 'schedule:' \$f && grep -q 'workflow_dispatch' \$f && grep -q 'contents: read' \$f && grep -q 'land-update --auto' \$f && grep -q 'land-check --upstream' \$f"
 echo '# mine' >> "$T/c1/.github/workflows/vbm-land-update.yml"; "$S/install" --source "$S" --target "$T/c1" v1.0.0 >/dev/null
 check "re-installing never overwrites the repository's own workflow" grep -q '^# mine' "$T/c1/.github/workflows/vbm-land-update.yml"
+rm "$T/c1/.github/workflows/vbm-land-update.yml"; "$S/install" --source "$S" --target "$T/c1" v1.0.0 >/dev/null
+check "an update never brings back a workflow the repository deleted (the repository's own files are made by the first install only)" test ! -e "$T/c1/.github/workflows/vbm-land-update.yml"
 "$S/install" --source "$S" --target "$T/c1" v1.1.0 >/dev/null
 
 echo "## land-update --land: the whole update through the repository's own lander"

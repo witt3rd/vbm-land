@@ -3,6 +3,9 @@
 Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last line, the hook names and the marker file names.
 Additive changes to it are minor releases; anything else is major.
 
+## Unreleased
+- `install` creates the repository's own files (entry script, `land.conf`, the scheduled workflow) on the FIRST install only; an update never brings back a file the repository removed. Upgrade notes: delete `.github/workflows/vbm-land-update.yml` if a repository cannot use it (for example one that allows no workflow secrets).
+
 ## 0.2.0
 - First signed release (key and rotation: docs/signing.md; `scripts/land.signers` is the maintainer's public key).
 - `land-red`: known-flaky rerun (`LAND_KNOWN_FLAKY`, `LAND_FLAKY_RERUN_WAIT`; the list is main's) and the Tier 2 freeze read from the CI runs (`LAND_TIER2_JOB`; lifts on green, never lifts a person's freeze). `land-direct`: `--group` (size budget waived for a coordinator's entries) and `LAND_LOCK_HELD=1` (the caller holds the lock; not inherited by Tier 1 or the hooks). Upgrade notes: new keys, all optional; the lock file for a coordinator is `<git common dir>/vbm-land/lock`.
