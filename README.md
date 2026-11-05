@@ -1,10 +1,48 @@
 # vbm-land
 
-A small, language-neutral tool for landing changes **directly on the main branch** of a repository that only your own agents (or you) work in: one lander, a mechanical gate, a single definition of "main is red", and a hold switch. Plain bash, git and `gh`. Nothing in it knows what language your repository is written in.
+A small, language-neutral tool for landing changes **directly on the main branch** of a repository that only you and your own agents work in: one lander, a mechanical gate, a single definition of "main is red", and a hold switch. Plain bash, git and `gh`. Nothing in it knows what language your repository is written in.
 
-> **Status: early (0.2.0).** The lander, the red check, pinned vendoring with a drift check, and the test suite exist ([6.1](#61-what-is-here-today)). The watchdog, the known-flaky list and group landing are not built yet.
+It is a tool, not a verified library: it is not scored by the [VBM](https://github.com/witt3rd/vbm) scorecard (which measures proofs), and its own assurance is its test suite, including a negative test for every refusal and a mutation self-test that cuts each guard out in turn ([6.1](#61-what-is-here-today)).
 
-The rest of this file is the landing guide: the policy first, then the tool.
+> **Status: early (0.3.x), used in production by its author's own repositories.** The lander, the red check, the known-flaky rerun, the Tier 2 freeze, pinned vendoring with a drift check, signed releases, gate-edit approvals and the test suite exist. The revert-first watchdog and group landing are not built yet ([6.1](#61-what-is-here-today)). The interface (configuration keys, exit codes, the JSON last line, hook names, marker names) is versioned: additive changes are minor releases, anything else is major ([6.6](#66-installing-it-into-a-repository-a-pinned-vendored-copy)).
+
+**Who it is for.** A repository whose only writers are you and agents you control, whose main branch is not deployed, and whose fast gate runs in about a minute. **Who it is not for:** repositories with outside contributors, or where a merge to main is automatically a production change ([3](#3-choosing-a-mechanism-is-this-tool-for-your-repository)). It does not defend against an adversary with write access ([6.5](#65-trust-model)).
+
+## Quick start
+
+Requirements: bash 4+, git 2.30+, util-linux `flock`, `timeout`, `gh` (only for the red check, which reads your CI), and `jq` for the tests. Linux only for now.
+
+```
+# 1. Get a release and check its signature (the maintainer's public key is scripts/land.signers; its fingerprint is in docs/signing.md)
+git clone https://github.com/witt3rd/vbm-land && cd vbm-land
+TAG=$(git tag --sort=-v:refname | head -n1)      # or pick a version
+git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=scripts/land.signers verify-tag "$TAG"
+
+# 2. Vendor that release into YOUR repository (writes files, commits nothing)
+./install --source https://github.com/witt3rd/vbm-land --target /path/to/your/repo --signers scripts/land.signers "$TAG"
+
+# 3. In your repository: review, commit, land
+cd /path/to/your/repo && git add -A && git commit -m "chore(land): vbm-land ${TAG#v}"
+scripts/land/bin/land-check            # the drift check: the vendored copy is exactly the release
+scripts/land-direct --dry-run          # everything except the push
+```
+
+Edit the starter `scripts/land.conf` (at least `LAND_TEST_CMD`, your Tier 1 command) before the first landing. The whole sequence for an existing repository is in [Adopting it in an existing repository](#adopting-it-in-an-existing-repository).
+
+## The discipline on one page
+
+1. **Land small changes directly on main**, within minutes, through one lander. No pull requests, no queue of reviewers: a mechanical gate decides.
+2. **Tier 1 gates landing** (target under 60 s) and runs on the exact combination that will land: your change rebased on current main. **Tier 2 never gates landing**; it runs after the merge and can only start the watchdog.
+3. **Main is red when the Tier 1 job of its latest push failed.** One definition, in one place. A failure of the infrastructure (a runner that never started, a billing limit) is not red; not knowing is not green either: the lander refuses.
+4. **While main is red or frozen only a fix or a revert lands**, recognised by what it touches (tests and CI paths, nothing protected), not by its title.
+5. **New behaviour lands switched off.** Landing is not release.
+6. **Small means small**: 150 lines of production code and 45 minutes without a passing build are the defaults. Over either, cut the work.
+7. **The lander never forces.** It pushes a plain fast-forward, under a lock with a lease, after up to three rebase-and-retest tries. A hold marker stops landings at any moment.
+8. **The rules come from main, not from your change**: `land.conf` and the hooks are read from `origin/main`, so a commit cannot loosen the rules it is judged by. Gate-defining files are protected and a gate edit that removes or changes a line needs a recorded approval.
+9. **Nothing is deleted before it is archived**: a diff and a one-line reason first.
+10. **Escalate only** money, data loss, secrets, publishing and harm to a third party. Decide the rest, and log it.
+
+Sections 1 to 5 below are this page in full; section 6 is the tool.
 
 ## 1. The one idea
 
@@ -182,12 +220,13 @@ The tool is for a repository whose only writers are cooperating agents and peopl
 
 A repository does not depend on this one at run time. It **vendors a pinned copy** and commits it: a worktree is self-contained and offline, the lander of a landing is the one in the tree being landed, and the history shows exactly which release landed what. (Rejected: a git submodule, which breaks fresh and detached worktrees; a language package manager, which is not language-neutral; fetching the tool when landing, which would let the lander change under a landing.)
 
-One command, run in the target repository (`SRC` is `OWNER/NAME` on GitHub, read through `gh`, so a private repository works; or any git URL or path):
+One command, run in the target repository (`SRC` is a git URL or path, or `OWNER/NAME` on GitHub, read through `gh`, which also reaches a private source):
 
 ```
-gh api repos/OWNER/vbm-land/contents/install?ref=<tag> -H 'Accept: application/vnd.github.raw' | bash -s -- --source OWNER/vbm-land <tag>
-# or, from a checkout of this repository:
-/path/to/vbm-land/install --source /path/to/vbm-land <tag-or-commit>
+# from a checkout of this repository (see the Quick start), or any other source:
+/path/to/vbm-land/install --source https://github.com/witt3rd/vbm-land --signers /path/to/vbm-land/scripts/land.signers <tag>
+# through gh, without a checkout:
+gh api repos/witt3rd/vbm-land/contents/install?ref=<tag> -H 'Accept: application/vnd.github.raw' | bash -s -- --source witt3rd/vbm-land <tag>
 ```
 
 It writes, and commits nothing (review the diff, commit it as `chore(land): vbm-land <version>`, land it like any other change):
@@ -219,6 +258,38 @@ A release is a tag whose commit has a fresh `MANIFEST.sha256` (`bin/land-manifes
 
 The lander **never force-pushes**: it pushes a plain fast-forward (`git push <remote> <sha>:<branch>`), so a remote that refuses non-fast-forward updates changes nothing about how it works, and a test and a mutation self-test keep it that way. Make the remote say the same: apply `templates/ruleset-protect-main.json` to the default branch (deletion and non-fast-forward updates refused; **no required pull request and no bypass list**, so a fast-forward landing still works) and `templates/ruleset-protect-release-tags.json` to release tags (no deletion, no update: a pin by tag cannot be moved). `templates/PUBLIC-REPO-SETTINGS.md` is the checklist for a repository that is, or is about to be, public (approval of fork pull-request workflows for all outside contributors, a read-only workflow token that cannot approve pull requests, private vulnerability reporting, secret scanning with push protection, deleting merged branches). `bin/land-audit` warns when a repository's default branch lacks the branch protection (asked of GitHub through `gh`; offline it says "unknown"). `skills/new-repo/SKILL.md` is the whole sequence for a new repository.
 
+## Adopting it in an existing repository
+
+Preconditions (all three): only you and your agents write to it; main is not deployed; Tier 1 can be about a minute or less. If not, keep pull requests.
+
+1. **Define Tier 1**: one command that builds, lints and runs the fast tests. Time it. Over a minute: move the slow checks to Tier 2 first.
+2. **CI shape**: Tier 1 on `push` to main only, in a job named `tier1`; Tier 2 on a schedule (`templates/ci.yml.example`). Remove the `pull_request` trigger and any merge-queue workflow.
+3. **Vendor a signed release** (Quick start, in a fresh worktree off `origin/main`).
+4. **Configure `scripts/land.conf`**: `LAND_TEST_CMD` or `LAND_GATES_CMD`, `LAND_PROTECTED` (gate-defining files), `LAND_FIX_PATHS` (tests and CI), `LAND_PROD_PATHS`. Start with `LAND_RED_MODE=push` if CI already runs on push, else `off`.
+5. **Agent instructions**: paste `templates/AGENTS-block.md` into your `AGENTS.md` and delete any "open a PR" text.
+6. **Land the adoption itself** with the new lander: `scripts/land/bin/land-check && git add -A && git commit -m 'chore(land): adopt vbm-land vX.Y.Z' && scripts/land-direct`, then read the push CI.
+7. **Retire the PR flow**: archive each open PR's diff and a reason, then close it.
+
+The same steps as an agent skill, with the do-not list: `skills/adopt-in-existing-repo/SKILL.md` (vendored into your repository with the tool). A repository created from scratch: `skills/new-repo/SKILL.md`.
+
+## Updating
+
+Pull only: a repository decides when it takes a release. `scripts/land/bin/land-update --check` reports `pinned X, latest Y, behind N (patch|minor|major)`; `--diff <tag>` verifies a release and shows what would change (files, diffs, the CHANGELOG entries since your pin, including "Upgrade notes"); `--land <tag>` verifies, stages, commits and lands the update through your own lander and your own gates. A scheduled workflow (`.github/workflows/vbm-land-update.yml`, installed with the tool) runs the drift check against the pinned commit and the check above; with `LAND_AUTO_UPDATE=patch|minor` it can land patch or minor releases itself, never a major. Design and rationale: [docs/update-propagation.md](docs/update-propagation.md).
+
+## Versions and signed tags
+
+Releases are annotated, ssh-signed tags `vX.Y.Z` made by `bin/land-release`. The tag message records the sha256 of `MANIFEST.sha256`, which lists every file a consumer vendors, so the signature covers the whole vendored tree. A consumer that holds `scripts/land.signers` makes `install` and `land-update` refuse anything that is not a signed tag from a listed signer. The key, its fingerprint (check it out of band), how to verify a tag by hand and how rotation works: [docs/signing.md](docs/signing.md). Each release has a section in [CHANGELOG.md](CHANGELOG.md); a release that adds or changes an interface item carries "Upgrade notes". Pins record the 40-hex commit, never only the tag.
+
+## Honest limits
+
+- **Not for adversaries.** A lander runs repository-supplied commands with your credentials; the protections (config and hooks read from main, the drift check, the independent push CI, gate-edit approvals) turn mistakes into mechanical failures. They do not stop an agent that holds landing rights and wants to cheat ([6.5](#65-trust-model); the approvals' limit is stated in [docs/gate-edit-approvals.md](docs/gate-edit-approvals.md)).
+- **Not built yet:** the revert-first watchdog (the freeze marker and its Tier 2 trigger exist; the revert does not), a batch coordinator (the lander has its half), a known-flaky list lint, a macOS lock fallback. Linux only.
+- **One writer population.** Pull requests are the right tool for outside contributors. This one is not, and a repository that adopts it should say so.
+- **The red check depends on your CI** being readable through `gh`; when it cannot be asked, landing stops rather than guessing.
+- **Early.** The interface is versioned, but 0.x: read the CHANGELOG before a minor update.
+- **Public history as published.** The history was published as it stood, not re-written: early commit messages carry internal task identifiers and the author's name ([docs/flip-record.md](docs/flip-record.md)).
+- **Security and conduct of contributions:** [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

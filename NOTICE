@@ -1,0 +1,5 @@
+vbm-land
+Copyright 2026 witt3rd and the vbm-land contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+It is plain bash and uses git, GitHub's gh command line and util-linux flock at run time; it bundles no third-party code.
