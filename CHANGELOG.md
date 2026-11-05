@@ -4,6 +4,7 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 ## Unreleased
+- Tests only (the vendored files are unchanged): the test runner requires ran-evidence from every test script (`ran: NAME: N cases`, N > 0, no SKIPPED line): a script that ran nothing no longer passes (docs/ran-evidence.md).
 - `install` creates the repository's own files (entry script, `land.conf`, the scheduled workflow) on the FIRST install only; an update never brings back a file the repository removed. Upgrade notes: delete `.github/workflows/vbm-land-update.yml` if a repository cannot use it (for example one that allows no workflow secrets).
 
 ## 0.2.0

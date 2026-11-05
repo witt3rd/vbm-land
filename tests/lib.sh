@@ -85,5 +85,7 @@ out_has() { grep -q -- "$1" "$T/out" && pass "output says: $1" || { fail "output
 json_last() { tail -n1 "$T/out"; }
 finish() {
   local p f; p=$(grep -c P "$RESULTS" 2>/dev/null || true); f=$(grep -c F "$RESULTS" 2>/dev/null || true)
-  echo "== $(basename "$0"): ${p:-0} passed, ${f:-0} failed"; [ "${f:-0}" = 0 ] && [ "${p:-0}" -gt 0 ]
+  echo "== $(basename "$0"): ${p:-0} passed, ${f:-0} failed"
+  # RAN-EVIDENCE: the one line tests/run.sh reads, `ran: NAME: N cases` (N > 0). A script that ran no check prints none and fails: a refused tool, a skip or an early exit is a failure, never a pass.
+  [ "${f:-0}" = 0 ] && [ "${p:-0}" -gt 0 ] && echo "ran: $(basename "$0" .sh): ${p} cases"
 }
