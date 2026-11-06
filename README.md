@@ -159,7 +159,7 @@ A repository that lands with this tool has a `scripts/land.conf` (below) and tel
 bin/land-direct                       # land the local commits that are not on origin/main yet
 bin/land-direct --dry-run             # everything except the push
 bin/land-direct --check               # only the land-time checks (commit messages, size budget)
-bin/land-direct --group               # a batch coordinator's entries: the size budget is waived (it checked each one)
+bin/land-direct --group               # a batch coordinator's entries: the size budget is only a number anyway
 bin/land-direct --hold "reason"       # stop every landing in this clone (even one in flight, right before its push) ...
 bin/land-direct --release             # ... until released
 bin/land-direct --freeze "reason" --owner NAME --for 6h   # only fixes and true reverts land, until the expiry or --thaw

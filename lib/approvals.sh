@@ -124,6 +124,14 @@ ga_protected() {
   if [ ${#T[@]} -eq 0 ]; then echo "land-direct: protected set (list $list): none touched"; return 0; fi
   for p in "${T[@]}"; do if ! ga_valid_path "$p"; then bad="$bad $p"; fi; done
   if [ -n "$bad" ]; then ga_refuse "protected path(s) that no approval can name (not a plain repository path):$bad: refused."; return 0; fi
+  local -a HARD=() SOFT=(); local why; why=$(ga_reason "$wt" "$base")
+  for p in "${T[@]}"; do if ga_hard "$p" $extra; then HARD+=("$p"); else SOFT+=("$p"); fi; done
+  if [ ${#SOFT[@]} -gt 0 ]; then
+    if [ -n "$why" ]; then echo "land-direct: protected path(s) landed by the Protected: trailer (${SOFT[*]}): $why"
+    else ga_refuse "this landing touches protected path(s) (${SOFT[*]}) and no commit carries a 'Protected: <reason>' trailer: add one line saying why (no hash, no approval; the lander's own files and the protected list still need one)."; fi
+  fi
+  if [ ${#HARD[@]} -eq 0 ]; then return 0; fi
+  T=("${HARD[@]}")
   key=$(printf '%s\n' "${T[@]}" | LC_ALL=C sort -u | paste -sd,); IFS=, read -ra T <<<"$key"
   h=$(ga_hash "$wt" "$base" HEAD "${T[@]}" || true)
   if [ -n "$h" ] && grep -qxF -- "$key $h" "$used"; then echo "land-direct: protected set APPROVED: $key (${h:0:12}); the approval is consumed by this landing"; return 0; fi
@@ -131,6 +139,10 @@ ga_protected() {
 }
 
 ga_refuse() { echo "land-direct: $*" >&2; ga_refused=1; }
+# ga_reason WT BASE: the reason of the first `Protected: <reason>` trailer of the commits BASE..HEAD (empty when none). A protected path outside the lander's own files lands on this one conscious line, no hash.
+ga_reason() { git -C "$1" log --format=%B "$2..HEAD" | tr -d '\r' | sed -nE 's/^Protected: +(.*[^ ].*)$/\1/p' | sed -n 1p; }
+# ga_hard PATH EXTRA...: 0 when PATH is the lander's own: its vendored copy and entry script, any signing keys file, and EXTRA (its configuration, hooks directory and the protected-paths list). Only these still need an exact-hash approval.
+ga_hard() { local f=$1; shift; ga_prot_match "$f" scripts/land/ scripts/land-direct '*.signers' "$@"; }
 # ga_file_rules WT BASEREF AP DAYS STATE USEDOUT EXEMPT: the approval rules R1 to R3 for ONE approvals file AP (read from BASEREF; the landing's copy is only judged). Writes `SET HASH` of every approval the landing
 # consumes to USEDOUT. EXEMPT: the approvals files (a record may not name one).
 ga_file_rules() {
@@ -167,7 +179,7 @@ ga_file_rules() {
     [ "${fhash[$f]}" = "$h" ] || continue
     if ga_fresh "$d" "$days"; then
       printf '%s|%s|%s|%s\n' "$f" "$h" "$d" "$line" >> "$USED"; printf '%s %s\n' "$f" "$h" >> "$usedout"
-      grep -qxF -- "$f|$h|$d|$line" "$REM" || ga_refuse "the approval for $f (${h:0:12}) is consumed by this landing and its line is still in $ap: one-time approvals are removed in the landing that uses them (delete the line in this landing)."
+      grep -qxF -- "$f|$h|$d|$line" "$REM" || { printf '%s|%s\n' "$ap" "$line" >> "$state/ga-autoconsume"; echo "land-direct: the approval for $f (${h:0:12}) is consumed by this landing: the lander deletes its line from $ap"; }
     else ga_refuse "the approval for $f (${h:0:12}, dated $d) is stale (older than $days days): it approves nothing; a new approval commit comes first."
     fi
   done < "$B"
@@ -192,7 +204,7 @@ ga_file_rules() {
 ga_judge() {
   local wt=$1 base=$2 ap=$3 days=$4 globs=$5 state=$6 plist=${7:-} pap=${8:-} pextra=${9:-} f h g e ns del mode changed pused exempt=$3
   local U=$state/ga-used-ap.txt UP=$state/ga-used-pap.txt
-  ga_refused=0
+  ga_refused=0; : > "$state/ga-autoconsume"
   [ -z "$plist" ] || [ -n "$pap" ] || pap=$ap
   [ -z "$pap" ] || [ "$pap" = "$ap" ] || exempt="$ap $pap"
   ga_file_rules "$wt" "$base" "$ap" "$days" "$state" "$U" "$exempt"; cp "$U" "$state/approved-gate-edits.txt"; pused=$U
@@ -211,6 +223,7 @@ ga_judge() {
       [ "$del" != 0 ] || [ -n "$mode" ] || continue
       h=$(ga_hash "$wt" "$base" HEAD "$f" || true)
       if [ -n "$h" ] && grep -qxF -- "$f $h" "$U"; then echo "land-direct: gate edit APPROVED: $f (${h:0:12}) removes or changes lines; the approval is consumed by this landing"
+      elif [ -n "$(ga_reason "$wt" "$base")" ]; then echo "land-direct: gate edit by the Protected: trailer: $f removes or changes lines: $(ga_reason "$wt" "$base")"
       else
         ga_refuse "$f is a gate-defining file that may only GAIN lines (LAND_GATE_APPEND_ONLY) and this landing removes or changes some ($del removed${mode:+, mode changed}): refused unless an approval for exactly this diff is already on the base branch. The approval is a record in $ap, landed ALONE and announced to the judge BEFORE the edit; hash: $h (land-direct --print-gate-diff-hash $f)."
         git -C "$wt" diff -U0 --no-renames "$base" HEAD -- "$f" | grep -E '^-[^-]' | sed -n '1,6s/^/land-direct:   /p' >&2 || true

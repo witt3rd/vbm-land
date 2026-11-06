@@ -15,13 +15,13 @@ conf_defaults() {
   LAND_GATES_CMD=; LAND_TEST_CMD=               # Tier 1 = the gates command, then the test command, on the rebased combination (at least one is required)
   LAND_REGEN_CMD=; LAND_GEN_CMD=                # regenerate generated files: after a conflict in them / always after the rebase
   LAND_GENERATED_LIST=                          # path (in the repository) of a file listing generated paths, one per line, `#` comments
-  LAND_PROD_PATHS=; LAND_BUDGET_LINES=150       # production paths counted by the size budget (empty: no budget); a `Diff-Budget:` trailer waives it
+  LAND_PROD_PATHS=; LAND_BUDGET_LINES=150       # production paths counted by the size budget (empty: no budget); printed, never a refusal
   LAND_REQUIRE_TRAILERS=                        # trailer names every commit must carry, space separated (e.g. Task-ID)
   LAND_CONVENTIONAL=1                           # require `type(scope): summary` (or git's own `Revert "..."`)
   LAND_COMMIT_TYPES="feat fix docs chore refactor test perf build ci style revert"
   LAND_PROTECTED=; LAND_FIX_PATHS=              # shell patterns (* matches /): the protected set; the only paths a fix may touch to pass a freeze
   LAND_APPROVALS=scripts/gate-edit-approvals.txt; LAND_APPROVAL_DAYS=7   # the gate-edit approvals file (lib/approvals.sh; always on, always protected) and how many days an approval stays usable
-  LAND_PROTECTED_LIST=; LAND_PROTECTED_APPROVALS=   # protected-paths list (path, read from base): a landing that touches it needs a one-time approval of its exact net diff (lib/approvals.sh); empty = off. Its approvals file (default: LAND_APPROVALS)
+  LAND_PROTECTED_LIST=; LAND_PROTECTED_APPROVALS=   # protected-paths list (path, read from base): a landing that touches it needs a `Protected: <reason>` trailer, or a one-time approval of its exact net diff when it is one of the lander's own files (lib/approvals.sh); empty = off. Its approvals file (default: LAND_APPROVALS)
   LAND_GATE_APPEND_ONLY=                        # shell patterns: gate-defining files that may only GAIN lines; a removed or changed line needs an exact-diff approval
   LAND_HOOKS_DIR=scripts/land.d                 # repository-owned hooks (README, "Hooks")
   LAND_AUTO_UPDATE=none                          # none | patch | minor: what the scheduled workflow may update by itself (land-update --auto); a major release never

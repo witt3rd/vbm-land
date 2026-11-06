@@ -53,11 +53,9 @@ worker p1; record "$T/p1" gate.sh "$H" "drop line b: it is dead" "$today"; cm "$
 lands "the approval commit lands alone" "$T/p1"; out_has "APPROVAL COMMIT: announce to the judge before landing the edit"; out_has "protected set: TOUCHED ($AP)"
 check "the approval record is on main" remote_has "$AP"
 worker e1; drop_b "$T/e1"
-refused "the edit WITHOUT removing the approval line is refused: it must be consumed by its landing" "$T/e1"; out_has "its line is still in"
-drop_line "$T/e1" "^gate.sh | $H"; cm "$T/e1" "chore(approvals): consume the approval"
 seed_exec scripts/land.d/post-rebase $'#!/usr/bin/env bash\ncp "$LAND_GATE_APPROVED_FILE" "$APPROVED_COPY"'
 export APPROVED_COPY=$T/approved.copy
-lands "the edit lands with the approval removed in the same landing (consumed)" "$T/e1"; out_has "gate edit APPROVED"
+lands "the edit WITHOUT removing the approval line lands: the lander deletes the used line itself (consumed)" "$T/e1"; out_has "the lander deletes its line"; out_has "gate edit APPROVED"
 check "the edit is on main" bash -c "! git -C '$T/remote.git' show main:gate.sh | grep -qx b"
 check "the approval line is gone from main" bash -c "! git -C '$T/remote.git' show main:$AP | grep -q '^gate.sh'"
 check "the hooks were told which approvals this landing used (LAND_GATE_APPROVED_FILE)" grep -qx "gate.sh $H" "$APPROVED_COPY"
@@ -161,7 +159,7 @@ lands "(control) one commit, one line, only the approvals file: lands" "$T/o5"; 
 
 echo "## the judge fails closed"
 sandbox; conf; seed_gate; mkdir -p "$T/mut"; cp -r "$ROOT/bin" "$ROOT/lib" "$ROOT/VERSION" "$T/mut/"
-sed -i 's/^  ga_refused=0$/  ga_refused=0; false/' "$T/mut/lib/approvals.sh"
+sed -i 's/^  ga_refused=0;/  ga_refused=0; false;/' "$T/mut/lib/approvals.sh"
 check "(the crash is in the copy)" grep -q 'ga_refused=0; false' "$T/mut/lib/approvals.sh"
 worker k1; commit "$T/k1" z.txt 1
 ( cd "$T/k1" && "$T/mut/bin/land-direct" >"$T/out" 2>&1 ) && rc=0 || rc=$?

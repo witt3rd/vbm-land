@@ -5,6 +5,13 @@ Additive changes to it are minor releases; anything else is major.
 
 ## Unreleased
 
+## 0.6.0 (MINOR in the interface, a simplification: fewer refusals; nothing is added to what a repository must do)
+Upgrade notes:
+- **`Protected: <reason>` trailer.** A landing that touches a protected path (`LAND_PROTECTED_LIST`) or removes or changes a line of an append-only file (`LAND_GATE_APPEND_ONLY`) lands on one conscious trailer line in any of its commits, no hash and no approval. Without the trailer it is refused (exit 12) and says so. Only the lander's own files still need an exact-hash approval: `scripts/land/`, `scripts/land-direct`, any `*.signers`, the configuration, the hooks directory and the protected-paths list itself. `--print-gate-diff-hash @protected` prints the hash of those paths only.
+- **The diff budget is a number, never a refusal.** Over `LAND_BUDGET_LINES` the lander prints the count and lands; `Diff-Budget:` and `--group` are accepted and now only annotate the line.
+- **A used approval is deleted by the lander.** The landing that consumes an approval no longer has to delete its line: land-direct adds a `chore(approvals)` commit (carrying the Task-ID trailer) that removes it and judges the tree again. A landing that deletes it itself still lands.
+- **Every non-landing is recorded.** The metrics line (`metrics.jsonl`, appended, never overwritten) now carries `exit`, `step` (where it stopped), `reason` (the lander's own message) and `last_lines` (the last lines of a failing Tier 1).
+
 ## 0.5.0 (MAJOR: no lock, no CI reads in landing; exit 15, exit 10, `LAND_LOCK_HELD` and `bin/land-red` are removed)
 Upgrade notes (read before `land-update`; the landing contract changed):
 - **Exit `15` ("busy") and the result `busy` no longer exist.** The lander takes no lock: any number of landers run at once in one clone, each in its own run directory, and git's refusal of a push that is not a fast-forward is the only arbiter. A caller that retried on 15 can drop that branch. New exit `16` (result `moved`): the base moved faster than the lander could validate (`LAND_ATTEMPTS`, default 30; `LAND_DEADLINE`, default 900 s); nothing was pushed; run it again. A rerun after a crash that followed an accepted push exits 0, "already landed".

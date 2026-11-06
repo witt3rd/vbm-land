@@ -57,13 +57,15 @@ while [ $# -gt 0 ]; do case $1 in
 rev=${args[0]:-HEAD}
 
 hooks=; wt=; sha=; ncommits=; t1=; result=error; t0=$(date +%s); common=; state=; run=; extra_json=; tip0=; attempt=0; already=0; inherited=0; stage=; newfail=; hookcwd=
+reason=; step=start; lastlines=
+jesc() { awk 'BEGIN{ORS=""} {gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); gsub(/\t/,"\\t"); gsub(/\r/,""); if (NR>1) print "\\n"; print}'; }
 json_num() { [[ "${1:-}" =~ ^[0-9]+(\.[0-9]+)?$ ]] && printf '%s' "$1" || printf null; }
 json_str() { [[ "${1:-}" =~ ^[A-Za-z0-9._-]+$ ]] && printf '"%s"' "$1" || printf null; }
 onexit() {
   local c=$?
   [ -z "$op" ] || { run_cleanup "$c"; exit "$c"; }
   if [ -n "$state" ] && [ -d "$state" ]; then   # the measurements, one O_APPEND line each: landings per hour, commit-to-main time
-    printf '{"ts":%s,"result":"%s","commits":%s,"commit":%s,"attempts":%s,"inherited_red":%s,"tier1_s":%s,"total_s":%s}\n' "$(date +%s)" "$result" "$(json_num "$ncommits")" "$(json_str "$tip0")" "$(json_num "$([ "$attempt" = 0 ] || echo "$attempt")")" "$([ "$inherited" = 1 ] && echo true || echo false)" "$(json_num "$t1")" "$(( $(date +%s) - t0 ))" >> "${LAND_DIRECT_LOG:-$state/metrics.jsonl}" 2>/dev/null || true
+    printf '{"ts":%s,"result":"%s","commits":%s,"commit":%s,"attempts":%s,"inherited_red":%s,"tier1_s":%s,"total_s":%s,"exit":%s,"step":"%s","reason":"%s","last_lines":"%s"}\n' "$(date +%s)" "$result" "$(json_num "$ncommits")" "$(json_str "$tip0")" "$(json_num "$([ "$attempt" = 0 ] || echo "$attempt")")" "$([ "$inherited" = 1 ] && echo true || echo false)" "$(json_num "$t1")" "$(( $(date +%s) - t0 ))" "$c" "$step" "$(printf '%s\n' "$reason" | jesc)" "$(printf '%s\n' "$lastlines" | jesc)" >> "${LAND_DIRECT_LOG:-$state/metrics.jsonl}" 2>/dev/null || true
   fi
   run_hook on-run >/dev/null 2>&1 || true
   printf '{"sha":%s,"commits":%s,"tier1_seconds":%s,"result":"%s","exit":%s%s}\n' "$(json_str "$sha")" "$(json_num "$ncommits")" "$(json_num "$t1")" "$result" "$c" "$extra_json"
@@ -79,7 +81,7 @@ trap onexit EXIT
 # bounded SECS LABEL CMD...: the command under `timeout --kill-after=30`; over the bound it is killed and one plain line says which step and how long. Returns its exit code.
 bounded() { local s=$1 label=$2 rc=0; shift 2; timeout --kill-after=30 "$s" "$@" || rc=$?
   if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then echo "land-direct: TIMED OUT: $label ran past ${s}s and was killed (exit $rc)" >&2; fi; return "$rc"; }
-stop() { local code=$1; result=$2; shift 2; echo "land-direct: $*" >&2; exit "$code"; }
+stop() { local code=$1; result=$2; shift 2; reason="$*"; echo "land-direct: $*" >&2; exit "$code"; }
 die() { stop 1 error "$*"; }
 badinput() { echo "land-direct: $*" >&2; exit 2; }
 
@@ -130,7 +132,7 @@ remote=origin; base=$(git -C "$top" symbolic-ref -q --short "refs/remotes/$remot
 [ -n "$base" ] || base=$(git -C "$top" ls-remote --symref "$remote" HEAD 2>/dev/null | sed -n 's|^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$|\1|p' | sed -n 1p || true)
 [ -n "$base" ] || base=main
 git -C "$top" remote get-url "$remote" >/dev/null 2>&1 || badinput "no remote named $remote"
-fetch_base "${o_gt:-$LAND_GIT_TIMEOUT}" "$top" || die "cannot fetch $remote $base"
+step=fetch; fetch_base "${o_gt:-$LAND_GIT_TIMEOUT}" "$top" || die "cannot fetch $remote $base"
 if [ -n "$o_conf" ] && [ -r "$o_conf" ]; then conf_parse "$o_conf" < "$o_conf" || exit 2; confsrc=$o_conf
 elif git -C "$top" cat-file -e "$remote/$base:$confpath" 2>/dev/null; then conf_parse "$remote/$base:$confpath" < <(git -C "$top" show "$remote/$base:$confpath") || exit 2; confsrc="$remote/$base:$confpath"
 elif [ -r "$top/$confpath" ]; then conf_parse "$confpath" < "$top/$confpath" || exit 2; confsrc="$confpath (working tree: $base has no $confpath yet)"
@@ -158,7 +160,8 @@ if [ "$op" = print ]; then   # the canonical diff of one file or one file-set, f
     [ -n "$LAND_PROTECTED_LIST" ] || badinput "@protected: this repository sets no LAND_PROTECTED_LIST"
     ga_protected_touched "$top" "$remote/$base" "$pmb" "$pt" "$LAND_PROTECTED_LIST" "$prot_extra" "$prot_exempt" "$run" >"$run/print-touched"
     [ -z "$ga_ptfail" ] || badinput "$ga_ptfail"
-    pfile=$(LC_ALL=C sort -u "$run/print-touched" | paste -sd,); [ -n "$pfile" ] || badinput "no protected path differs between the merge base with $remote/$base and ${args[0]:-HEAD}: nothing to approve"
+    : > "$run/print-hard"; while IFS= read -r f; do ! ga_hard "$f" $prot_extra || printf '%s\n' "$f" >> "$run/print-hard"; done < "$run/print-touched"   # only the lander's own files still take an approval
+    pfile=$(LC_ALL=C sort -u "$run/print-hard" | paste -sd,); [ -n "$pfile" ] || badinput "no approval-bound path (the lander's own files, its protected list, signing keys) differs between the merge base with $remote/$base and ${args[0]:-HEAD}: nothing to approve"
   fi
   IFS=, read -ra pset <<<"$pfile"; [ ${#pset[@]} -gt 0 ] || badinput "no file given"
   for f in "${pset[@]}"; do ga_valid_path "$f" || badinput "'$f' is not a plain repository path"; done
@@ -199,7 +202,7 @@ commit_is_fix() {   # a fix for a red main: a fix(ci)/fix(tests)/revert subject 
   done
   return 0
 }
-budget=; allfix=1
+budget=; allfix=1; step=land-time-checks
 for c in $commits; do
   subj=$(git -C "$top" log -1 --format=%s "$c"); body=$(git -C "$top" log -1 --format=%B "$c" | tr -d '\r')
   if [ "$LAND_CONVENTIONAL" = 1 ]; then grep -qE "$conv_re" <<<"$subj" || die "commit ${c:0:12}: the subject is not a Conventional Commit 'type(scope): summary' (types: $LAND_COMMIT_TYPES): '$subj'"; fi
@@ -214,9 +217,9 @@ prod=0
 if [ -n "$LAND_PROD_PATHS" ] && [ "$LAND_BUDGET_LINES" -gt 0 ]; then
   read -ra pp <<<"$LAND_PROD_PATHS"
   prod=$(git -C "$top" diff --numstat "$remote/$base...$tip0" -- "${pp[@]}" | awk -v g="$gen" 'BEGIN{n=split(g,a,"\n"); for(i=1;i<=n;i++) x[a[i]]=1} !($3 in x) && $1!="-" {t+=$1+$2} END{print t+0}')
-  if [ "$prod" -gt "$LAND_BUDGET_LINES" ] && [ -z "$budget" ] && [ "$group" = 0 ]; then die "$prod production lines (${LAND_PROD_PATHS}, not generated) exceed the $LAND_BUDGET_LINES-line budget and no commit carries a 'Diff-Budget: <decomposition note>' trailer; not landing."; fi
+  if [ "$prod" -gt "$LAND_BUDGET_LINES" ] && [ -z "$budget" ] && [ "$group" = 0 ]; then echo "land-direct: note: $prod production lines (${LAND_PROD_PATHS}, not generated) are over the $LAND_BUDGET_LINES-line budget (a number, not a refusal; a 'Diff-Budget: <note>' trailer says why)" >&2; fi
 fi
-echo "land-direct: $ncommits commit(s); config $confsrc$([ "$LAND_BUDGET_LINES" = 0 ] || [ -z "$LAND_PROD_PATHS" ] || echo "; diff budget: $prod production lines (budget $LAND_BUDGET_LINES$([ "$prod" -le "$LAND_BUDGET_LINES" ] || echo ", waived: ${budget:-by --group: the caller checked each entry}"))")"
+echo "land-direct: $ncommits commit(s); config $confsrc$([ "$LAND_BUDGET_LINES" = 0 ] || [ -z "$LAND_PROD_PATHS" ] || echo "; diff budget: $prod production lines (budget $LAND_BUDGET_LINES$([ "$prod" -le "$LAND_BUDGET_LINES" ] || echo ", over: ${budget:-no Diff-Budget note}"))")"
 ga_early "$top" "$commits" "$LAND_APPROVALS" && { [ "$pap" = "$LAND_APPROVALS" ] || [ -z "$LAND_PROTECTED_LIST" ] || ga_early "$top" "$commits" "$pap"; } || stop 12 refused "a gate-edit approval lands alone (see above); not landing."
 [ "$checkonly" = 0 ] || { result=checked; echo "land-direct: --check: the land-time checks pass; nothing rebased, tested or pushed"; exit 0; }
 first_trailer=${LAND_REQUIRE_TRAILERS%% *}; task=
@@ -268,7 +271,7 @@ while :; do
   fetch_base "$gt" "$wt" || die "cannot fetch $remote $base (timed out or failed)"
   bsha=$(g rev-parse --verify "$remote/$base^{commit}")   # the base of THIS attempt, pinned: other landers of the clone move the shared $remote/$base ref under us
   g reset -q --hard; g clean -fdq; g checkout -q --detach "$tip0"; regenned=0
-  run_hook pre-rebase || stop 12 refused "the pre-rebase hook refused this change"
+  step=rebase; run_hook pre-rebase || stop 12 refused "the pre-rebase hook refused this change"
   if ! g rebase -q "$bsha" >/dev/null 2>&1; then
     while [ -d "$(g rev-parse --path-format=absolute --git-path rebase-merge)" ] || [ -d "$(g rev-parse --path-format=absolute --git-path rebase-apply)" ]; do
       conflicted=$(g diff --name-only --diff-filter=U); other=$(grep -vxFf <(printf '%s\n' "$gen") <<<"$conflicted" || true)
@@ -296,30 +299,37 @@ while :; do
   export LAND_PROTECTED_TOUCHED=${prot_hit# }
   [ -z "$prot_hit" ] && echo "land-direct: protected set: none touched" || echo "land-direct: protected set: TOUCHED ($LAND_PROTECTED_TOUCHED): allowed, every gate must pass"
   export LAND_GATE_APPROVED_FILE=$run/approved-gate-edits.txt   # the approvals this landing consumes (`FILE HASH` per line): a repository's own judge may accept those files' removed lines
-  ga_judge_run "$wt" "$bsha" "$LAND_APPROVALS" "$LAND_APPROVAL_DAYS" "$LAND_GATE_APPEND_ONLY" "$run" "$LAND_PROTECTED_LIST" "$pap" "$prot_extra" || stop 12 refused "the gate-edit judge refused this change (approvals: docs/gate-edit-approvals.md; see above)"
-  run_hook post-rebase || stop 12 refused "the post-rebase hook refused this change (protected set / gate checks; see above)"
+  step=gate-edit-judge; ga_judge_run "$wt" "$bsha" "$LAND_APPROVALS" "$LAND_APPROVAL_DAYS" "$LAND_GATE_APPEND_ONLY" "$run" "$LAND_PROTECTED_LIST" "$pap" "$prot_extra" || stop 12 refused "the gate-edit judge refused this change (approvals: docs/gate-edit-approvals.md; see above)"
+  step=post-rebase-hook; run_hook post-rebase || stop 12 refused "the post-rebase hook refused this change (protected set / gate checks; see above)"
   if [ -x "$wt/scripts/land/bin/land-check" ] && [ -e "$wt/scripts/land/PIN" ]; then   # a vendored copy of this tool: it must still be what its pin says
     rc=0; (cd "$wt" && bounded "$st" "vendored-copy drift check" scripts/land/bin/land-check) >&2 || rc=$?
     [ "$rc" = 0 ] || stop 12 refused "the vendored copy of this tool under scripts/land/ differs from its pin (edit the source repository, not the copy); not landing."
   fi
   export LAND_ATTEMPT=$attempt LAND_PREV_BASE=$prev; ts=$(date +%s)
   for stage in gates tests; do
-    t1stage "$stage" "$wt" "$run/tier1.$stage.log" || {
-      inherited_red "$stage" || { tail -15 "$run/tier1.$stage.log" >&2; stop 13 tier1 "Tier 1 ($stage) fails on the rebased commits${newfail:+ (a failure $base does not have: $newfail)} (log: $run/tier1.$stage.log); nothing lands."; }
+    step=tier1-$stage; t1stage "$stage" "$wt" "$run/tier1.$stage.log" || {
+      inherited_red "$stage" || { tail -15 "$run/tier1.$stage.log" >&2; lastlines=$(tail -5 "$run/tier1.$stage.log"); stop 13 tier1 "Tier 1 ($stage) fails on the rebased commits${newfail:+ (a failure $base does not have: $newfail)} (log: $run/tier1.$stage.log); nothing lands."; }
       inherited=1; echo "land-direct: Tier 1 ($stage) fails, but only with failures $base already has (inherited red: the watchdog's, not yours); landing"; }
   done
   t1=$(( $(date +%s) - ts )); prev=$bsha
-  run_hook post-tier1 || stop 12 refused "the post-tier1 hook refused this change (a gate that judges the tree after Tier 1, such as an attack suite; see above)"
+  step=post-tier1-hook; run_hook post-tier1 || stop 12 refused "the post-tier1 hook refused this change (a gate that judges the tree after Tier 1, such as an attack suite; see above)"
   # Tier 1 may render generated files: dirty only in generated paths = they were stale: commit them as a commit of the lander (carrying the tip's trailers)
   dirty=$(g status --porcelain | sed 's/^...//'); strays=$(grep -vxFf <(printf '%s\n' "$gen") <<<"$dirty" || true)
   [ -z "$strays" ] || stop 13 tier1 "Tier 1 left changes outside the generated paths: $(echo $strays); not landing."
+  step=commit-regenerated
   if [ -n "$dirty" ]; then
     trailers=; for t in $LAND_REQUIRE_TRAILERS; do trailers="$trailers$(g log -1 --format=%B "$tip0" | sed -n "s/^$t: *//p" | sed -n 1p | sed "s/^/$t: /")"$'\n'; done
     g add -A; g commit -qm "chore: regenerate generated files after rebase onto $base" -m "Generated by land-direct." ${trailers:+-m "${trailers%$'\n'}"}
     # the commit just made is part of what lands: with a protected list the whole judge runs again on it (a generated path that is protected must not change after the verdict)
     [ -z "$LAND_PROTECTED_LIST" ] || ga_judge_run "$wt" "$bsha" "$LAND_APPROVALS" "$LAND_APPROVAL_DAYS" "$LAND_GATE_APPEND_ONLY" "$run" "$LAND_PROTECTED_LIST" "$pap" "$prot_extra" || stop 12 refused "the gate-edit judge refused the tree after Tier 1 regenerated files (see above)"
   fi
-  sha=$(g rev-parse HEAD)
+  if [ -s "$run/ga-autoconsume" ]; then   # the approvals this landing used: the lander deletes their lines itself (a commit of the lander, carrying the tip's trailers)
+    step=consume-approvals; trailers=; for t in $LAND_REQUIRE_TRAILERS; do trailers="$trailers$(g log -1 --format=%B "$tip0" | sed -n "s/^$t: *//p" | sed -n 1p | sed "s/^/$t: /")"$'\n'; done
+    while IFS='|' read -r apf rec; do grep -vxF -- "$rec" "$wt/$apf" > "$run/ap.tmp" || true; cat "$run/ap.tmp" > "$wt/$apf"; g add -- "$apf"; done < "$run/ga-autoconsume"
+    g commit -qm "chore(approvals): consume the approval this landing used" -m "Deleted by land-direct." ${trailers:+-m "${trailers%$'\n'}"}
+    ga_judge_run "$wt" "$bsha" "$LAND_APPROVALS" "$LAND_APPROVAL_DAYS" "$LAND_GATE_APPEND_ONLY" "$run" "$LAND_PROTECTED_LIST" "$pap" "$prot_extra" || stop 12 refused "the gate-edit judge refused the tree after the lander deleted the used approval line (see above)"
+  fi
+  step=push; sha=$(g rev-parse HEAD)
   fetch_base "$gt" "$wt" || die "cannot fetch $remote $base (timed out or failed)"
   if ! g merge-base --is-ancestor "$remote/$base" HEAD; then   # base moved during Tier 1: rebase and check again
     more; echo "land-direct: $base moved during Tier 1: rebasing and checking again (attempt $attempt)"; continue

@@ -67,9 +67,7 @@ worker k3; commit "$T/k3" r.txt 1 'Revert "feat: something"'
 lands "git's own Revert \"...\" subject is accepted (no divergence between the subject check and the red rule)" "$T/k3"
 set_conf 'LAND_TEST_CMD=true' 'LAND_PROD_PATHS=src' 'LAND_BUDGET_LINES=5'
 worker k4; mkdir -p "$T/k4/src"; seq 1 20 > "$T/k4/src/big.txt"; git -C "$T/k4" add src; git -C "$T/k4" commit -qm "feat: big" -m "Task-ID: t"
-refused "over the size budget refuses" 1 "$T/k4"; out_has "exceed the 5-line budget"
-git -C "$T/k4" commit -q --amend -m "feat: big" -m "Diff-Budget: part 1 of 3, the rest follows" -m "Task-ID: t"
-lands "a Diff-Budget trailer waives the budget" "$T/k4"
+lands "over the size budget prints the number and lands (a number, never a refusal)" "$T/k4"; out_has "over the 5-line budget"
 worker k5; mkdir -p "$T/k5/other"; seq 1 20 > "$T/k5/other/big.txt"; git -C "$T/k5" add other; git -C "$T/k5" commit -qm "feat: big elsewhere" -m "Task-ID: t"
 lands "paths outside LAND_PROD_PATHS are not counted" "$T/k5"
 
@@ -318,9 +316,7 @@ set_conf 'LAND_TEST_CMD=true'
 echo "## --group (a batch coordinator's entries)"
 set_conf 'LAND_TEST_CMD=true' 'LAND_PROD_PATHS=src' 'LAND_BUDGET_LINES=3'
 worker gp1; mkdir -p "$T/gp1/src"; seq 1 40 > "$T/gp1/src/f"; git -C "$T/gp1" add src; git -C "$T/gp1" commit -qm "feat: big entry" -m "Task-ID: t"
-refused "over the budget without --group is refused" 1 "$T/gp1"
-before=$(remote_head); ( cd "$T/gp1" && "$L" --group >"$T/out" 2>&1 ) && rc=0 || rc=$?; [ "$rc" = 0 ] && pass "--group waives the size budget (the coordinator checked each entry)" || { fail "--group: exit $rc"; cat "$T/out" >&2; }
-out_has "by --group"
+lands "over the budget lands too, with or without --group" "$T/gp1"
 set_conf 'LAND_TEST_CMD=true'
 
 echo "## never force, never prune"

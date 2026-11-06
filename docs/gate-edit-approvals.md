@@ -83,3 +83,7 @@ A pause or a resume message is never a land decision.
 **An agent with landing rights could write its own approval line.** The control is that approvals are visible one-commit records the independent judge reads before the edit lands, so the approval commit is announced to the judge
 BEFORE the edit commit, always. The lander makes the sequence mechanical (rules 1 to 7: no self-approval in the same landing, no reuse, no stale or quiet approval, nothing but the exact diff), not independent: it
 cannot tell an approval the judge read from one he did not. The record's own reason line is the place to say why; the announcement is the control.
+
+
+## 0.6.0: only the lander's own files need an approval
+The rules above bind the lander's own files (its vendored copy `scripts/land/`, `scripts/land-direct`, any `*.signers`, the configuration, the hooks directory and the protected-paths list). Every other protected path, and a removed or changed line of an append-only file, lands on a `Protected: <reason>` trailer in a commit of the landing (no hash, no approval record). A landing's used approval line is deleted by the lander. The hash rule in one sentence: land if the approved files' own changed lines are identical to the approved diff, and say so.
