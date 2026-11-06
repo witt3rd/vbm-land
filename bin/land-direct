@@ -11,8 +11,8 @@
 #   land-direct --status | --version
 #
 # What it does (NO LOCK: any number of landers run at once, each in its own run directory; the remote's refusal of a push that is not a fast-forward is the only arbiter):
-#   hold? -> fetch -> land-time checks on every commit (Conventional subject, required trailers, size budget) -> hold? -> red? (bin/land-red:
-#   the one definition of a red main; a fix or a revert may land on a red or frozen main) -> rebase the commits onto <remote>/<base> in this run's own scratch
+#   hold? -> fetch -> land-time checks on every commit (Conventional subject, required trailers, size budget) -> hold? -> frozen? (a person's freeze: only a fix or a true revert lands; a RED main does not
+#   stop landing, the watchdog bin/land-revert reverts what made it red; no CI is read) -> rebase the commits onto <remote>/<base> in this run's own scratch
 #   worktree (<git common dir>/vbm-land/run.<pid>.<random>/wt, removed at exit; a conflict ONLY in generated files takes base's file and regenerates) -> hooks -> Tier 1 (the gates command, then the test
 #   command) on that exact combination -> fetch again: base moved during Tier 1 = rebase and check again (up to LAND_ATTEMPTS attempts within LAND_DEADLINE seconds, then exit 16) -> `git push <remote> <sha>:<base>`, a
 #   plain fast-forward push: there is no force anywhere in this script.
@@ -22,15 +22,16 @@
 # HOOKS are repository-owned executables in LAND_HOOKS_DIR, taken from <remote>/<base> too: pre-rebase, post-rebase, post-tier1, json-fields, on-run, prepare.
 #
 # Exit codes (the contract): 0 landed | 1 stopped with a plain message (base kept moving, push refused, a bad commit message) | 2 bad input or bad config |
-#   10 blocked: base is red (or not knowable) | 11 rebase conflict: aborted, the files are named; resolve in your worktree (git fetch && git rebase <remote>/<base>) and run again |
+#   11 rebase conflict: aborted, the files are named; resolve in your worktree (git fetch && git rebase <remote>/<base>) and run again |
 #   12 refused by a hook, the protected-set rules, the vendored-copy drift check, or a regeneration that failed | 13 Tier 1 fails (nothing lands) | 14 held or frozen |
 #   16 base moved faster than the lander could validate (LAND_ATTEMPTS / LAND_DEADLINE used up): nothing was pushed; run it again. Run again after a crash that followed an accepted push: exit 0, "already landed".
 # The LAST line of stdout is JSON: {"sha","commits","tier1_seconds","result","exit"} plus any keys a `json-fields` hook prints (null where not known; result: landed,
-#   would-land, checked, blocked-red, conflict, refused, tier1, held, moved, error). Every run also appends one line to the metrics log
-#   ($LAND_DIRECT_LOG, default <git common dir>/vbm-land/metrics.jsonl): ts, result, commits, commit (the tip handed over), attempts, tier1_s, total_s.
+#   would-land, checked, conflict, refused, tier1, held, moved, error). Every run also appends one line to the metrics log
+#   ($LAND_DIRECT_LOG, default <git common dir>/vbm-land/metrics.jsonl): ts, result, commits, commit (the tip handed over), attempts, inherited_red, tier1_s, total_s.
+#   Tier 1 that fails ONLY with failures the bare base already has (LAND_FAIL_PATTERN lines; one extra run, only then) passes as "inherited red": a landing must not ADD a failure.
 # BOUNDED: every step runs under `timeout --kill-after=30`: LAND_TIER1_TIMEOUT (Tier 1, regeneration of generated files by Tier 1 is part of it), LAND_STEP_TIMEOUT
-#   (hooks, regeneration, the red check), LAND_GIT_TIMEOUT (fetch, push). A step that runs over is killed with one plain line and the run stops as that step's failure.
-# Operator environment (not policy): REMOTE-independent knobs GH, LAND_CONF, LAND_FIX_FOR_RED=1 (treat this change as the fix for a red main), LAND_DIRECT_LOG, and the
+#   (hooks, regeneration), LAND_GIT_TIMEOUT (fetch, push). A step that runs over is killed with one plain line and the run stops as that step's failure.
+# Operator environment (not policy): REMOTE-independent knobs LAND_CONF, LAND_FIX_FOR_RED=1 (treat this change as a fix, so it passes a freeze), LAND_DIRECT_LOG, and the
 #   timeouts above. Policy keys are never read from the environment. LAND_LOCK_WAIT_SECONDS, LAND_LEASE_STALE_SECONDS and the key LAND_LOCK_WAIT are read and IGNORED (one notice): there is no lock.
 # Commands the lander runs get: LAND_TOP (the worktree landed from), LAND_BASE_REF (<remote>/<base>), LAND_STATE_DIR (shared by every run of the clone: hold, freeze, metrics), LAND_RUN_DIR (this run's own: scratch worktree, hooks, logs), LAND_ATTEMPT (1, 2, ...) and LAND_PREV_BASE (the base commit the last attempt validated against; empty on the first), LAND_TASK (the tip's first required trailer value).
 set -euo pipefail
@@ -40,7 +41,6 @@ here=$(cd "$(dirname "$0")" && pwd); lib=$here/../lib
 ignored=; for k in LAND_LOCK_WAIT_SECONDS LAND_LEASE_STALE_SECONDS; do [ -z "${!k:-}" ] || ignored="$ignored $k"; done   # the lock is gone: these are read, ignored and named once
 o_t1=${LAND_TIER1_TIMEOUT:-}; o_st=${LAND_STEP_TIMEOUT:-}; o_gt=${LAND_GIT_TIMEOUT:-}; o_conf=${LAND_CONF:-}; o_fixred=${LAND_FIX_FOR_RED:-}
 conf_defaults
-gh=${GH:-gh}; export GH=$gh
 
 usage() { echo "usage: land-direct [--dry-run] [--check] [--group] [--conf PATH] [<rev>] | --hold REASON | --release | --freeze REASON --owner NAME --for DURATION | --thaw | --status | --print-gate-diff-hash FILE-SET [<rev>] | --print-gate-diff FILE-SET [<rev>] | --version" >&2; exit 2; }
 dry=0; checkonly=0; group=0; confpath=scripts/land.conf; [ -z "$o_conf" ] || confpath=$o_conf; args=(); op=; opreason=; owner=; dur=; pfile=
@@ -56,14 +56,14 @@ while [ $# -gt 0 ]; do case $1 in
 [ ${#args[@]} -le 1 ] || usage
 rev=${args[0]:-HEAD}
 
-hooks=; wt=; sha=; ncommits=; t1=; result=error; t0=$(date +%s); common=; state=; run=; extra_json=; tip0=; attempt=0; already=0
+hooks=; wt=; sha=; ncommits=; t1=; result=error; t0=$(date +%s); common=; state=; run=; extra_json=; tip0=; attempt=0; already=0; inherited=0; stage=; newfail=; hookcwd=
 json_num() { [[ "${1:-}" =~ ^[0-9]+(\.[0-9]+)?$ ]] && printf '%s' "$1" || printf null; }
 json_str() { [[ "${1:-}" =~ ^[A-Za-z0-9._-]+$ ]] && printf '"%s"' "$1" || printf null; }
 onexit() {
   local c=$?
   [ -z "$op" ] || { run_cleanup "$c"; exit "$c"; }
   if [ -n "$state" ] && [ -d "$state" ]; then   # the measurements, one O_APPEND line each: landings per hour, commit-to-main time
-    printf '{"ts":%s,"result":"%s","commits":%s,"commit":%s,"attempts":%s,"tier1_s":%s,"total_s":%s}\n' "$(date +%s)" "$result" "$(json_num "$ncommits")" "$(json_str "$tip0")" "$(json_num "$([ "$attempt" = 0 ] || echo "$attempt")")" "$(json_num "$t1")" "$(( $(date +%s) - t0 ))" >> "${LAND_DIRECT_LOG:-$state/metrics.jsonl}" 2>/dev/null || true
+    printf '{"ts":%s,"result":"%s","commits":%s,"commit":%s,"attempts":%s,"inherited_red":%s,"tier1_s":%s,"total_s":%s}\n' "$(date +%s)" "$result" "$(json_num "$ncommits")" "$(json_str "$tip0")" "$(json_num "$([ "$attempt" = 0 ] || echo "$attempt")")" "$([ "$inherited" = 1 ] && echo true || echo false)" "$(json_num "$t1")" "$(( $(date +%s) - t0 ))" >> "${LAND_DIRECT_LOG:-$state/metrics.jsonl}" 2>/dev/null || true
   fi
   run_hook on-run >/dev/null 2>&1 || true
   printf '{"sha":%s,"commits":%s,"tier1_seconds":%s,"result":"%s","exit":%s%s}\n' "$(json_str "$sha")" "$(json_num "$ncommits")" "$(json_num "$t1")" "$result" "$c" "$extra_json"
@@ -143,8 +143,8 @@ if [ "$LAND_REMOTE" != "$remote" ] || [ "$LAND_BASE" != "$base" ]; then   # the 
 fi
 export LC_ALL=$LAND_LOCALE
 lt=${o_t1:-$LAND_TIER1_TIMEOUT}; st=${o_st:-$LAND_STEP_TIMEOUT}; gt=${o_gt:-$LAND_GIT_TIMEOUT}
-[ -z "$LAND_LOCK_WAIT" ] || ignored="$ignored LAND_LOCK_WAIT"
-[ -z "$ignored" ] || echo "land-direct: note:$ignored ignored: there is no lock any more (remove it)" >&2
+for k in LAND_LOCK_WAIT LAND_CI_WORKFLOW LAND_TIER1_JOB LAND_RED_MODE LAND_RED_WAIT LAND_KNOWN_FLAKY LAND_FLAKY_RERUN_WAIT LAND_TIER2_JOB; do [ -z "${!k}" ] || ignored="$ignored $k"; done
+[ -z "$ignored" ] || echo "land-direct: note:$ignored ignored: no longer used (there is no lock, and landing does not read CI: a red main is the watchdog's); remove them" >&2
 export LAND_TOP=$top LAND_BASE_REF=$remote/$base LAND_STATE_DIR=$state
 read -ra prot_globs <<<"$LAND_PROTECTED"; read -ra fix_globs <<<"$LAND_FIX_PATHS"
 prot_globs+=("$LAND_APPROVALS"); [ -z "$LAND_PROTECTED_APPROVALS" ] || prot_globs+=("$LAND_PROTECTED_APPROVALS")   # the approvals files are always protected: gate-defining files in every repository
@@ -232,22 +232,28 @@ prepare_hooks() {
 }
 # run_hook NAME [ARGS]: runs the hook in the scratch worktree, bounded; its output goes to stderr. Returns its exit code (0 when there is no such hook).
 run_hook() { local n=$1; shift; [ -n "$hooks" ] && [ -x "$hooks/$n" ] || return 0
-  (cd "$wt" && LAND_RESULT=$result LAND_SHA=$sha LAND_COMMITS=$ncommits LAND_TIER1_SECONDS=$t1 bounded "$st" "hook $n" "$hooks/$n" "$@") >&2; }
+  (cd "${hookcwd:-$wt}" && LAND_RESULT=$result LAND_SHA=$sha LAND_COMMITS=$ncommits LAND_TIER1_SECONDS=$t1 bounded "$st" "hook $n" "$hooks/$n" "$@") >&2; }
 
-# ---- the red check: ONE definition (bin/land-red); a fix or a revert passes a red or frozen base
-red_check() {
-  local rc=0
-  kfile=; if [ -n "$LAND_KNOWN_FLAKY" ] && git -C "$top" cat-file -e "$remote/$base:$LAND_KNOWN_FLAKY" 2>/dev/null; then kfile=$run/known-flaky.txt; git -C "$top" show "$remote/$base:$LAND_KNOWN_FLAKY" > "$kfile"; fi   # the list main has, not the proposal's
-  LAND_KNOWN_FLAKY_FILE=$kfile LAND_FLAKY_RERUN_WAIT=$LAND_FLAKY_RERUN_WAIT LAND_TIER2_JOB=$LAND_TIER2_JOB LAND_BASE=$base LAND_RED_MODE=$LAND_RED_MODE LAND_CI_WORKFLOW=$LAND_CI_WORKFLOW LAND_TIER1_JOB=$LAND_TIER1_JOB LAND_RED_WAIT=$LAND_RED_WAIT LAND_STATE_DIR=$state bounded "$((st + LAND_RED_WAIT + LAND_FLAKY_RERUN_WAIT))" red-check "$here/land-red" || rc=$?
-  case $rc in
-    0) ;;
-    10) [ "$isfix" = 1 ] && echo "land-direct: $base is red; this change is the fix: landing" || stop 10 blocked-red "$base is red: land the fix first (a fix(ci): / fix(tests): / revert commit touching only test or CI paths, or LAND_FIX_FOR_RED=1)";;
-    14) [ "$isfix" = 1 ] && echo "land-direct: $base is frozen; this change is a fix or a revert: landing" || stop 14 held "$base is frozen: only a fix or a revert lands";;
-    *) stop 10 blocked-red "cannot tell whether $base is red: not landing";;
-  esac
-}
+# ---- a freeze (a person's: a named owner and an expiry) stops landing but for a fix or a revert. A RED main does not: the watchdog (bin/land-revert) reverts the commit that made it red.
+freezecheck() { freeze_active "$freezef" || return 0
+  [ "$isfix" = 1 ] && echo "land-direct: $base is frozen; this change is a fix or a revert: landing" || stop 14 held "$base is frozen ($(freeze_describe "$freezef")): only a fix or a revert lands"; }
 
-holdcheck; red_check
+holdcheck; freezecheck
+
+# Tier 1 is two stages, the gates command then the test command. t1stage STAGE DIR LOG runs one of them in DIR (no command = nothing to run); 0 = green.
+t1cmd() { case $1 in gates) echo "$LAND_GATES_CMD";; *) echo "$LAND_TEST_CMD";; esac; }
+t1stage() { local c; c=$(t1cmd "$1"); [ -z "$c" ] || (cd "$2" && bounded "$lt" "Tier 1 $1" bash -c "$c") >"$3" 2>&1; }
+# inherited_red STAGE: a landing must not ADD a failure, and one already on the base is not its fault. Every failure of this stage (the log lines matching LAND_FAIL_PATTERN) must also
+# be a failure of the same stage on the bare base commit (one extra run, only here, in a scratch worktree of its own, prepared like the landing's). No recognisable failure line = no inheritance.
+inherited_red() {
+  local mine theirs; newfail=; mine=$(grep -E "$LAND_FAIL_PATTERN" "$run/tier1.$1.log" | LC_ALL=C sort -u || true); [ -n "$mine" ] || return 1
+  rm -rf "$run/base"; git -C "$top" worktree add -q -f --detach "$run/base" "$bsha" || return 1
+  hookcwd=$run/base run_hook prepare || return 1
+  t1stage "$1" "$run/base" "$run/base.log" || true
+  theirs=$(grep -E "$LAND_FAIL_PATTERN" "$run/base.log" | LC_ALL=C sort -u || true)
+  newfail=$(comm -23 <(printf '%s\n' "$mine") <(printf '%s\n' "$theirs") | sed -n 1p | cut -c1-200)
+  git -C "$top" worktree remove -f "$run/base" >/dev/null 2>&1 || true
+  [ -z "$newfail" ]; }
 
 # ---- the scratch worktree: ours, by path. Never `git worktree prune`: the clone is shared with other lanes' worktrees.
 wt=$run/wt; git -C "$top" worktree add -q -f --detach "$wt" "$remote/$base"
@@ -297,8 +303,11 @@ while :; do
     [ "$rc" = 0 ] || stop 12 refused "the vendored copy of this tool under scripts/land/ differs from its pin (edit the source repository, not the copy); not landing."
   fi
   export LAND_ATTEMPT=$attempt LAND_PREV_BASE=$prev; ts=$(date +%s)
-  if [ -n "$LAND_GATES_CMD" ]; then (cd "$wt" && bounded "$lt" "Tier 1 gates" bash -c "$LAND_GATES_CMD") >"$run/tier1.log" 2>&1 || { tail -15 "$run/tier1.log" >&2; stop 13 tier1 "Tier 1 (gates) fails on the rebased commits (log: $run/tier1.log); nothing lands."; }; fi
-  if [ -n "$LAND_TEST_CMD" ]; then (cd "$wt" && bounded "$lt" "Tier 1 tests" bash -c "$LAND_TEST_CMD") >>"$run/tier1.log" 2>&1 || { tail -15 "$run/tier1.log" >&2; stop 13 tier1 "Tier 1 (tests) fails on the rebased commits (log: $run/tier1.log); nothing lands."; }; fi
+  for stage in gates tests; do
+    t1stage "$stage" "$wt" "$run/tier1.$stage.log" || {
+      inherited_red "$stage" || { tail -15 "$run/tier1.$stage.log" >&2; stop 13 tier1 "Tier 1 ($stage) fails on the rebased commits${newfail:+ (a failure $base does not have: $newfail)} (log: $run/tier1.$stage.log); nothing lands."; }
+      inherited=1; echo "land-direct: Tier 1 ($stage) fails, but only with failures $base already has (inherited red: the watchdog's, not yours); landing"; }
+  done
   t1=$(( $(date +%s) - ts )); prev=$bsha
   run_hook post-tier1 || stop 12 refused "the post-tier1 hook refused this change (a gate that judges the tree after Tier 1, such as an attack suite; see above)"
   # Tier 1 may render generated files: dirty only in generated paths = they were stale: commit them as a commit of the lander (carrying the tip's trailers)
@@ -315,7 +324,7 @@ while :; do
   if ! g merge-base --is-ancestor "$remote/$base" HEAD; then   # base moved during Tier 1: rebase and check again
     more; echo "land-direct: $base moved during Tier 1: rebasing and checking again (attempt $attempt)"; continue
   fi
-  holdcheck; red_check   # the verdict is only good for a base that is not red or held now
+  holdcheck; freezecheck   # the verdict is only good while nobody has held or frozen landing
   [ "$dry" = 0 ] || break
   if bounded "$gt" "git push" git -C "$wt" push -q "$remote" "$sha:refs/heads/$base" 2>"$run/push.log"; then break; fi   # a plain push: the remote refuses what is not a fast-forward, and that refusal is the arbiter between landers
   # refused or timed out: ask the remote. Our commit in it = it was accepted after all; the base moved on = lost the race, again; neither = a real refusal, not retried
@@ -337,6 +346,5 @@ fi
 if [ "$already" = 1 ]; then result=landed; echo "land-direct: already landed: every commit of $rev is in $base (${sha:0:12}); nothing to do"; exit 0; fi
 if [ "$dry" = 1 ]; then result=would-land; echo "land-direct: dry run: would land ${sha:0:12} (tier1 ${t1}s); nothing pushed"; exit 0; fi
 result=landed
-if [ "$allfix" = 1 ] && [ -e "$freezef" ]; then rm -f "$freezef"; echo "land-direct: a fix landed: the freeze is lifted"; fi
 echo "land-direct: ${sha:0:12} is $base: $ncommits commit(s), tier1 ${t1}s"
 echo "land-direct: your branch still holds the pre-rebase commits ($base has them rebased): start the next task from a fresh worktree off $remote/$base"

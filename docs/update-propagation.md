@@ -20,7 +20,7 @@ and gated like any other. Weekly, and on dispatch, on the consumer's own runner 
 
 When behind, it is **visible, not blocking**: the line goes to the run summary and a warning annotation, the job exits non-zero for "behind" (a red check on the
 workflow, no more), and, if the consumer opts in (`LAND_UPDATE_ISSUE=1`, needs `issues: write`), one tracking issue is opened and kept current. It is a separate
-workflow from the gate (`LAND_CI_WORKFLOW`), so its result can never make main "red" and block landing. Unreachable source: a distinct exit code and message, never a silent pass.
+workflow from the gate, so its result can never make main "red" and wake the watchdog. Unreachable source: a distinct exit code and message, never a silent pass.
 
 ## 2. The update (the consumer's own act: `land-update`)
 

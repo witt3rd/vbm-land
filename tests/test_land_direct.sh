@@ -24,9 +24,9 @@ refused "an unknown key refuses (a typo must not turn a gate off)" 2 "$T/c1"; ou
 set_conf '# no tier 1 at all' 'LAND_BASE=main'
 worker c2; commit "$T/c2" x.txt 1
 refused "a config without any Tier 1 command refuses" 2 "$T/c2"; out_has "no Tier 1"
-set_conf 'LAND_TEST_CMD=true' 'LAND_RED_MODE=sometimes'
-worker c3; commit "$T/c3" x.txt 1
-refused "a bad red mode refuses" 2 "$T/c3"; out_has LAND_RED_MODE
+set_conf 'LAND_TEST_CMD=true' 'LAND_RED_MODE=sometimes' 'LAND_CI_WORKFLOW=ci.yml' 'LAND_TIER1_JOB=tier1' 'LAND_RED_WAIT=x' 'LAND_KNOWN_FLAKY=f' 'LAND_FLAKY_RERUN_WAIT=1' 'LAND_TIER2_JOB=t2'
+worker c3; commit "$T/c3" c3.txt 1
+lands "the retired CI keys of an old land.conf still load (whatever their value): ignored, named once" "$T/c3"; out_has "note: LAND_CI_WORKFLOW LAND_TIER1_JOB LAND_RED_MODE LAND_RED_WAIT LAND_KNOWN_FLAKY LAND_FLAKY_RERUN_WAIT LAND_TIER2_JOB ignored"
 set_conf 'LAND_TEST_CMD=true' 'LAND_REGEN_CMD=$(touch /tmp/vbm-land-injected)'   # data, never evaluated at read time (and a regeneration command only runs after a conflict)
 worker c4; commit "$T/c4" x.txt 1
 ( cd "$T/c4" && "$L" >"$T/out" 2>&1 ) || true; check "reading the config executes nothing" test ! -e /tmp/vbm-land-injected; rm -f /tmp/vbm-land-injected
@@ -178,58 +178,52 @@ refused "a frozen base refuses an ordinary change" 14 "$T/h2"; out_has "frozen"
 set_conf 'LAND_TEST_CMD=true' 'LAND_FIX_PATHS=tests/* .github/*' 'LAND_PROTECTED=bin/* lib/*'
 worker h3; commit "$T/h3" tests/t.sh 1 "fix(tests): repair"; ( cd "$T/h3" && "$L" --freeze "tier 2 broke" --owner alice --for 1h ) >/dev/null
 lands "a fix touching only test paths lands on a frozen base" "$T/h3"; out_has "frozen; this change is a fix"
-check "landing the fix lifted the freeze" test ! -e "$T/h3/.git/vbm-land/freeze"
+check "landing the fix does not lift a person's freeze" test -e "$T/h3/.git/vbm-land/freeze"
 worker h4; commit "$T/h4" h4.txt 1
 ( cd "$T/h4" && "$L" --freeze "again" --owner bob --for 1s ) >/dev/null; sleep 2
 lands "an expired freeze is not in force" "$T/h4"
 ( cd "$T/h2" && "$L" --freeze "again" --owner bob --for 1h && "$L" --thaw ) >/dev/null 2>&1; check "--thaw clears it" test ! -e "$T/h2/.git/vbm-land/freeze"
 
-echo "## red main"
-gh_mode red
+echo "## a red main does not stop landing; a freeze does, but for a fix or a true revert"
+gh_mode red; : > "$T/gh/calls.log"
 worker r1; commit "$T/r1" r1.txt 1
-refused "red main refuses an ordinary change" 10 "$T/r1"; out_has "is red"
-worker r2; commit "$T/r2" other/code.txt 1 "fix(tests): sneaky"
-refused "a fix(tests) subject touching non-test paths is not a fix" 10 "$T/r2"
-worker r3; commit "$T/r3" lib/x.sh 1 "fix(ci): touches the protected set"
-refused "a fix touching the protected set is not a fix" 10 "$T/r3"
-worker r4; commit "$T/r4" tests/new.sh 1 "fix(tests): real fix"
-lands "a fix touching only test paths lands on a red main" "$T/r4"; out_has "this change is the fix"
-worker r5; commit "$T/r5" r5.txt 1
-lands "LAND_FIX_FOR_RED=1 is the operator's override" "$T/r5" LAND_FIX_FOR_RED=1
-# a true revert: undoes one commit of main and says so
-worker r6; sha=$(git -C "$T/r6" rev-parse HEAD)
-( cd "$T/r6" && git revert --no-edit "$sha" >/dev/null 2>&1 && git commit -q --amend -m "Revert \"x\"" -m "This reverts commit $sha." -m "Task-ID: t" )
-lands "a true revert (names a commit of main, touches only its files) lands on a red main" "$T/r6"
-worker r7; commit "$T/r7" lib/y.sh 1 'Revert "feat: pretend"'
-refused "a Revert subject that names no commit of main is not a revert" 10 "$T/r7"
-gh_mode infra
-worker r8; commit "$T/r8" r8.txt 1
-lands "an infrastructure failure (billing, runner, network) is not red" "$T/r8"; out_has "infrastructure reason"
-gh_mode fail
-worker r9; commit "$T/r9" r9.txt 1
-refused "gh failing means not knowable: refused" 10 "$T/r9"; out_has "cannot tell"
-gh_mode running
-worker r10; commit "$T/r10" r10.txt 1
-lands "a Tier 1 still running is not a failure: the lander's own Tier 1 is the gate" "$T/r10"; out_has "no finished tier1 job"
-gh_mode dispatch
-set_conf 'LAND_TEST_CMD=true' 'LAND_RED_MODE=push'
-worker r11; commit "$T/r11" r11.txt 1
-lands "mode push ignores a red dispatch run" "$T/r11"
-set_conf 'LAND_TEST_CMD=true' 'LAND_RED_MODE=push+dispatch'
-worker r12; commit "$T/r12" r12.txt 1
-refused "mode push+dispatch counts a red dispatch run" 10 "$T/r12"
-set_conf 'LAND_TEST_CMD=true' 'LAND_RED_MODE=off'
-worker r13; commit "$T/r13" r13.txt 1
-gh_mode fail
-lands "mode off asks nobody" "$T/r13"
-gh_mode noworkflow
+lands "a red main (CI says its Tier 1 failed) does not refuse an ordinary change" "$T/r1"
+check "and the lander asked nobody (no gh call per landing)" test ! -s "$T/gh/calls.log"
+gh_mode fail; worker r2; commit "$T/r2" r2.txt 1
+lands "a CI that cannot be read changes nothing either" "$T/r2"
+freeze_in() { ( cd "$T/$1" && "$L" --freeze "operator's freeze" --owner operator --for 1h ) >/dev/null; }   # each worker is a clone of its own, with its own markers
+worker r3; commit "$T/r3" other/code.txt 1 "fix(tests): sneaky"; freeze_in r3
+refused "a fix(tests) subject touching non-test paths is not a fix: the freeze refuses it" 14 "$T/r3"
+worker r4; commit "$T/r4" lib/x.sh 1 "fix(ci): touches the protected set"; freeze_in r4
+refused "a fix touching the protected set is not a fix" 14 "$T/r4"
+worker r5; commit "$T/r5" tests/new.sh 1 "fix(tests): real fix"; freeze_in r5
+lands "a fix touching only test paths lands on a frozen main" "$T/r5"; out_has "frozen; this change is a fix"
+worker r6; commit "$T/r6" r6.txt 1; freeze_in r6
+lands "LAND_FIX_FOR_RED=1 is the operator's override of a freeze" "$T/r6" LAND_FIX_FOR_RED=1
+worker r7; sha=$(git -C "$T/r7" rev-parse HEAD); freeze_in r7
+( cd "$T/r7" && git revert --no-edit "$sha" >/dev/null 2>&1 && git commit -q --amend -m "Revert \"x\"" -m "This reverts commit $sha." -m "Task-ID: t" )
+lands "a true revert (names a commit of main, touches only its files) lands on a frozen main" "$T/r7"
+worker r8; commit "$T/r8" lib/y.sh 1 'Revert "feat: pretend"'; freeze_in r8
+refused "a Revert subject that names no commit of main is not a revert" 14 "$T/r8"
 set_conf 'LAND_TEST_CMD=true'
-worker r14; commit "$T/r14" r14.txt 1
-lands "a CI workflow that is not on main yet cannot be red" "$T/r14"
-gh_mode ok
-set_conf 'LAND_TEST_CMD=true' 'LAND_CI_WORKFLOW=build.yml' 'LAND_TIER1_JOB=gate'
-worker r15; commit "$T/r15" r15.txt 1; : > "$T/gh/calls.log"
-lands "workflow and job names come from the config" "$T/r15"; check "it asked about build.yml" grep -q -- '--workflow build.yml' "$T/gh/calls.log"
+
+echo "## inherited red: a landing must not ADD a failure; one already on main is not its fault"
+sandbox
+set_conf 'LAND_GATES_CMD=[ ! -e OLDGATE ] || { echo "FAIL gate-old: broken on main"; exit 1; }' 'LAND_TEST_CMD=rc=0; [ ! -e OLD ] || { echo "FAIL old: broken on main"; rc=1; }; [ ! -e NEW ] || { echo "FAIL new: mine"; rc=1; }; [ ! -e SILENT ] || rc=1; exit $rc'
+seed_push OLD 1; seed_push OLDGATE 1
+worker ih1; commit "$T/ih1" ih1.txt 1
+lands "main is red in tests and the change is unrelated: Tier 1 fails only with main's own failures: it lands" "$T/ih1"; out_has "inherited red"
+flagged() { tail -n1 "$1/.git/vbm-land/metrics.jsonl" | grep -q "\"inherited_red\":$2"; }
+both_stages() { [ "$(grep -c 'inherited red' "$T/out")" = 2 ]; }
+check "the metrics line flags it" flagged "$T/ih1" true
+check "the gates stage failed with main's failure and the tests stage still ran, also with main's failure" both_stages
+worker ih2; commit "$T/ih2" NEW 1
+refused "a change that adds its own failure to a red main is refused, and the new failure is named" 13 "$T/ih2"; out_has "a failure main does not have: FAIL new"
+worker ih4; git -C "$T/ih4" rm -q OLD OLDGATE; git -C "$T/ih4" commit -qm "fix: repair main" -m "Task-ID: t1"
+lands "the change that repairs main passes green, nothing inherited" "$T/ih4"; check "and did not flag inheritance" flagged "$T/ih4" false
+worker ih3; commit "$T/ih3" SILENT 1
+refused "a failure with no recognisable failure line (main is green here) is never inherited" 13 "$T/ih3"
+sandbox
 
 echo "## hooks (taken from main, so a change cannot rewrite the rules it is judged by)"
 gh_mode ok
@@ -275,7 +269,7 @@ check "after a landing no run directory and no worktree registration is left" no
 set_conf 'LAND_TEST_CMD=echo tier1-evidence; false'
 worker u3; commit "$T/u3" u3.txt 1; v=$T/u3/.git/vbm-land
 ( cd "$T/u3" && "$L" >"$T/out" 2>&1 ) && rc=0 || rc=$?
-only_the_log() { [ "$rc" = 13 ] && grep -q tier1-evidence "$v"/run.*/tier1.log && [ "$(ls "$v"/run.*/ | wc -l)" = 1 ] && [ "$(git -C "$T/u3" worktree list | wc -l)" = 1 ]; }
+only_the_log() { [ "$rc" = 13 ] && grep -q tier1-evidence "$v"/run.*/tier1.tests.log && [ "$(ls "$v"/run.*/ | wc -l)" = 1 ] && [ "$(git -C "$T/u3" worktree list | wc -l)" = 1 ]; }
 check "a failed run leaves its log and nothing else (no worktree), for diagnosis" only_the_log
 # leftovers: a dead pid's old directory is swept by the next run; a young one, a live pid's and a name without a pid are kept; a symlink is never followed
 sleep 300 & alive=$!; true & gone=$!; wait "$gone"
@@ -329,60 +323,9 @@ before=$(remote_head); ( cd "$T/gp1" && "$L" --group >"$T/out" 2>&1 ) && rc=0 ||
 out_has "by --group"
 set_conf 'LAND_TEST_CMD=true'
 
-echo "## known flaky: a listed failure is rerun once"
-gh_mode ok
-seed_push scripts/known-flaky.txt "# name owner expiry issue
-test_flaky.sh alice 2099-01-01 123
-test_other_flaky.sh alice 2099-01-01 124
-test_old.sh bob 2000-01-01 5
-test_bad.sh alice 2099-01-01"
-set_conf 'LAND_TEST_CMD=true' 'LAND_KNOWN_FLAKY=scripts/known-flaky.txt' 'LAND_FLAKY_RERUN_WAIT=3'
-kfcase() {   # kfcase LOGTEXT: a red main whose failed log is LOGTEXT; attempt 1, no refused rerun
-  gh_mode red; rm -f "$T/gh/attempt" "$T/gh/rerun_refused" "$T/gh/rerun_conclusion"; printf '%s\n' "$1" > "$T/gh/failedlog"; : > "$T/gh/calls.log"
-}
-reran() { grep -c 'run rerun' "$T/gh/calls.log" || true; }
-kfcase "FAIL scripts/test_flaky.sh: exit 1"; worker kf1; commit "$T/kf1" kf1.txt 1
-lands "a failure naming only a listed test: rerun once, green: not red, lands" "$T/kf1"; out_has "rerunning the failed job once"; check "exactly one rerun was asked for" test "$(reran)" = 1
-check "the rerun is logged" grep -q "known-flaky test_flaky.sh: rerun --failed: green" "$T/kf1/.git/vbm-land/known-flaky.log"
-kfcase "FLAKY scripts/test_flaky.sh
-FAIL scripts/test_other_flaky.sh"; echo failure > "$T/gh/rerun_conclusion"; worker kf2; commit "$T/kf2" kf2.txt 1
-refused "listed, but the rerun is red: red main refuses" 10 "$T/kf2"; out_has "rerun of 100"; out_has ": red"
-kfcase "FAIL scripts/test_unlisted.sh"; worker kf3; commit "$T/kf3" kf3.txt 1
-refused "an unlisted failure is not rerun: red" 10 "$T/kf3"; out_has "not on the known-flaky list"; check "and no rerun was asked for" test "$(reran)" = 0
-kfcase "FAIL scripts/test_flaky.sh
-FAIL scripts/test_unlisted.sh"; worker kf4; commit "$T/kf4" kf4.txt 1
-refused "listed AND unlisted failures: red" 10 "$T/kf4"; check "no rerun" test "$(reran)" = 0
-kfcase "FAIL scripts/test_old.sh"; worker kf5; commit "$T/kf5" kf5.txt 1
-refused "an expired entry is not listed: red" 10 "$T/kf5"; check "no rerun" test "$(reran)" = 0
-kfcase "FAIL scripts/test_bad.sh"; worker kf6; commit "$T/kf6" kf6.txt 1
-refused "a malformed entry (no issue) is not listed: red" 10 "$T/kf6"; check "no rerun" test "$(reran)" = 0
-kfcase "FAIL scripts/test_flaky.sh"; echo 2 > "$T/gh/attempt"; echo failure > "$T/gh/rerun_conclusion"; worker kf7; commit "$T/kf7" kf7.txt 1
-refused "a run that was already rerun is never rerun again: red" 10 "$T/kf7"; out_has "already rerun"; check "no rerun" test "$(reran)" = 0
-kfcase "FAIL scripts/test_flaky.sh"; touch "$T/gh/rerun_refused"; worker kf8; commit "$T/kf8" kf8.txt 1
-refused "a refused rerun is red" 10 "$T/kf8"; out_has "refused"
-kfcase "FAIL scripts/test_unlisted_by_main.sh"; worker kf9; commit "$T/kf9" scripts/known-flaky.txt "test_unlisted_by_main.sh me 2099-01-01 1"
-refused "a change cannot list its own flaky test: the list is main's" 10 "$T/kf9"; check "no rerun" test "$(reran)" = 0
-kfcase "FAIL scripts/test_flaky.sh"; worker kf10; commit "$T/kf10" kf10.txt 1 "fix(tests): repair"
-lands "a fix lands on a red main without a rerun being needed" "$T/kf10" LAND_FIX_FOR_RED=1
-
-echo "## Tier 2 freeze, read from the CI runs"
-rm -f "$T/gh/failedlog" "$T/gh/attempt" "$T/gh/rerun_refused" "$T/gh/rerun_conclusion"
-set_conf 'LAND_TEST_CMD=true' 'LAND_TIER2_JOB=tier2' 'LAND_FIX_PATHS=tests/*'
-gh_mode t2red; worker tf1; commit "$T/tf1" tf1.txt 1
-refused "Tier 1 green but Tier 2 failed: landing is frozen (14)" 14 "$T/tf1"; out_has "FROZEN"; check "the marker names land-red as its owner and has an expiry" bash -c "grep -q '^owner=land-red' '$T/tf1/.git/vbm-land/freeze' && grep -q '^expires=[0-9]' '$T/tf1/.git/vbm-land/freeze'"
-worker tf2; commit "$T/tf2" tests/tier2-fix.sh 1 "fix(tests): repair"
-lands "a fix lands on the frozen main" "$T/tf2"; check "and lifted the freeze" test ! -e "$T/tf2/.git/vbm-land/freeze"
-gh_mode t2red; printf 'fatal: unable to access https://x/: Could not resolve host\n' > "$T/gh/failedlog"; worker tf3; commit "$T/tf3" tf3.txt 1
-lands "a Tier 2 failure that is the infrastructure's does not freeze" "$T/tf3"; out_has "not freezing"; rm -f "$T/gh/failedlog"
-gh_mode t2red; worker tf4; commit "$T/tf4" tf4.txt 1; ( cd "$T/tf4" && "$L" >/dev/null 2>&1 ) || true
-gh_mode ok; lands "a green Tier 2 lifts the freeze that land-red set" "$T/tf4"; out_has "freeze is lifted"
-worker tf5; commit "$T/tf5" tf5.txt 1; ( cd "$T/tf5" && "$L" --freeze "person" --owner alice --for 1h >/dev/null )
-refused "a green Tier 2 never lifts a freeze a person set" 14 "$T/tf5"
-set_conf 'LAND_TEST_CMD=true'
-
 echo "## never force, never prune"
 check "no force push in the lander" bash -c "! grep -nE -- '--force|push +-f|push[^#]*\\+(refs|\\\$)' '$L' | grep -v 'no force\\|never'"
-check "no worktree prune in the lander" bash -c "! grep -n 'worktree prune' '$L' '$ROOT/bin/land-red' | grep -v ':[0-9]*:[^#]*#'"
+check "no worktree prune in the lander" bash -c "! grep -n 'worktree prune' '$L' '$ROOT/bin/land-revert' | grep -v ':[0-9]*:[^#]*#'"
 worker s1; git -C "$T/s1" worktree add -q "$T/s1-other" -b other; commit "$T/s1" s.txt 1
 lands "lands in a clone that has another worktree" "$T/s1"; check "the other worktree is untouched" test -e "$T/s1-other/.git"
 check "its registration is still there" bash -c "git -C '$T/s1' worktree list | grep -q s1-other"

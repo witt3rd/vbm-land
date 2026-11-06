@@ -1,5 +1,7 @@
 # Design: an external freeze source (not built)
 
+Update (0.5.0): `bin/land-red` no longer exists. Landing does not read CI; the freeze marker is read by `land-direct` itself, a freeze is only ever a person's, and a red main is the watchdog's (`bin/land-revert`). The Tier 2 trigger below is gone. The hook design is kept as written: it would run in `land-direct`'s freeze check.
+
 Status: design only. Written so that a repository with its own watchdog (one that decides "landing must stop" somewhere vbm-land cannot see, such as a label on a tracking issue) can adopt
 vbm-land later without losing that behaviour and without a second red definition.
 

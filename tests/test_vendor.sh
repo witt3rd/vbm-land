@@ -15,7 +15,7 @@ chk() { "$T/c1/scripts/land/bin/land-check" --root "$1" "${@:2}"; }   # always j
 echo "## install"
 consumer c1
 expect_exit "install vendors a pinned copy" 0 "$S/install" --source "$S" --target "$T/c1" v1.0.0
-check "scripts/land/ has the tool, the manifest and the PIN" bash -c "cd '$T/c1/scripts/land' && test -x bin/land-direct -a -x bin/land-red -a -x bin/land-check -a -f lib/conf.sh -a -f MANIFEST.sha256 -a -f PIN"
+check "scripts/land/ has the tool, the manifest and the PIN" bash -c "cd '$T/c1/scripts/land' && test -x bin/land-direct -a -x bin/run-probe -a -x bin/land-check -a -f lib/conf.sh -a -f MANIFEST.sha256 -a -f PIN"
 check "the stub is executable and runs the vendored lander" bash -c "'$T/c1/scripts/land-direct' --version | grep -q 'land-direct 1.0.0'"
 check "PIN records source, version, a 40-hex commit and the manifest hash" bash -c "cd '$T/c1/scripts/land' && grep -q '^source=$S\$' PIN && grep -q '^version=v1.0.0\$' PIN && grep -qE '^commit=[0-9a-f]{40}\$' PIN && grep -qE '^manifest_sha256=[0-9a-f]{64}\$' PIN"
 check "the pinned commit is the source's tag" bash -c "grep -q \"^commit=\$(git -C '$S' rev-parse v1.0.0)\$\" '$T/c1/scripts/land/PIN'"
@@ -32,7 +32,7 @@ expect_exit "install needs a git repository as target" 2 "$S/install" --source "
 
 echo "## drift check, offline"
 expect_exit "an untouched copy passes" 0 chk "$T/c1"; out_has "is intact"
-for case_ in "edit:echo '# local patch' >> scripts/land/bin/land-red:differs from the pinned release" \
+for case_ in "edit:echo '# local patch' >> scripts/land/bin/run-probe:differs from the pinned release" \
              "delete:rm scripts/land/lib/infra-re.sh:is missing" \
              "extra file:echo x > scripts/land/lib/local.sh:not part of the pinned release" \
              "not executable:chmod -x scripts/land/bin/land-direct:not executable" \
@@ -63,7 +63,7 @@ cp -a "$T/c1" "$T/d4"; echo "# mine" >> "$T/d4/scripts/land-direct"; "$S/install
 check "re-installing never overwrites the repository's own entry script" grep -q '^# mine' "$T/d4/scripts/land-direct"
 echo "## a forged copy: tree, manifest and PIN edited together pass offline and fail upstream"
 rm -rf "$T/d"; cp -a "$T/c1" "$T/d"
-( cd "$T/d/scripts/land" && echo '# evil' >> bin/land-red && h=$(sha256sum bin/land-red | cut -d' ' -f1) && sed -i "s|^[0-9a-f]*  bin/land-red\$|$h  bin/land-red|" MANIFEST.sha256 \
+( cd "$T/d/scripts/land" && echo '# evil' >> bin/run-probe && h=$(sha256sum bin/run-probe | cut -d' ' -f1) && sed -i "s|^[0-9a-f]*  bin/run-probe\$|$h  bin/run-probe|" MANIFEST.sha256 \
   && m=$(sha256sum < MANIFEST.sha256 | cut -d' ' -f1) && sed -i "s|^manifest_sha256=.*|manifest_sha256=$m|" PIN )
 expect_exit "consistent forgery passes the offline check" 0 chk "$T/d"
 expect_exit "but the upstream check fails it" 1 chk "$T/d" --upstream; out_has "forged"
@@ -73,13 +73,13 @@ expect_exit "an unreachable source is exit 3" 3 chk "$T/d2" --upstream; out_has 
 
 echo "## refusals at install"
 git -C "$S" commit -q --allow-empty -m "chore: x"; git -C "$S" tag untagged-no-change
-cp "$S/bin/land-red" "$T/red.bak"; echo "# tampered after the manifest" >> "$S/bin/land-red"; git -C "$S" commit -qam "fix: tamper without regenerating the manifest"; git -C "$S" tag v1.0.1-broken
+cp "$S/bin/run-probe" "$T/red.bak"; echo "# tampered after the manifest" >> "$S/bin/run-probe"; git -C "$S" commit -qam "fix: tamper without regenerating the manifest"; git -C "$S" tag v1.0.1-broken
 consumer c2
 expect_exit "a release whose files do not match its manifest is refused" 1 "$S/install" --source "$S" --target "$T/c2" v1.0.1-broken; out_has "does not match its manifest entry"
 check "and nothing was written into the target" test ! -e "$T/c2/scripts/land"
 git -C "$S" rm -q --cached MANIFEST.sha256; git -C "$S" commit -qm "chore: drop manifest"; git -C "$S" tag v1.0.2-nomanifest
 expect_exit "a commit without a manifest is not a release" 1 "$S/install" --source "$S" --target "$T/c2" v1.0.2-nomanifest; out_has "no MANIFEST.sha256"
-cp "$T/red.bak" "$S/bin/land-red"; ( cd "$S" && bin/land-manifest >/dev/null && git add -A && git commit -qm "chore: restore" && git add -f MANIFEST.sha256 )
+cp "$T/red.bak" "$S/bin/run-probe"; ( cd "$S" && bin/land-manifest >/dev/null && git add -A && git commit -qm "chore: restore" && git add -f MANIFEST.sha256 )
 
 echo "## update"
 ( cd "$S" && echo 1.1.0 > VERSION && bin/land-manifest >/dev/null && git add -A && git commit -qm "feat: 1.1.0" && git tag v1.1.0 )
@@ -169,7 +169,7 @@ expect_exit "an auto update stops on a refusal (a hold) with the lander's exit c
 echo "## audit"
 consumer c3; "$S/install" --source "$S" --target "$T/c3" v1.0.0 >/dev/null; mkdir -p "$T/plain"
 expect_exit "audit fails when a repository has drift or no copy" 1 "$S/bin/land-audit" "$T/c1" "$T/c3" "$T/plain"; out_has "none"; out_has "ok"
-cp -a "$T/c3" "$T/c3x"; echo '# x' >> "$T/c3x/scripts/land/bin/land-red"
+cp -a "$T/c3" "$T/c3x"; echo '# x' >> "$T/c3x/scripts/land/bin/run-probe"
 expect_exit "audit shows drift" 1 "$S/bin/land-audit" "$T/c3x"; out_has DRIFT
 expect_exit "audit passes when every repository is intact" 0 "$S/bin/land-audit" "$T/c1" "$T/c3"
 
@@ -204,7 +204,7 @@ git -C "$T/l1" add -A; git -C "$T/l1" commit -qm "chore(land): vbm-land v1.0.0" 
 expect_exit "a vendor commit lands through the stub" 0 bash -c "cd '$T/l1' && scripts/land-direct"
 check "the vendored lander landed it" remote_has scripts/land/PIN
 consumer l2; before=$(remote_head)
-echo '# patched locally' >> "$T/l2/scripts/land/bin/land-red"; git -C "$T/l2" commit -qam "fix(land): patch the vendored copy" -m "Task-ID: t"
+echo '# patched locally' >> "$T/l2/scripts/land/bin/run-probe"; git -C "$T/l2" commit -qam "fix(land): patch the vendored copy" -m "Task-ID: t"
 expect_exit "a change that edits the vendored copy is refused (exit 12)" 12 bash -c "cd '$T/l2' && scripts/land-direct"; out_has "differs from its pin"
 check "nothing reached the remote" test "$(remote_head)" = "$before"
 consumer l3; mkdir -p "$T/l3/scripts/land.d"; echo "$ROOT" > /dev/null
@@ -216,6 +216,6 @@ check "main now pins v1.1.0" bash -c "git -C '$T/remote.git' show main:scripts/l
 
 echo "## this repository's own manifest"
 expect_exit "MANIFEST.sha256 is fresh for the working tree" 0 "$ROOT/bin/land-manifest" --check
-rm -rf "$T/m"; cp -a "$ROOT" "$T/m"; echo "# edit" >> "$T/m/bin/land-red"
+rm -rf "$T/m"; cp -a "$ROOT" "$T/m"; echo "# edit" >> "$T/m/bin/run-probe"
 expect_exit "a stale manifest is detected" 1 "$T/m/bin/land-manifest" --check
 finish

@@ -17,7 +17,7 @@ echo "## land-release"
 ( cd "$R" && env -u LAND_SIGNING_KEY ./bin/land-release >"$T/out" 2>&1 ) && rc=0 || rc=$?; [ "$rc" != 0 ] && pass "no signing key: refused" || fail "land-release ran without a key"
 echo dirty >> "$R/README-x"; git -C "$R" add README-x; expect_exit "a dirty tree is refused" 1 rel; git -C "$R" reset -q --hard
 git -C "$R" commit -q --allow-empty -m "chore: unpushed"; expect_exit "HEAD that is not origin/main is refused (a release is what main is)" 1 rel; git -C "$R" reset -q --hard origin/main
-echo "# stale" >> "$R/bin/land-red"; git -C "$R" commit -qam "chore: payload edit without the manifest"; git -C "$R" push -q origin main; expect_exit "a stale manifest is refused" 1 rel; out_has stale
+echo "# stale" >> "$R/bin/run-probe"; git -C "$R" commit -qam "chore: payload edit without the manifest"; git -C "$R" push -q origin main; expect_exit "a stale manifest is refused" 1 rel; out_has stale
 ( cd "$R" && bin/land-manifest >/dev/null && git add -A && git commit -qm "chore: manifest" && git push -q origin main )
 expect_exit "the release is made: a signed tag v3.0.0 recording the manifest hash" 0 rel --push
 check "the tag is annotated and its message carries the manifest hash" bash -c "git -C '$O' cat-file -t refs/tags/v3.0.0 | grep -qx tag && git -C '$O' tag -l --format='%(contents)' v3.0.0 | grep -q '^manifest_sha256=[0-9a-f]\\{64\\}\$'"

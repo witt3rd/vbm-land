@@ -13,7 +13,6 @@ mutant() {   # mutant NAME SED_EXPR [FILE]: a copy of bin/ and lib/ with ONE lin
 # a scenario builds a fresh sandbox, a worker with one change that must be refused, and prints the lander's exit code (L = the lander to run)
 scn_prelude() { sandbox "${1:-main}"; }
 sc_hold()      { scn_prelude; set_conf 'LAND_TEST_CMD=true'; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && "$1" --hold x >/dev/null; "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
-sc_red()       { scn_prelude; set_conf 'LAND_TEST_CMD=true'; gh_mode red; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 sc_tier1()     { scn_prelude; set_conf 'LAND_TEST_CMD=false'; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 sc_gates()     { scn_prelude; set_conf 'LAND_GATES_CMD=false'; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 sc_conflict()  { scn_prelude; set_conf 'LAND_TEST_CMD=true'; worker w; worker v; commit "$T/w" a.txt 1; commit "$T/v" a.txt 2; ( cd "$T/v" && "$1" >/dev/null 2>&1 ); ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
@@ -24,9 +23,14 @@ sc_conf_base() { scn_prelude; set_conf 'LAND_TEST_CMD=test ! -e BAD'; worker w; 
 sc_hook_base() { scn_prelude; set_conf 'LAND_TEST_CMD=true'; seed_exec scripts/land.d/post-rebase $'#!/usr/bin/env bash\nexit 1'; worker w; printf '#!/usr/bin/env bash\nexit 0\n' > "$T/w/scripts/land.d/post-rebase"; git -C "$T/w" add -A; git -C "$T/w" commit -qm "feat: neuter hook" -m "Task-ID: t"; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 sc_drift()     { scn_prelude; S=$T/src; mkdir -p "$S"; ( cd "$ROOT" && cp -r bin lib docs templates skills install VERSION "$S/" ); ( cd "$S" && git init -q -b main && git config commit.gpgsign false && bin/land-manifest >/dev/null && git add -A && git commit -qm "chore: r" && git tag v1 )
                git clone -q "$T/remote.git" "$T/w"; "$S/install" --source "$S" --target "$T/w" v1 >/dev/null; printf 'LAND_TEST_CMD=true\nLAND_RED_MODE=off\n' > "$T/w/scripts/land.conf"
-               echo '# patched' >> "$T/w/scripts/land/bin/land-red"; git -C "$T/w" add -A; git -C "$T/w" commit -qm "feat: patched copy" -m "Task-ID: t"
+               echo '# patched' >> "$T/w/scripts/land/bin/run-probe"; git -C "$T/w" add -A; git -C "$T/w" commit -qm "feat: patched copy" -m "Task-ID: t"
                ( cd "$T/w" && env -u X "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 sc_push_refused() { scn_prelude; set_conf 'LAND_TEST_CMD=true' 'LAND_ATTEMPTS=3'; printf '#!/bin/sh\necho refused >&2\nexit 1\n' > "$T/remote.git/hooks/pre-receive"; chmod +x "$T/remote.git/hooks/pre-receive"; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
+sc_freeze()    { scn_prelude; set_conf 'LAND_TEST_CMD=true'; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && "$1" --freeze x --owner o --for 1h >/dev/null; "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
+# a red main: main already fails OLD; the landing is unrelated (inherited: lands) or adds NEW (refused) or fails without a failure line (refused)
+ih_world() { scn_prelude; set_conf 'LAND_TEST_CMD=rc=0; [ ! -e OLD ] || { echo "FAIL old"; rc=1; }; [ ! -e NEW ] || { echo "FAIL new"; rc=1; }; [ ! -e SILENT ] || rc=1; exit $rc'; seed_push OLD 1; worker w; }
+sc_ih_new()    { ih_world; commit "$T/w" NEW 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
+sc_ih_silent() { scn_prelude; set_conf 'LAND_TEST_CMD=[ ! -e SILENT ]'; worker w; commit "$T/w" SILENT 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 sc_moved_attempts() { scn_prelude; set_conf 'LAND_TEST_CMD=true' 'LAND_ATTEMPTS=3'; race_hook 5; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 sc_moved_deadline() { scn_prelude; set_conf 'LAND_TEST_CMD=sleep 2' 'LAND_DEADLINE=1'; race_hook 3; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 # land-revert (the watchdog): $1 is a land-direct path; the watchdog beside it is the one under test
@@ -35,8 +39,6 @@ rv_go() { worker w; ( cd "$T/w" && "$(dirname "$1")/land-revert" --bad "$bad" --
 sc_rv_green()   { rv_world; seed_push a.txt 1; seed_push b.txt 2; seed_push c.txt 3; bad=$(remote_head); b=$bad; r=$(rv_go "$1"); [ "$r" = 0 ] && [ "$(remote_head)" = "$b" ] && echo 0 || echo 1; }
 sc_rv_five()    { rv_world; ( cd "$T/seed" && git pull -q origin main && echo 1 > f.txt && : > BAD && git add -A && git commit -qm "feat: breaks" -m "Task-ID: s" && git push -q origin main ); for i in 2 3 4 5 6 7; do seed_push f.txt $i "feat: edit $i"; done; bad=$(remote_head); rv_go "$1"; }
 sc_rv_refused() { rv_world; seed_push BAD x "feat: breaks"; bad=$(remote_head); worker w; ( cd "$T/w" && "$ROOT/bin/land-direct" --hold h >/dev/null ); rv_go "$1"; }
-sc_flaky()     { scn_prelude; seed_push scripts/known-flaky.txt "test_flaky.sh alice 2099-01-01 1"; set_conf 'LAND_TEST_CMD=true' 'LAND_KNOWN_FLAKY=scripts/known-flaky.txt' 'LAND_FLAKY_RERUN_WAIT=2'; gh_mode red; echo "FAIL scripts/test_unlisted.sh" > "$T/gh/failedlog"; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && RED_SLEEP=true "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
-sc_tier2()     { scn_prelude; set_conf 'LAND_TEST_CMD=true' 'LAND_TIER2_JOB=tier2'; gh_mode t2red; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 # gate-edit approvals (lib/approvals.sh): AP = the approvals file; ga_h = the diff hash of dropping line b of gate.sh, computed by the real lander
 AP=scripts/gate-edit-approvals.txt; ga_today=$(date -u +%F); ga_old=$(date -u -d '30 days ago' +%F); ga_hz=$(printf '%064x' 7)
 ga_prelude() { scn_prelude; set_conf 'LAND_TEST_CMD=true' 'LAND_GATE_APPEND_ONLY=gate.sh'; seed_push gate.sh $'a\nb\nc'; }
@@ -86,23 +88,23 @@ while IFS='|' read -r name want scn file expr; do
   fi
 done <<'LIST'
 hold|14|sc_hold|-|s/^holdcheck() {.*$/holdcheck() { :; }/
-red check|10|sc_red|-|s/^red_check() {$/red_check() { return 0;/
-Tier 1 tests|13|sc_tier1|-|s/bounded "\$lt" "Tier 1 tests" bash -c "\$LAND_TEST_CMD"/true/
-Tier 1 gates|13|sc_gates|-|s/bounded "\$lt" "Tier 1 gates" bash -c "\$LAND_GATES_CMD"/true/
+Tier 1 tests|13|sc_tier1|-|s/^t1cmd() { case \$1 in gates) echo "\$LAND_GATES_CMD";; \*) echo "\$LAND_TEST_CMD";; esac; }/t1cmd() { case $1 in gates) echo "$LAND_GATES_CMD";; *) echo true;; esac; }/
+Tier 1 gates|13|sc_gates|-|s/^t1cmd() { case \$1 in gates) echo "\$LAND_GATES_CMD";; \*) echo "\$LAND_TEST_CMD";; esac; }/t1cmd() { case $1 in gates) echo true;; *) echo "$LAND_TEST_CMD";; esac; }/
 conflict|11|sc_conflict|-|s/stop 11 conflict/echo conflict-ignored; stop 0 landed/
 size budget|1|sc_budget|-|s/\[ "\$prod" -gt "\$LAND_BUDGET_LINES" \] \&\& \[ -z "\$budget" \]/false/
 Conventional subject|1|sc_subject|-|s/\[ "\$LAND_CONVENTIONAL" = 1 \]/false/
 config from main|13|sc_conf_base|-|s|elif git -C "\$top" cat-file -e "\$remote/\$base:\$confpath" 2>/dev/null;|elif false;|
 drift check|12|sc_drift|-|s|scripts/land/bin/land-check) >\&2|true) >\&2|
-known-flaky list membership|10|sc_flaky|bin/land-red|s/^kf_listed() {$/kf_listed() { return 0;/
 push arbiter: a refused push lands nothing|1|sc_push_refused|-|s/^  if bounded "\$gt" "git push"/  if true || bounded "$gt" "git push"/
+freeze|14|sc_freeze|-|s/^freezecheck() { freeze_active/freezecheck() { return 0; freeze_active/
+inherited red: a new failure is refused|13|sc_ih_new|-|s/^  \[ -z "\$newfail" \]; }/  true; }/
+inherited red: no failure line, no inheritance|13|sc_ih_silent|-|s/\[ -n "\$mine" \] || return 1/:/
 retry bound: attempts|16|sc_moved_attempts|-|s/\[ "\$attempt" -lt "\$LAND_ATTEMPTS" \] \&\& //
 retry bound: deadline|16|sc_moved_deadline|-|s/ \&\& \[ "\$(date +%s)" -lt "\$deadline" \]//
 push refused while the base has not moved is final|1|sc_push_refused|-|s/^  ! g merge-base --is-ancestor "\$remote\/\$base" "\$sha" || die .*$/  :/
 land-revert: a failure that does not reproduce is not reverted|0|sc_rv_green|bin/land-revert|s/^if tier1 "\$run\/bis"; then stop 0 green/if false; then stop 0 green/
 land-revert: more than five dependents alert|3|sc_rv_five|bin/land-revert|s/^  \[ \${#later\[@\]} -le 5 \] || stop 3 alert .*$/  :/
 land-revert: a refused landing is an alert|3|sc_rv_refused|bin/land-revert|s/^\[ "\$rc" = 0 \] || stop 3 alert "the revert of/: || stop 3 alert "the revert of/
-Tier 2 freeze|14|sc_tier2|bin/land-red|s/elif \[ ! -e "\$state\/freeze" \]; then now=/elif false; then now=/
 gate edit: append-only|12|sc_ga_append|lib/approvals.sh|s/ga_refuse "\$f is a gate-defining file/: "\$f is a gate-defining file/
 gate edit: one-time consumption|12|sc_ga_onetime|lib/approvals.sh|s/"\$REM" || ga_refuse "the approval for/"\$REM" || : "the approval for/
 gate edit: stale approval|12|sc_ga_stale|lib/approvals.sh|s/^    if ga_fresh "\$d" "\$days"; then$/    if true; then/

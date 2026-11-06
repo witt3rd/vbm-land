@@ -1,5 +1,5 @@
 # The watchdog: when the Tier 1 job of a push to the base branch failed, revert the commit that made it red (scripts/land/bin/land-revert), through the repository's own lander.
-# A separate workflow from the gate (LAND_CI_WORKFLOW) so it can never make the base branch red. It runs after the gate's workflow completes with a failure.
+# A separate workflow from the gate so it can never make the base branch red. It runs after the gate's workflow completes with a failure.
 # It needs a runner that has the toolchain of your Tier 1 (land-revert runs it to find the first failing commit, then once more on the revert) and a push token THIS repository holds
 # (secret VBM_LAND_PUSH_TOKEN; a push by the default workflow token does not start the push CI that defines "red"). Notify the author in your `on-revert` hook (scripts/land.d/on-revert:
 # LAND_REVERT_RESULT, LAND_REVERT_TASK, LAND_REVERT_AUTHOR, LAND_REVERT_SUBJECT in its environment).

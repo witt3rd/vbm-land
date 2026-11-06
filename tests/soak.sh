@@ -11,7 +11,7 @@ sandbox
 v() { echo "soak: $*"; }
 rc_of() { RC=0; wait "$1" || RC=$?; }   # not in a $( ): only this shell can wait for its children
 stub="if [ \"\${LAND_ATTEMPT:-1}\" = 1 ] || [ -n \"\${SOAK_FULL_RERUN:-}\" ]; then sleep \$(( $T1MIN + RANDOM % ($T1MAX - $T1MIN + 1) )); else sleep 1; fi"
-set_conf "LAND_TEST_CMD=$stub" 'LAND_RED_MODE=off' ${SOAK_ATTEMPTS:+"LAND_ATTEMPTS=$SOAK_ATTEMPTS"}
+set_conf "LAND_TEST_CMD=$stub" ${SOAK_ATTEMPTS:+"LAND_ATTEMPTS=$SOAK_ATTEMPTS"}
 git clone -q "$T/remote.git" "$T/clone"; git -C "$T/clone" config commit.gpgsign false
 wt() { git -C "$T/clone" worktree add -q "$T/$1" -b "$1" origin/main; git -C "$T/$1" config commit.gpgsign false; }
 for i in $(seq 1 "$N"); do wt "w$i"; commit "$T/w$i" "f$i.txt" "file $i"; done
@@ -40,7 +40,7 @@ if command -v jq >/dev/null; then v "attempts per landing (metrics): $(jq -s -c 
 # ---- a race for one real approval: base holds ONE approval record for one edit of an append-only file
 sandbox
 AP=scripts/gate-edit-approvals.txt
-set_conf 'LAND_TEST_CMD=sleep 3' 'LAND_RED_MODE=off' 'LAND_GATE_APPEND_ONLY=gate.sh'; seed_push gate.sh $'a\nb\nc\nd\ne'
+set_conf 'LAND_TEST_CMD=sleep 3' 'LAND_GATE_APPEND_ONLY=gate.sh'; seed_push gate.sh $'a\nb\nc\nd\ne'
 git clone -q "$T/remote.git" "$T/clone"; git -C "$T/clone" config commit.gpgsign false
 wt() { git -C "$T/clone" worktree add -q "$T/$1" -b "$1" origin/main; git -C "$T/$1" config commit.gpgsign false; }
 drop_b() { sed -i 2d "$T/$1/gate.sh"; [ "${2:-}" != consume ] || : > "$T/$1/$AP"; git -C "$T/$1" add -A; git -C "$T/$1" commit -qm "feat: drop line b ($1)" -m "Task-ID: t"; }
