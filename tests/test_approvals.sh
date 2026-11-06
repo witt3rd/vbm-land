@@ -4,7 +4,7 @@
 . "$(dirname "$0")/lib.sh"
 sandbox
 L=$ROOT/bin/land-direct
-export LAND_LOCK_WAIT_SECONDS=5 RED_SLEEP=true
+export RED_SLEEP=true
 AP=scripts/gate-edit-approvals.txt; today=$(date -u +%F); yesterday=$(date -u -d yesterday +%F); old=$(date -u -d '30 days ago' +%F); future=$(date -u -d '10 days' +%F)
 nothing_landed() { test "$(remote_head)" = "$before"; }
 refused() {   # refused DESC DIR: land from DIR; it must exit 12 (the judge; the caller checks the message) and leave the remote untouched

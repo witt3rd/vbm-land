@@ -3,16 +3,15 @@
 #
 #   land-direct [--dry-run] [--check] [--group] [--conf PATH] [<rev>]   lands the commits <remote>/<base>..<rev> (default HEAD) of the worktree it is run in,
 #                                                             each as itself (linear history). --check runs only the land-time checks.
-#   --group: the commits are batch entries a coordinator already checked one by one: the size budget is waived. LAND_LOCK_HELD=1 (operator environment): the coordinator holds the lock
-#   (<git common dir>/vbm-land/lock) for its whole cycle and calls this inside it, so no lock is taken; it is not passed on to Tier 1 or the hooks.
-#   land-direct --hold "<reason>" | --release                 stop / allow landings in this clone (checked at the start, after the lock, before the push)
+#   --group: the commits are batch entries a coordinator already checked one by one: the size budget is waived.
+#   land-direct --hold "<reason>" | --release                 stop / allow landings in this clone (checked at the start and again before the push)
 #   land-direct --freeze "<reason>" --owner NAME --for 6h     freeze landing but for fixes and reverts (owner and expiry are required) | --thaw
 #   land-direct --print-gate-diff-hash FILE-SET [<rev>]       the sha256 of the canonical diff of FILE (a path, or paths comma-joined; `@protected` = the protected paths the change touches) (merge base with <remote>/<base> to <rev>, default HEAD): the hash of a gate-edit approval
 #   land-direct --print-gate-diff FILE [<rev>]                the canonical diff itself (lib/approvals.sh, docs/gate-edit-approvals.md)
 #   land-direct --status | --version
 #
-# What it does, under ONE lock (<git common dir>/vbm-land/lock, with a lease so a dead holder cannot wedge it):
-#   hold? -> fetch -> land-time checks on every commit (Conventional subject, required trailers, size budget) -> lock -> hold? -> red? (bin/land-red:
+# What it does (NO LOCK: any number of landers run at once, each in its own run directory; the remote's refusal of a push that is not a fast-forward is the only arbiter):
+#   hold? -> fetch -> land-time checks on every commit (Conventional subject, required trailers, size budget) -> hold? -> red? (bin/land-red:
 #   the one definition of a red main; a fix or a revert may land on a red or frozen main) -> rebase the commits onto <remote>/<base> in this run's own scratch
 #   worktree (<git common dir>/vbm-land/run.<pid>.<random>/wt, removed at exit; a conflict ONLY in generated files takes base's file and regenerates) -> hooks -> Tier 1 (the gates command, then the test
 #   command) on that exact combination -> fetch again: base moved during Tier 1 = rebase and check again (3 tries) -> `git push <remote> <sha>:<base>`, a
@@ -24,21 +23,21 @@
 #
 # Exit codes (the contract): 0 landed | 1 stopped with a plain message (base kept moving, push refused, a bad commit message) | 2 bad input or bad config |
 #   10 blocked: base is red (or not knowable) | 11 rebase conflict: aborted, the files are named; resolve in your worktree (git fetch && git rebase <remote>/<base>) and run again |
-#   12 refused by a hook, the protected-set rules, the vendored-copy drift check, or a regeneration that failed | 13 Tier 1 fails (nothing lands) | 14 held or frozen |
-#   15 busy: the lock was not free within LAND_LOCK_WAIT seconds (default 90): run it again.
+#   12 refused by a hook, the protected-set rules, the vendored-copy drift check, or a regeneration that failed | 13 Tier 1 fails (nothing lands) | 14 held or frozen.
 # The LAST line of stdout is JSON: {"sha","commits","tier1_seconds","result","exit"} plus any keys a `json-fields` hook prints (null where not known; result: landed,
-#   would-land, checked, blocked-red, conflict, refused, tier1, held, busy, error). Every run also appends one line to the metrics log
-#   ($LAND_DIRECT_LOG, default <git common dir>/vbm-land/metrics.jsonl): ts, result, commits, wait_s, tier1_s, total_s.
+#   would-land, checked, blocked-red, conflict, refused, tier1, held, error). Every run also appends one line to the metrics log
+#   ($LAND_DIRECT_LOG, default <git common dir>/vbm-land/metrics.jsonl): ts, result, commits, tier1_s, total_s.
 # BOUNDED: every step runs under `timeout --kill-after=30`: LAND_TIER1_TIMEOUT (Tier 1, regeneration of generated files by Tier 1 is part of it), LAND_STEP_TIMEOUT
 #   (hooks, regeneration, the red check), LAND_GIT_TIMEOUT (fetch, push). A step that runs over is killed with one plain line and the run stops as that step's failure.
-# Operator environment (not policy): REMOTE-independent knobs GH, LAND_CONF, LAND_FIX_FOR_RED=1 (treat this change as the fix for a red main), LAND_LOCK_WAIT_SECONDS,
-#   LAND_LEASE_STALE_SECONDS, LAND_DIRECT_LOG, and the timeouts above. Policy keys are never read from the environment.
+# Operator environment (not policy): REMOTE-independent knobs GH, LAND_CONF, LAND_FIX_FOR_RED=1 (treat this change as the fix for a red main), LAND_DIRECT_LOG, and the
+#   timeouts above. Policy keys are never read from the environment. LAND_LOCK_WAIT_SECONDS, LAND_LEASE_STALE_SECONDS and the key LAND_LOCK_WAIT are read and IGNORED (one notice): there is no lock.
 # Commands the lander runs get: LAND_TOP (the worktree landed from), LAND_BASE_REF (<remote>/<base>), LAND_STATE_DIR (shared by every run of the clone: hold, freeze, metrics), LAND_RUN_DIR (this run's own: scratch worktree, hooks, logs), LAND_TASK (the tip's first required trailer value).
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd); lib=$here/../lib
 . "$lib/conf.sh"; . "$lib/freeze.sh"; . "$lib/approvals.sh"
 # operator knobs first, then clear every policy variable so only the repository's file can set policy
-o_lock=${LAND_LOCK_WAIT_SECONDS:-}; o_t1=${LAND_TIER1_TIMEOUT:-}; o_st=${LAND_STEP_TIMEOUT:-}; o_gt=${LAND_GIT_TIMEOUT:-}; o_conf=${LAND_CONF:-}; o_fixred=${LAND_FIX_FOR_RED:-}; o_lockheld=${LAND_LOCK_HELD:-}; unset LAND_LOCK_HELD   # the caller's word for THIS process only: Tier 1 and the hooks must not inherit it
+ignored=; for k in LAND_LOCK_WAIT_SECONDS LAND_LEASE_STALE_SECONDS; do [ -z "${!k:-}" ] || ignored="$ignored $k"; done   # the lock is gone: these are read, ignored and named once
+o_t1=${LAND_TIER1_TIMEOUT:-}; o_st=${LAND_STEP_TIMEOUT:-}; o_gt=${LAND_GIT_TIMEOUT:-}; o_conf=${LAND_CONF:-}; o_fixred=${LAND_FIX_FOR_RED:-}
 conf_defaults
 gh=${GH:-gh}; export GH=$gh
 
@@ -56,15 +55,14 @@ while [ $# -gt 0 ]; do case $1 in
 [ ${#args[@]} -le 1 ] || usage
 rev=${args[0]:-HEAD}
 
-hooks=; wt=; sha=; ncommits=; t1=; result=error; waited=; t0=$(date +%s); common=; state=; run=; lease_mine=0; hbf=; extra_json=
+hooks=; wt=; sha=; ncommits=; t1=; result=error; t0=$(date +%s); common=; state=; run=; extra_json=
 json_num() { [[ "${1:-}" =~ ^[0-9]+(\.[0-9]+)?$ ]] && printf '%s' "$1" || printf null; }
 json_str() { [[ "${1:-}" =~ ^[A-Za-z0-9._-]+$ ]] && printf '"%s"' "$1" || printf null; }
 onexit() {
   local c=$?
   [ -z "$op" ] || { run_cleanup "$c"; exit "$c"; }
-  if [ "$lease_mine" = 1 ] && grep -q "^pid=$$ " "$state/lease" 2>/dev/null; then rm -f "$state/lease" "$hbf"; fi   # our lease ends with us
   if [ -n "$state" ] && [ -d "$state" ]; then   # the measurements, one O_APPEND line each: landings per hour, commit-to-main time
-    printf '{"ts":%s,"result":"%s","commits":%s,"wait_s":%s,"tier1_s":%s,"total_s":%s}\n' "$(date +%s)" "$result" "$(json_num "$ncommits")" "$(json_num "$waited")" "$(json_num "$t1")" "$(( $(date +%s) - t0 ))" >> "${LAND_DIRECT_LOG:-$state/metrics.jsonl}" 2>/dev/null || true
+    printf '{"ts":%s,"result":"%s","commits":%s,"tier1_s":%s,"total_s":%s}\n' "$(date +%s)" "$result" "$(json_num "$ncommits")" "$(json_num "$t1")" "$(( $(date +%s) - t0 ))" >> "${LAND_DIRECT_LOG:-$state/metrics.jsonl}" 2>/dev/null || true
   fi
   run_hook on-run >/dev/null 2>&1 || true
   printf '{"sha":%s,"commits":%s,"tier1_seconds":%s,"result":"%s","exit":%s%s}\n' "$(json_str "$sha")" "$(json_num "$ncommits")" "$(json_num "$t1")" "$result" "$c" "$extra_json"
@@ -78,8 +76,7 @@ run_cleanup() {
 }
 trap onexit EXIT
 # bounded SECS LABEL CMD...: the command under `timeout --kill-after=30`; over the bound it is killed and one plain line says which step and how long. Returns its exit code.
-hb() { [ "$lease_mine" != 1 ] || touch "$hbf" 2>/dev/null || true; }   # the lease heartbeat: touched around every step
-bounded() { local s=$1 label=$2 rc=0; shift 2; hb; timeout --kill-after=30 "$s" "$@" 9>&- || rc=$?; hb
+bounded() { local s=$1 label=$2 rc=0; shift 2; timeout --kill-after=30 "$s" "$@" || rc=$?
   if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then echo "land-direct: TIMED OUT: $label ran past ${s}s and was killed (exit $rc)" >&2; fi; return "$rc"; }
 stop() { local code=$1; result=$2; shift 2; echo "land-direct: $*" >&2; exit "$code"; }
 die() { stop 1 error "$*"; }
@@ -103,7 +100,7 @@ case $op in
   thaw) rm -f "$freezef"; echo "land-direct: freeze lifted"; exit 0;;
   status) if [ -e "$holdf" ]; then echo "hold: $(sed -n 1p "$holdf")"; else echo "hold: none"; fi
     if freeze_active "$freezef"; then echo "freeze: $(freeze_describe "$freezef")"; else echo "freeze: none"; fi
-    if [ -r "$state/lease" ]; then echo "lock lease: $(cat "$state/lease")"; else echo "lock lease: none"; fi; exit 0;;
+    exit 0;;
 esac
 
 # ---- this run's own directory: <git common dir>/vbm-land/run.<pid>.<random> holds everything this run writes (scratch worktree, hooks, logs, scratch files), so no two runs share a file.
@@ -115,6 +112,16 @@ for d in "$state"/run.*; do
 done
 run=$(mktemp -d "$state/run.$$.XXXXXX") || badinput "cannot create a run directory under $state"
 export LAND_RUN_DIR=$run
+# fetch_base SECS DIR: fetch the base branch. Landers of one clone fetch into the same remote-tracking ref and git refuses the loser ("cannot lock ref"): that one transient refusal is retried, anything else is a failure.
+fetch_base() { local i rc=0
+  for i in 1 2 3 4 5 6 7 8; do
+    rc=0; bounded "$1" "git fetch" git -C "$2" -c core.filesRefLockTimeout=2000 fetch -q "$remote" "$base" 2>"$run/fetch.err" || rc=$?
+    [ "$rc" != 0 ] || return 0
+    grep -q 'cannot lock ref\|\.lock' "$run/fetch.err" || break
+    sleep "0.$((RANDOM % 9 + 1))"
+  done
+  cat "$run/fetch.err" >&2; return "$rc"
+}
 
 [ "$op" = print ] || holdcheck
 # ---- fetch, then the repository's configuration (from the base branch; the working tree's copy only when the base has none yet)
@@ -122,7 +129,7 @@ remote=origin; base=$(git -C "$top" symbolic-ref -q --short "refs/remotes/$remot
 [ -n "$base" ] || base=$(git -C "$top" ls-remote --symref "$remote" HEAD 2>/dev/null | sed -n 's|^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$|\1|p' | sed -n 1p || true)
 [ -n "$base" ] || base=main
 git -C "$top" remote get-url "$remote" >/dev/null 2>&1 || badinput "no remote named $remote"
-bounded "${o_gt:-$LAND_GIT_TIMEOUT}" "git fetch" git -C "$top" fetch -q "$remote" "$base" || die "cannot fetch $remote $base"
+fetch_base "${o_gt:-$LAND_GIT_TIMEOUT}" "$top" || die "cannot fetch $remote $base"
 if [ -n "$o_conf" ] && [ -r "$o_conf" ]; then conf_parse "$o_conf" < "$o_conf" || exit 2; confsrc=$o_conf
 elif git -C "$top" cat-file -e "$remote/$base:$confpath" 2>/dev/null; then conf_parse "$remote/$base:$confpath" < <(git -C "$top" show "$remote/$base:$confpath") || exit 2; confsrc="$remote/$base:$confpath"
 elif [ -r "$top/$confpath" ]; then conf_parse "$confpath" < "$top/$confpath" || exit 2; confsrc="$confpath (working tree: $base has no $confpath yet)"
@@ -131,10 +138,12 @@ conf_validate || exit 2
 if [ "$LAND_REMOTE" != "$remote" ] || [ "$LAND_BASE" != "$base" ]; then   # the file names another remote or base: fetch that one
   remote=$LAND_REMOTE; base=$LAND_BASE
   git -C "$top" remote get-url "$remote" >/dev/null 2>&1 || badinput "LAND_REMOTE=$remote: no such remote"
-  bounded "${o_gt:-$LAND_GIT_TIMEOUT}" "git fetch" git -C "$top" fetch -q "$remote" "$base" || die "cannot fetch $remote $base"
+  fetch_base "${o_gt:-$LAND_GIT_TIMEOUT}" "$top" || die "cannot fetch $remote $base"
 fi
 export LC_ALL=$LAND_LOCALE
-lt=${o_t1:-$LAND_TIER1_TIMEOUT}; st=${o_st:-$LAND_STEP_TIMEOUT}; gt=${o_gt:-$LAND_GIT_TIMEOUT}; wait_s=${o_lock:-$LAND_LOCK_WAIT}
+lt=${o_t1:-$LAND_TIER1_TIMEOUT}; st=${o_st:-$LAND_STEP_TIMEOUT}; gt=${o_gt:-$LAND_GIT_TIMEOUT}
+[ -z "$LAND_LOCK_WAIT" ] || ignored="$ignored LAND_LOCK_WAIT"
+[ -z "$ignored" ] || echo "land-direct: note:$ignored ignored: there is no lock any more (remove it)" >&2
 export LAND_TOP=$top LAND_BASE_REF=$remote/$base LAND_STATE_DIR=$state
 read -ra prot_globs <<<"$LAND_PROTECTED"; read -ra fix_globs <<<"$LAND_FIX_PATHS"
 prot_globs+=("$LAND_APPROVALS"); [ -z "$LAND_PROTECTED_APPROVALS" ] || prot_globs+=("$LAND_PROTECTED_APPROVALS")   # the approvals files are always protected: gate-defining files in every repository
@@ -237,45 +246,6 @@ red_check() {
   esac
 }
 
-# ---- the lock: one coordinator, with a lease. A worker that cannot get it in $wait_s seconds gets exit 15 and runs it again.
-tw=$(date +%s); lease=$state/lease; hbf=$state/lease.hb; leaselog=$state/lease.log; stale=${LAND_LEASE_STALE_SECONDS:-2400}
-pstart() { local s; s=$(cat "/proc/$1/stat" 2>/dev/null) || return 1; s=${s##*) }; set -- $s; echo "${20}"; }   # process start time (field 22 of /proc/PID/stat): with the pid it names ONE process
-lease_field() { sed -n "s/.*\<$1=\([^ ]*\).*/\1/p" "$lease" 2>/dev/null | sed -n 1p; }
-# lease_break: 0 when it broke a STALE lease (heartbeat idle over $stale s, longer than the longest step timeout): the holder (pid AND start time must match the lease) is TERMed with
-# its children, then KILLed; the lock file is replaced and the break is logged. 1 = no lease, or a live fresh one.
-lease_break() {
-  [ -r "$lease" ] || return 1
-  local ref=$hbf lpid lstart ltask age d c
-  [ -e "$ref" ] || ref=$lease
-  age=$(( $(date +%s) - $(stat -c %Y "$ref" 2>/dev/null || date +%s) )); [ "$age" -gt "$stale" ] || return 1
-  lpid=$(lease_field pid); lstart=$(lease_field start); ltask=$(lease_field task)
-  echo "land-direct: LEASE BROKEN: the lock holder (pid ${lpid:-?}, task ${ltask:-?}) beat no heartbeat for ${age}s (over ${stale}s): terminating it and replacing the lock (logged: $leaselog)" >&2
-  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) lease broken: holder pid=${lpid:-?} task=${ltask:-?} idle=${age}s stale_after=${stale}s broken_by_pid=$$" >> "$leaselog" || true
-  if [[ "${lpid:-}" =~ ^[0-9]+$ ]] && [ -n "$lstart" ] && [ "$(pstart "$lpid" || true)" = "$lstart" ]; then
-    for d in /proc/[0-9]*; do c=${d#/proc/}; if [ "$(awk '{sub(/^.*\) /,""); print $2}' "$d/stat" 2>/dev/null || true)" = "$lpid" ]; then kill -TERM "$c" 2>/dev/null || true; fi; done
-    kill -TERM "$lpid" 2>/dev/null || true; for _ in 1 2 3 4 5 6 7 8 9 10; do [ "$(pstart "$lpid" || true)" = "$lstart" ] || break; sleep 0.5; done
-    [ "$(pstart "$lpid" || true)" != "$lstart" ] || kill -KILL "$lpid" 2>/dev/null || true
-  fi
-  rm -f "$state/lock" "$lease" "$hbf"; return 0
-}
-# lease_acquire: the flock in 5 s slices until $wait_s; between slices a stale lease is broken; the lock file may have been replaced under us: the held inode must be the file's.
-lease_acquire() {
-  local deadline=$(( $(date +%s) + wait_s ))
-  while :; do
-    lease_break || true
-    exec 9>"$state/lock"
-    if flock -w "$([ "$wait_s" -ge 5 ] && echo 5 || echo "$wait_s")" 9; then [ "$(stat -Lc %i /proc/$$/fd/9)" != "$(stat -c %i "$state/lock" 2>/dev/null || echo x)" ] || return 0; continue; fi
-    [ "$(date +%s)" -lt "$deadline" ] || return 1
-  done
-}
-if [ "$o_lockheld" = 1 ]; then   # LAND_LOCK_HELD=1: a batch coordinator holds this very lock (<git common dir>/vbm-land/lock) for its whole cycle and calls us inside it: no lease of ours
-  echo "land-direct: the caller holds the lock (LAND_LOCK_HELD=1)"
-else
-  echo "land-direct: waiting for the lock (at most ${wait_s}s)"
-  lease_acquire || { waited=$(( $(date +%s) - tw )); stop 15 busy "another lander held the lock for ${waited}s; run land-direct again"; }
-  printf 'pid=%s start=%s task=%s at=%s\n' "$$" "$(pstart "$$" || echo 0)" "${task:-none}" "$(date +%s)" > "$lease"; lease_mine=1; hb
-fi
-waited=$(( $(date +%s) - tw ))
 holdcheck; red_check
 
 # ---- the scratch worktree: ours, by path. Never `git worktree prune`: the clone is shared with other lanes' worktrees.
@@ -284,7 +254,7 @@ g() { git -C "$wt" "$@"; }
 prepare_hooks
 run_hook prepare || stop 12 refused "the prepare hook failed"
 for attempt in 1 2 3; do
-  bounded "$gt" "git fetch" git -C "$wt" fetch -q "$remote" "$base" || die "cannot fetch $remote $base (timed out or failed)"
+  fetch_base "$gt" "$wt" || die "cannot fetch $remote $base (timed out or failed)"
   g reset -q --hard; g clean -fdq; g checkout -q --detach "$tip0"; regenned=0
   run_hook pre-rebase || stop 12 refused "the pre-rebase hook refused this change"
   if ! g rebase -q "$remote/$base" >/dev/null 2>&1; then
@@ -334,7 +304,7 @@ for attempt in 1 2 3; do
     [ -z "$LAND_PROTECTED_LIST" ] || ga_judge_run "$wt" "$remote/$base" "$LAND_APPROVALS" "$LAND_APPROVAL_DAYS" "$LAND_GATE_APPEND_ONLY" "$run" "$LAND_PROTECTED_LIST" "$pap" "$prot_extra" || stop 12 refused "the gate-edit judge refused the tree after Tier 1 regenerated files (see above)"
   fi
   sha=$(g rev-parse HEAD)
-  bounded "$gt" "git fetch" git -C "$wt" fetch -q "$remote" "$base" || die "cannot fetch $remote $base (timed out or failed)"
+  fetch_base "$gt" "$wt" || die "cannot fetch $remote $base (timed out or failed)"
   if ! g merge-base --is-ancestor "$remote/$base" HEAD; then   # base moved during Tier 1: rebase and check again
     [ "$attempt" -lt 3 ] || die "$base moved three times during Tier 1; run land-direct again."
     echo "land-direct: $base moved during Tier 1: rebasing and checking again ($attempt of 3)"; continue
@@ -356,5 +326,5 @@ fi
 if [ "$dry" = 1 ]; then result=would-land; echo "land-direct: dry run: would land ${sha:0:12} (tier1 ${t1}s); nothing pushed"; exit 0; fi
 result=landed
 if [ "$allfix" = 1 ] && [ -e "$freezef" ]; then rm -f "$freezef"; echo "land-direct: a fix landed: the freeze is lifted"; fi
-echo "land-direct: ${sha:0:12} is $base: $ncommits commit(s), tier1 ${t1}s (waited ${waited}s for the lock)"
+echo "land-direct: ${sha:0:12} is $base: $ncommits commit(s), tier1 ${t1}s"
 echo "land-direct: your branch still holds the pre-rebase commits ($base has them rebased): start the next task from a fresh worktree off $remote/$base"

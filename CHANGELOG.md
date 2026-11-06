@@ -4,6 +4,7 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 ## Unreleased
+- BREAKING (0.5.0 will be a major release): `land-direct` takes no lock. The flock, the lease and its heartbeat, stale-lease breaking, every "busy" path, exit `15`, the result `busy`, `LAND_LOCK_HELD` and the `wait_s` field of the metrics line are gone. `LAND_LOCK_WAIT` (key), `LAND_LOCK_WAIT_SECONDS` and `LAND_LEASE_STALE_SECONDS` (environment) are read and ignored with one notice for a release. Any number of landers run at once (each in its own run directory); the remote's refusal of a push that is not a fast-forward is the only arbiter. `scripts/bootstrap-land` (the recovery lander) is unchanged and keeps its lock.
 - `land-direct` keeps everything one run writes in its own directory, `<git common dir>/vbm-land/run.<pid>.<random>/` (scratch worktree, hooks, logs, scratch files), removed at exit (a failed run keeps only its `*.log` files; a later run sweeps directories of dead runs older than a day). The hold, freeze and metrics files stay shared. New in the environment of hooks and Tier 1: `LAND_RUN_DIR`. A hook that wrote scratch files under `LAND_STATE_DIR` should write them under `LAND_RUN_DIR`.
 
 ## 0.4.1

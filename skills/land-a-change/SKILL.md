@@ -25,7 +25,6 @@ There is exactly one way: `scripts/land-direct` (a stub for the vendored `script
 | 12 | refused | a hook, the protected-set rule or the drift check refused; read the message; never edit `scripts/land/` |
 | 13 | tier1 | your change fails Tier 1; nothing landed; fix and run again |
 | 14 | held | a hold or freeze is on; see `hold-and-freeze`; do not remove it unless you set it |
-| 15 | busy | another landing holds the lock: just run it again |
 
 6. After exit 0, read the push CI of main and wait for it: `gh run list --workflow ci.yml --branch main --limit 1`, then `gh run watch <id> --exit-status`.
 

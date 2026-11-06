@@ -40,4 +40,11 @@ for bad in 'cat "$RO''OT/scripts/gate-edit-appro''vals.txt"' 'git -C "$RO''OT" t
   printf '%s\n' "$bad" > "$T/rs/tests/test_zz.sh"; rc=0; "$T/rs/tests/lint.sh" >"$T/out" 2>&1 || rc=$?
   check "a test that reads real state is refused by the lint: $bad" test "$rc" != 0; out_has "reads the real repository"
 done
+# the no-lock lint can fail: a flock, a lease helper, a held descriptor or an exit 15 put back into the lander is refused
+cp "$T/rs/bin/land-direct" "$T/land-direct.orig"
+for bad in 'flock -w 5 9' 'lease_acquire' 'exec 9>"$state/lock"' 'stop 15 busy "x"'; do
+  cp "$T/land-direct.orig" "$T/rs/bin/land-direct"; printf '%s\n' "$bad" >> "$T/rs/bin/land-direct"; rc=0; "$T/rs/tests/lint.sh" >"$T/out" 2>&1 || rc=$?
+  check "a lock put back into the lander is refused by the lint: $bad" test "$rc" != 0; out_has "a lock is back"
+done
+: > "$T/rs/tests/test_zz.sh"; cp "$T/land-direct.orig" "$T/rs/bin/land-direct"; check "and the lint passes again on the untouched lander" "$T/rs/tests/lint.sh"
 finish

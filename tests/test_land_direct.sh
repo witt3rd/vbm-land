@@ -4,7 +4,7 @@
 . "$(dirname "$0")/lib.sh"
 sandbox
 L=$ROOT/bin/land-direct
-export LAND_LOCK_WAIT_SECONDS=5 RED_SLEEP=true
+export RED_SLEEP=true
 nothing_landed() { test "$(remote_head)" = "$before"; }    # `before=$(remote_head)` precedes each refusal test
 refused() {   # refused DESC CODE DIR [ENV=VAL...]: land from DIR, it must exit CODE and leave the remote untouched
   local d=$1 want=$2 dir=$3; shift 3; before=$(remote_head)
@@ -238,39 +238,46 @@ check "the next run sweeps a dead run's old directory" test ! -e "$v/run.$gone.o
 check "it keeps a young directory, a live pid's and a name without a pid" bash -c "[ -d '$v/run.$gone.new' ] && [ -d '$v/run.$alive.old' ] && [ -d '$v/run.junk.old' ]"
 check "it never follows a symlink out of the clone" bash -c "[ -L '$v/run.$gone.link' ] && [ -e '$T/precious/f' ]"
 set_conf 'LAND_TEST_CMD=true'
-echo "## lock, lease, racing workers"
-worker b1; commit "$T/b1" b.txt 1
-mkdir -p "$T/b1/.git/vbm-land"; ( exec 8>"$T/b1/.git/vbm-land/lock"; flock 8; sleep 8 ) & holder=$!
-sleep 0.3; refused "a busy lock refuses" 15 "$T/b1" LAND_LOCK_WAIT_SECONDS=1; kill "$holder" 2>/dev/null || true; wait "$holder" 2>/dev/null || true
-# a lease whose holder is alive but silent past the stale limit is broken: the holder (a process this test started) is terminated
-worker l1; commit "$T/l1" l.txt 1; mkdir -p "$T/l1/.git/vbm-land"
-sleep 120 & victim=$!; st=$(awk '{sub(/^.*\) /,""); print $20}' "/proc/$victim/stat")
-printf 'pid=%s start=%s task=t at=1\n' "$victim" "$st" > "$T/l1/.git/vbm-land/lease"; touch -d '2 hours ago' "$T/l1/.git/vbm-land/lease"
-( exec 8>"$T/l1/.git/vbm-land/lock"; flock 8; sleep 60 ) & lockholder=$!; sleep 0.3
-lands "a stale lease is broken and the landing proceeds" "$T/l1" LAND_LEASE_STALE_SECONDS=60 LAND_LOCK_WAIT_SECONDS=30; out_has "LEASE BROKEN"
-sleep 1; check "the stale holder was terminated" bash -c "! kill -0 $victim 2>/dev/null"
-check "the break is logged" test -s "$T/l1/.git/vbm-land/lease.log"
-kill "$victim" "$lockholder" 2>/dev/null || true; wait 2>/dev/null || true
-worker p1; worker p2; commit "$T/p1" p1.txt 1; commit "$T/p2" p2.txt 2
-set_conf 'LAND_TEST_CMD=echo "$LAND_RUN_DIR" >> '"$T/race-runs.txt"'; sleep 1' 'LAND_LOCK_WAIT=30'
+echo "## no lock: a stale lock file means nothing, runs in one clone race and both land, the old lock settings are named once and ignored"
+worker b1; commit "$T/b1" b.txt 1; v=$T/b1/.git/vbm-land; mkdir -p "$v"
+( exec 8>"$v/lock"; flock 8; sleep 20 ) & holder=$!   # a lock file somebody holds, and a lease that looks like a live, silent holder: the lander must not look at either
+printf 'pid=%s start=1 task=t at=1\n' "$holder" > "$v/lease"; touch -d '2 hours ago' "$v/lease"; sleep 0.3
+lands "a held lock file and a lease that looks live change nothing: it lands" "$T/b1"; check "nothing waited for a lock" bash -c "! grep -qi 'lock' '$T/out'"
+check "and nothing terminated the holder" kill -0 "$holder"
+kill "$holder" 2>/dev/null || true; wait "$holder" 2>/dev/null || true
+worker b2; commit "$T/b2" b2.txt 1
+lands "the old lock settings of the environment are ignored" "$T/b2" LAND_LOCK_WAIT_SECONDS=1 LAND_LEASE_STALE_SECONDS=1; out_has "LAND_LOCK_WAIT_SECONDS LAND_LEASE_STALE_SECONDS ignored"
+set_conf 'LAND_TEST_CMD=true' 'LAND_LOCK_WAIT=30'
+worker b3; commit "$T/b3" b3.txt 1
+lands "a land.conf that still has LAND_LOCK_WAIT loads: ignored, named once" "$T/b3"; out_has "note: LAND_LOCK_WAIT ignored"
+worker p1; git -C "$T/p1" worktree add -q "$T/p2" -b p2 origin/main; git -C "$T/p2" config commit.gpgsign false; commit "$T/p1" p1.txt 1; commit "$T/p2" p2.txt 2   # two worktrees of ONE clone share its .git
+set_conf 'LAND_TEST_CMD=echo "$LAND_RUN_DIR" >> '"$T/race-runs.txt"'; sleep 1'
 ( cd "$T/p1" && "$L" >"$T/p1.out" 2>&1 ) & q1=$!; ( cd "$T/p2" && "$L" >"$T/p2.out" 2>&1 ) & q2=$!
 rc1=0; rc2=0; wait $q1 || rc1=$?; wait $q2 || rc2=$?
-check "two racing workers both land" bash -c "[ $rc1 = 0 ] && [ $rc2 = 0 ] && git -C '$T/remote.git' cat-file -e main:p1.txt && git -C '$T/remote.git' cat-file -e main:p2.txt"
+check "two racing runs of one clone both land" bash -c "[ $rc1 = 0 ] && [ $rc2 = 0 ] && git -C '$T/remote.git' cat-file -e main:p1.txt && git -C '$T/remote.git' cat-file -e main:p2.txt"
 check "history stays linear" test -z "$(git -C "$T/remote.git" rev-list --merges main)"
 check "the two racing runs used two different run directories" bash -c "[ \$(sort -u '$T/race-runs.txt' | wc -l) = 2 ]"
+# landers of one clone fetch into the same remote-tracking ref and git refuses the loser: a shim `git` refuses fetches with a message of the test's choosing; the lander must retry that refusal and no other
+mkdir -p "$T/shim"; cat > "$T/shim/git" <<SHIM
+#!/usr/bin/env bash
+case " \$* " in *" fetch "*) echo x >> "\$SHIM_LOG"; if [ -n "\${SHIM_ALWAYS:-}" ] || [ ! -e "\$SHIM_LOG.done" ]; then : > "\$SHIM_LOG.done"; echo "\$SHIM_MSG" >&2; exit 1; fi;; esac
+exec $(command -v git) "\$@"
+SHIM
+chmod +x "$T/shim/git"
+worker fr1; commit "$T/fr1" fr1.txt 1
+lands "a fetch refused with 'cannot lock ref' is retried and the landing goes through" "$T/fr1" PATH="$T/shim:$PATH" SHIM_LOG="$T/shim/log1" SHIM_MSG="error: cannot lock ref 'refs/remotes/origin/main': is at 1 but expected 2"
+check "the shim really refused a fetch" test -e "$T/shim/log1.done"
+worker fr2; commit "$T/fr2" fr2.txt 1
+refused "a fetch that fails for any other reason stops the landing" 1 "$T/fr2" PATH="$T/shim:$PATH" SHIM_LOG="$T/shim/log2" SHIM_ALWAYS=1 SHIM_MSG="fatal: unable to access 'x'"
+check "and it was not retried (one fetch, not eight)" test "$(wc -l < "$T/shim/log2")" = 1
 set_conf 'LAND_TEST_CMD=true'
 
-echo "## group mode (a batch coordinator): --group and LAND_LOCK_HELD"
-set_conf 'LAND_TEST_CMD=test -z "$LAND_LOCK_HELD"' 'LAND_PROD_PATHS=src' 'LAND_BUDGET_LINES=3'
+echo "## --group (a batch coordinator's entries)"
+set_conf 'LAND_TEST_CMD=true' 'LAND_PROD_PATHS=src' 'LAND_BUDGET_LINES=3'
 worker gp1; mkdir -p "$T/gp1/src"; seq 1 40 > "$T/gp1/src/f"; git -C "$T/gp1" add src; git -C "$T/gp1" commit -qm "feat: big entry" -m "Task-ID: t"
 refused "over the budget without --group is refused" 1 "$T/gp1"
 before=$(remote_head); ( cd "$T/gp1" && "$L" --group >"$T/out" 2>&1 ) && rc=0 || rc=$?; [ "$rc" = 0 ] && pass "--group waives the size budget (the coordinator checked each entry)" || { fail "--group: exit $rc"; cat "$T/out" >&2; }
 out_has "by --group"
-worker gp2; commit "$T/gp2" gp2.txt 1
-mkdir -p "$T/gp2/.git/vbm-land"; ( exec 8>"$T/gp2/.git/vbm-land/lock"; flock 8; sleep 6 ) & holder=$!; sleep 0.3
-refused "another holder of the lock: busy" 15 "$T/gp2" LAND_LOCK_WAIT_SECONDS=1
-lands "LAND_LOCK_HELD=1: the caller holds the lock, none is taken; Tier 1 does not inherit the variable" "$T/gp2" LAND_LOCK_HELD=1; out_has "the caller holds the lock"
-kill "$holder" 2>/dev/null || true; wait "$holder" 2>/dev/null || true
 set_conf 'LAND_TEST_CMD=true'
 
 echo "## known flaky: a listed failure is rerun once"

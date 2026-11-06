@@ -4,7 +4,7 @@
 # Run twice: the approvals in a file of their own (a consumer with its own baseline approvals) and in the shared gate-edit approvals file (the default).
 . "$(dirname "$0")/lib.sh"
 L=$ROOT/bin/land-direct
-export LAND_LOCK_WAIT_SECONDS=5 RED_SLEEP=true
+export RED_SLEEP=true
 today=$(date -u +%F); old=$(date -u -d '30 days ago' +%F)
 LIST=scripts/protected-paths.txt
 nothing_landed() { test "$(remote_head)" = "$before"; }

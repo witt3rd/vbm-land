@@ -30,7 +30,8 @@ conf_defaults() {
   LAND_HOOKS_DIR=scripts/land.d                 # repository-owned hooks (README, "Hooks")
   LAND_AUTO_UPDATE=none                          # none | patch | minor: what the scheduled workflow may update by itself (land-update --auto); a major release never
   LAND_LOCALE=C                                 # pinned for collation, glob and sort order
-  LAND_LOCK_WAIT=90; LAND_TIER1_TIMEOUT=1800; LAND_STEP_TIMEOUT=600; LAND_GIT_TIMEOUT=180   # seconds
+  LAND_TIER1_TIMEOUT=1800; LAND_STEP_TIMEOUT=600; LAND_GIT_TIMEOUT=180   # seconds
+  LAND_LOCK_WAIT=                               # ignored (there is no lock since 0.5.0); still a known key so an old file keeps loading, and land-direct says so once
 }
 
 # conf_parse NAME: read the file's text from stdin; NAME is only used in messages. Returns 2 (with a message) on anything it does not understand.
@@ -61,7 +62,7 @@ conf_validate() {
   done
   if [ -n "$LAND_PROTECTED_LIST" ] && { [ "$LAND_PROTECTED_LIST" = "$LAND_APPROVALS" ] || [ "$LAND_PROTECTED_LIST" = "$LAND_PROTECTED_APPROVALS" ]; }; then b "LAND_PROTECTED_LIST cannot be an approvals file"; fi
   [ -z "$LAND_PROTECTED_APPROVALS" ] || [ -n "$LAND_PROTECTED_LIST" ] || b "LAND_PROTECTED_APPROVALS is set but LAND_PROTECTED_LIST is not"
-  for k in LAND_APPROVAL_DAYS LAND_BUDGET_LINES LAND_FLAKY_RERUN_WAIT LAND_RED_WAIT LAND_LOCK_WAIT LAND_TIER1_TIMEOUT LAND_STEP_TIMEOUT LAND_GIT_TIMEOUT; do
+  for k in LAND_APPROVAL_DAYS LAND_BUDGET_LINES LAND_FLAKY_RERUN_WAIT LAND_RED_WAIT LAND_TIER1_TIMEOUT LAND_STEP_TIMEOUT LAND_GIT_TIMEOUT; do
     [[ "${!k}" =~ ^[0-9]+$ ]] || b "$k must be a whole number (is '${!k}')"
   done
   case $LAND_AUTO_UPDATE in none|patch|minor) ;; *) b "LAND_AUTO_UPDATE must be none, patch or minor (is '$LAND_AUTO_UPDATE'; a major release is never automatic)";; esac

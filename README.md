@@ -10,7 +10,7 @@ It is a tool, not a verified library: it is not scored by the [VBM](https://gith
 
 ## Quick start
 
-Requirements: bash 4+, git 2.30+, util-linux `flock`, `timeout`, `gh` (only for the red check, which reads your CI), and, for the tests, `jq`, `python3`, `ps` (procps) and `ssh-keygen` (openssh-client). Linux only for now.
+Requirements: bash 4+, git 2.30+, `timeout`, `gh` (only for the red check, which reads your CI), util-linux `flock` (only `scripts/bootstrap-land`, the recovery lander), and, for the tests, `jq`, `python3`, `ps` (procps) and `ssh-keygen` (openssh-client). Linux only for now.
 
 ```
 # 1. Get a release and check its signature (the maintainer's public key is scripts/land.signers; its fingerprint is in docs/signing.md)
@@ -37,7 +37,7 @@ Edit the starter `scripts/land.conf` (at least `LAND_TEST_CMD`, your Tier 1 comm
 4. **While main is red or frozen only a fix or a revert lands**, recognised by what it touches (tests and CI paths, nothing protected), not by its title.
 5. **New behaviour lands switched off.** Landing is not release.
 6. **Small means small**: 150 lines of production code and 45 minutes without a passing build are the defaults. Over either, cut the work.
-7. **The lander never forces.** It pushes a plain fast-forward, under a lock with a lease, after up to three rebase-and-retest tries. A hold marker stops landings at any moment.
+7. **The lander never forces.** It pushes a plain fast-forward, with no lock (any number of landers run at once; git's refusal of a push that is not a fast-forward is the only arbiter), after up to three rebase-and-retest tries. A hold marker stops landings at any moment.
 8. **The rules come from main, not from your change**: `land.conf` and the hooks are read from `origin/main`, so a commit cannot loosen the rules it is judged by. Gate-defining files are protected and a gate edit that removes or changes a line needs a recorded approval.
 9. **Nothing is deleted before it is archived**: a diff and a one-line reason first.
 10. **Escalate only** money, data loss, secrets, publishing and harm to a third party. Decide the rest, and log it.
@@ -91,7 +91,7 @@ Paste at the top of the repository's agent instructions (`AGENTS.md` or equivale
 
 ### 4.3 The lander
 
-One coordinator per repository; workers never push main. Under one lock it: checks main is not red or frozen; rebases the change onto current main; regenerates generated files (never merges them by hand); runs Tier 1 on that combination; if main moved meanwhile, rebases and runs again (three tries); then pushes a plain fast-forward, never forced. History stays linear, each commit its own. When one gate run per commit becomes the bottleneck, it takes groups: one Tier 1 for the group, binary search on failure to eject the culprit, the rest land. The exit status tells the worker what to do (landed; conflict: fix and run again; gate failed; held; busy: run again).
+Workers never push main by hand; the lander does, with no lock (each run has its own directory; the remote's refusal of a non-fast-forward push is the only arbiter). It: checks main is not red or frozen; rebases the change onto current main; regenerates generated files (never merges them by hand); runs Tier 1 on that combination; if main moved meanwhile, rebases and runs again (three tries); then pushes a plain fast-forward, never forced. History stays linear, each commit its own. When one gate run per commit becomes the bottleneck, it takes groups: one Tier 1 for the group, binary search on failure to eject the culprit, the rest land. The exit status tells the worker what to do (landed; conflict: fix and run again; gate failed; held).
 
 ### 4.4 RED, exactly
 
@@ -132,7 +132,7 @@ Hosted CI minutes are usually a budgeted resource. A cheap pattern: run Tier 1 i
 
 | Path | What it is |
 |---|---|
-| `bin/land-direct` | The lander: the configurable core of section 4.3. Lock with a lease, hold and freeze markers, land-time checks, rebase in a scratch worktree, regeneration of generated files, hooks, Tier 1 on the rebased combination, three tries, plain fast-forward push, an exit code that says what to do next, a JSON last line, a metrics log. |
+| `bin/land-direct` | The lander: the configurable core of section 4.3. Hold and freeze markers, a run directory of its own per run, land-time checks, rebase in a scratch worktree, regeneration of generated files, hooks, Tier 1 on the rebased combination, three tries, plain fast-forward push, an exit code that says what to do next, a JSON last line, a metrics log. |
 | `bin/land-red` | The one definition of a red main (4.4): modes `push`, `push+dispatch`, `off`; the infrastructure classifier; the freeze marker. |
 | `bin/run-probe`, `bin/no-crash-record`, `lib/no-crash-record.sh` | Crash-probe hygiene: deliberate-crash probes run in a private TMPDIR with `ulimit -c 0` plus the dumpable-clear preload (a probe launched otherwise is refused); the landing's no-crash-record check reads only crashes of its own process tree, session, scope or private directories. |
 | `bin/no-build-guard`, `lib/no-build-host.sh`, `templates/run-scoped.sh` | The heavy-host guard (`docs/no-build-host.md`): a host that carries a no-build marker (`/etc/vbm/no-build-host` or `<config dir>/vbm/no-build-host`) makes the helpers refuse (exit 2, nothing started; no override); `--lint` is the Tier 1 check that every declared long runner goes through a helper. |
@@ -145,9 +145,9 @@ Hosted CI minutes are usually a budgeted resource. A cheap pattern: run Tier 1 i
 | `tests/` | The test suite (below). `tests/run.sh` is this repository's Tier 1: the lints, then every `tests/test_*.sh` in parallel (about half a minute). |
 | `.github/workflows/ci.yml` | Tier 1 on a push to main. |
 
-Not built yet: the revert-first watchdog (the freeze marker and its Tier 2 trigger exist; the revert does not), a batch coordinator (the lander has its half: `--group`, `LAND_LOCK_HELD`), a known-flaky list lint, a macOS lock fallback.
+Not built yet: the revert-first watchdog (the freeze marker and its Tier 2 trigger exist; the revert does not), a batch coordinator (the lander has its half: `--group`), a known-flaky list lint.
 
-Requirements: bash 4+, git 2.30+, util-linux `flock`, `timeout`, `gh` (the red check). The tests also need `jq`. Linux only for now.
+Requirements: bash 4+, git 2.30+, `timeout`, `gh` (the red check), util-linux `flock` (only `scripts/bootstrap-land`). The tests also need `jq`. Linux only for now.
 
 **The tests.** Each test script builds a scratch repository with a bare "remote", worker clones and a fake `gh` (answers `run list`/`run view` from files), and drives the real scripts. `test_land_direct.sh` has a negative test for every refusal (each exit code, and that nothing reached the remote); `test_vendor.sh` covers install, update, audit, every kind of drift (an edit, a deleted or extra file, a lost executable bit, a forged pin and tree) and the lander refusing a change to its own vendored copy; `test_mutations.sh` cuts each guard out of a copy of the lander in turn and requires the matching scenario to stop being refused (a guard nothing depends on would be found there); `test_approvals.sh` drives the gate-edit approvals through the real lander (every attack on them is refused: a forged approval, a hash over a different diff, a reused approval, a stale one, one removed afterward, the approvals file edited in the same commit or landing as the edit); `test_bootstrap.sh` covers the recovery lander; `lint.sh` keeps internal names and local paths out of this repository.
 
@@ -159,14 +159,14 @@ A repository that lands with this tool has a `scripts/land.conf` (below) and tel
 bin/land-direct                       # land the local commits that are not on origin/main yet
 bin/land-direct --dry-run             # everything except the push
 bin/land-direct --check               # only the land-time checks (commit messages, size budget)
-bin/land-direct --group               # a batch coordinator's entries: the size budget is waived (it checked each one); with LAND_LOCK_HELD=1 in the environment the coordinator holds the lock and none is taken
+bin/land-direct --group               # a batch coordinator's entries: the size budget is waived (it checked each one)
 bin/land-direct --hold "reason"       # stop every landing in this clone (even one in flight, right before its push) ...
 bin/land-direct --release             # ... until released
 bin/land-direct --freeze "reason" --owner NAME --for 6h   # only fixes and reverts land, until the expiry, --thaw, or a landed fix
 bin/land-direct --status
 ```
 
-Exit codes: `0` landed; `1` stopped with a message (base kept moving, push refused, a bad commit message, over the size budget); `2` bad input or bad configuration; `10` main is red or cannot be known; `11` rebase conflict (the files are named; rebase in your worktree and run again); `12` refused by a hook, by the regeneration, or by the drift check; `13` Tier 1 failed (nothing landed); `14` held or frozen; `15` busy (run it again). The last line of standard output is JSON: `{"sha","commits","tier1_seconds","result","exit"}` plus any keys a `json-fields` hook adds.
+Exit codes: `0` landed; `1` stopped with a message (base kept moving, push refused, a bad commit message, over the size budget); `2` bad input or bad configuration; `10` main is red or cannot be known; `11` rebase conflict (the files are named; rebase in your worktree and run again); `12` refused by a hook, by the regeneration, or by the drift check; `13` Tier 1 failed (nothing landed); `14` held or frozen. The last line of standard output is JSON: `{"sha","commits","tier1_seconds","result","exit"}` plus any keys a `json-fields` hook adds.
 
 Locks, markers, logs and the scratch worktree live in `<git common dir>/vbm-land/`, shared by every worktree of the clone. The lander never runs `git worktree prune` and never removes a worktree it did not create: other lanes' worktrees live in the same clone.
 
@@ -196,9 +196,9 @@ Locks, markers, logs and the scratch worktree live in `<git common dir>/vbm-land
 | `LAND_HOOKS_DIR` | `scripts/land.d` | Where the repository's hooks live. |
 | `LAND_AUTO_UPDATE` | `none` | `none`, `patch` or `minor`: what the scheduled update workflow may land by itself (`land-update --auto`); a major release never. |
 | `LAND_LOCALE` | `C` | Pinned for collation and glob order. |
-| `LAND_LOCK_WAIT`, `LAND_TIER1_TIMEOUT`, `LAND_STEP_TIMEOUT`, `LAND_GIT_TIMEOUT` | `90`, `1800`, `600`, `180` s | The lock wait and the bound on every step. A step that runs over is killed with one plain line and the run stops as that step's failure. |
+| `LAND_TIER1_TIMEOUT`, `LAND_STEP_TIMEOUT`, `LAND_GIT_TIMEOUT` | `1800`, `600`, `180` s | The bound on every step. A step that runs over is killed with one plain line and the run stops as that step's failure. |
 
-Policy is never read from the environment. The operator may set `GH` (the `gh` binary), `LAND_CONF` (another config file), `LAND_FIX_FOR_RED=1` (declare this change the fix for a red main), `LAND_LOCK_WAIT_SECONDS`, `LAND_LEASE_STALE_SECONDS`, `LAND_DIRECT_LOG` and the three timeouts. Commands the lander runs see `LAND_TOP`, `LAND_BASE_REF` (`origin/main`), `LAND_STATE_DIR` and `LAND_TASK`.
+Policy is never read from the environment. The operator may set `GH` (the `gh` binary), `LAND_CONF` (another config file), `LAND_FIX_FOR_RED=1` (declare this change the fix for a red main), `LAND_DIRECT_LOG` and the three timeouts. `LAND_LOCK_WAIT` (key), `LAND_LOCK_WAIT_SECONDS` and `LAND_LEASE_STALE_SECONDS` (environment) are read and ignored with one notice: there is no lock. Commands the lander runs see `LAND_TOP`, `LAND_BASE_REF` (`origin/main`), `LAND_STATE_DIR` (shared by every run of the clone), `LAND_RUN_DIR` (this run's own) and `LAND_TASK`.
 
 ### 6.4 Hooks
 
@@ -215,7 +215,7 @@ Hooks are executables in `scripts/land.d/`, taken from `origin/<base>` (so a cha
 
 ### 6.5 Trust model
 
-The tool is for a repository whose only writers are cooperating agents and people, not for adversaries. It makes mistakes mechanical failures: the gate runs on the exact combination, config and hooks come from main, the push is a plain fast-forward, an unknowable CI state refuses, and a lock with a lease cannot be wedged by a dead holder. A lander runs repository-supplied commands with your credentials; protect the gate-defining set accordingly. The lander is the copy in the worktree it is run from; what protects the main branch is the drift check on the rebased tree (6.6), the configuration and hooks read from main, and the independent push CI.
+The tool is for a repository whose only writers are cooperating agents and people, not for adversaries. It makes mistakes mechanical failures: the gate runs on the exact combination, config and hooks come from main, the push is a plain fast-forward, an unknowable CI state refuses, and there is no lock for a dead lander to wedge (a crash leaves only its own run directory). A lander runs repository-supplied commands with your credentials; protect the gate-defining set accordingly. The lander is the copy in the worktree it is run from; what protects the main branch is the drift check on the rebased tree (6.6), the configuration and hooks read from main, and the independent push CI.
 
 **Gate-edit approvals.** A gate file that may only gain lines (`LAND_GATE_APPEND_ONLY`) loses or changes a line only on an exact diff-hash approval that is already on main: a record in `scripts/gate-edit-approvals.txt`, landed alone (one line, nothing else) in its own commit, announced to the independent judge BEFORE the edit lands, consumed (removed) by the edit's own landing, valid for 7 days (or withdrawn by an `Approval-Withdrawn:` trailer, also announced). Honest limit: an agent with landing rights could write its own approval line; the control is that approvals are visible one-commit records the judge reads before the edit lands, so the approval commit is announced to the judge before the edit commit, always. `land-direct` prints `APPROVAL COMMIT: announce to the judge before landing the edit` whenever one is on its way. Rules, hash definition and steps: `docs/gate-edit-approvals.md`.
 
