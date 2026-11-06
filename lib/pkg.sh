@@ -24,3 +24,22 @@ pkg_install() {
   cp "$man" "$d/MANIFEST.sha256"
   printf 'source=%s\nversion=v%s\ncommit=%s\nmanifest_sha256=%s\nsignature=%s\n' "$src" "$(cat "$tree/VERSION")" "$commit" "$(sha256sum < "$man" | cut -d' ' -f1)" "$sig" > "$d/PIN"
 }
+
+# pkgconf_load NAME CONF KEYS: the repository's variation of package NAME, DATA like land.conf: CONF (scripts/NAME.conf; absent = defaults) holds `NAME_KEY=value` lines (NAME upper case, - as _), `#` comments, one pair of quotes
+# around a value, nothing expanded or run. Every key must be listed in KEYS (the package's own list, one per line, `#` comments, in the pinned copy: scripts/NAME/KEYS): an UNKNOWN KEY FAILS (a typo must not silently turn a
+# gate off). Sets the variables. Returns 2 with a message otherwise. A package reads its configuration through this function (. scripts/land/lib/pkg.sh) so the check and the reader cannot disagree.
+pkgconf_load() {
+  local pkg=$1 conf=$2 keys=$3 up line n=0 k v known
+  [ -r "$conf" ] || return 0
+  up=$(printf '%s' "$pkg" | tr 'a-z-' 'A-Z_'); known=" $(sed 's/#.*//' "$keys" 2>/dev/null | tr -s '[:space:]' ' ') "
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1)); line=${line%$'\r'}
+    [[ "$line" =~ ^[[:space:]]*(#.*)?$ ]] && continue
+    [[ "$line" =~ ^[[:space:]]*(${up}_[A-Z0-9_]+)=(.*)$ ]] || { echo "scripts/$pkg.conf:$n: not a ${up}_KEY=value line: $line" >&2; return 2; }
+    k=${BASH_REMATCH[1]}; v=${BASH_REMATCH[2]}
+    case "$known" in *" $k "*) ;; *) echo "scripts/$pkg.conf:$n: unknown key $k (not in scripts/$pkg/KEYS: a typo would silently turn a gate off)" >&2; return 2;; esac
+    v=${v%"${v##*[![:space:]]}"}; if [[ "$v" =~ ^\"(.*)\"$ ]] || [[ "$v" =~ ^\'(.*)\'$ ]]; then v=${BASH_REMATCH[1]}; fi
+    printf -v "$k" '%s' "$v"
+  done < "$conf"
+  return 0
+}
