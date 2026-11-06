@@ -33,4 +33,11 @@ rc=0; bash "$T/probe4.sh" >"$T/out" 2>&1 || rc=$?
 check "a refused tool (exit 126) is not a pass" test "$rc" != 0
 check "and prints no ran-evidence" bash -c "! grep -q '^ran: ' '$T/out'"
 bash "$T/probe2.sh" >"$T/out" 2>&1; check "a passing probe prints its ran-evidence line" grep -qx 'ran: probe2: 1 cases' "$T/out" || true
+# A test must build its own world: tests/lint.sh fails a test that reads the real repository's approvals file (or protected list, baselines, config, tags); the reading is spelled in pieces here so this file is not itself the hit
+mkdir "$T/rs"; cp -r "$ROOT/bin" "$ROOT/lib" "$ROOT/scripts" "$ROOT/tests" "$ROOT/templates" "$T/rs/"; : > "$T/rs/tests/test_zz.sh"; chmod +x "$T/rs/tests/test_zz.sh"
+check "the lint passes on the scratch copy of the repository" "$T/rs/tests/lint.sh"
+for bad in 'cat "$RO''OT/scripts/gate-edit-appro''vals.txt"' 'git -C "$RO''OT" ta''g -l' 'grep x scripts/protected-appro''vals.txt'; do
+  printf '%s\n' "$bad" > "$T/rs/tests/test_zz.sh"; rc=0; "$T/rs/tests/lint.sh" >"$T/out" 2>&1 || rc=$?
+  check "a test that reads real state is refused by the lint: $bad" test "$rc" != 0; out_has "reads the real repository"
+done
 finish
