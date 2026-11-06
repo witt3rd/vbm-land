@@ -99,7 +99,7 @@ Workers never push main by hand; the lander does, with no lock (each run has its
 
 ### 4.5 Freeze and watchdog
 
-- When Tier 2 fails on main, the watchdog **reverts first** and debugs second: it reverts the failing commit and freezes landing.
+- `bin/land-revert --bad SHA --good SHA` is the watchdog (it is built: bisect by the repository's Tier 1, revert, land through the lander, notify by the `on-revert` hook). When Tier 2 fails on main, the watchdog **reverts first** and debugs second: it reverts the failing commit and freezes landing.
 - **Re-check HEAD before reverting**: if main has moved on or someone already fixed it, do not revert a good commit.
 - While frozen or red, the lander takes only a fix or a revert, recognised by what it touches (only test or CI paths, nothing protected), not by what its title says.
 - A freeze has a named owner, an expiry and a clearing action; it lifts on a green run.
@@ -133,6 +133,7 @@ Hosted CI minutes are usually a budgeted resource. A cheap pattern: run Tier 1 i
 | Path | What it is |
 |---|---|
 | `bin/land-direct` | The lander: the configurable core of section 4.3. Hold and freeze markers, a run directory of its own per run, land-time checks, rebase in a scratch worktree, regeneration of generated files, hooks, Tier 1 on the rebased combination, bounded retries, plain fast-forward push, an exit code that says what to do next, a JSON last line, a metrics log. |
+| `bin/land-revert` | The watchdog (4.5): given the commit whose Tier 1 failed on CI and the last green one, bisects them with the repository's own Tier 1, reverts the first failing commit (and, when the revert conflicts, up to five later commits on the same files) and lands the revert through `land-direct`; alerts (exit 3) instead of guessing. `templates/vbm-land-revert.yml` runs it after a failed push run. |
 | `bin/land-red` | The one definition of a red main (4.4): modes `push`, `push+dispatch`, `off`; the infrastructure classifier; the freeze marker. |
 | `bin/run-probe`, `bin/no-crash-record`, `lib/no-crash-record.sh` | Crash-probe hygiene: deliberate-crash probes run in a private TMPDIR with `ulimit -c 0` plus the dumpable-clear preload (a probe launched otherwise is refused); the landing's no-crash-record check reads only crashes of its own process tree, session, scope or private directories. |
 | `bin/no-build-guard`, `lib/no-build-host.sh`, `templates/run-scoped.sh` | The heavy-host guard (`docs/no-build-host.md`): a host that carries a no-build marker (`/etc/vbm/no-build-host` or `<config dir>/vbm/no-build-host`) makes the helpers refuse (exit 2, nothing started; no override); `--lint` is the Tier 1 check that every declared long runner goes through a helper. |
@@ -145,7 +146,7 @@ Hosted CI minutes are usually a budgeted resource. A cheap pattern: run Tier 1 i
 | `tests/` | The test suite (below). `tests/run.sh` is this repository's Tier 1: the lints, then every `tests/test_*.sh` in parallel (about half a minute). |
 | `.github/workflows/ci.yml` | Tier 1 on a push to main. |
 
-Not built yet: the revert-first watchdog (the freeze marker and its Tier 2 trigger exist; the revert does not), a batch coordinator (the lander has its half: `--group`), a known-flaky list lint.
+Not built yet: a batch coordinator (the lander has its half: `--group`), a known-flaky list lint.
 
 Requirements: bash 4+, git 2.30+, `timeout`, `gh` (the red check), util-linux `flock` (only `scripts/bootstrap-land`). The tests also need `jq`. Linux only for now.
 
@@ -213,6 +214,7 @@ Hooks are executables in `scripts/land.d/`, taken from `origin/<base>` (so a cha
 | `post-tier1` | after Tier 1 passed: a gate that judges the tree Tier 1 just built (an attack suite, say) | refuses (12) |
 | `json-fields` | after Tier 1; prints `key=value` lines added to the JSON result (keys `[a-z_]+`; the contract keys cannot be overridden) | ignored |
 | `on-run` | at the end of every run, with `LAND_RESULT` | ignored |
+| `on-revert` | at the end of `land-revert`, with `LAND_REVERT_RESULT` (`reverted` or `alert`), `LAND_REVERT_CULPRIT`, `LAND_REVERT_SHAS`, `LAND_REVERT_TASK` (the culprit's first required trailer), `LAND_REVERT_AUTHOR`, `LAND_REVERT_SUBJECT`: tell the author | ignored |
 
 ### 6.5 Trust model
 
@@ -289,7 +291,7 @@ Releases are annotated, ssh-signed tags `vX.Y.Z` made by `bin/land-release`. The
 ## Honest limits
 
 - **Not for adversaries.** A lander runs repository-supplied commands with your credentials; the protections (config and hooks read from main, the drift check, the independent push CI, gate-edit approvals) turn mistakes into mechanical failures. They do not stop an agent that holds landing rights and wants to cheat ([6.5](#65-trust-model); the approvals' limit is stated in [docs/gate-edit-approvals.md](docs/gate-edit-approvals.md)).
-- **Not built yet:** the revert-first watchdog (the freeze marker and its Tier 2 trigger exist; the revert does not), a batch coordinator (the lander has its half), a known-flaky list lint, a macOS lock fallback. Linux only.
+- **Not built yet:** a batch coordinator (the lander has its half), a known-flaky list lint, a macOS lock fallback. Linux only.
 - **One writer population.** Pull requests are the right tool for outside contributors. This one is not, and a repository that adopts it should say so.
 - **The red check depends on your CI** being readable through `gh`; when it cannot be asked, landing stops rather than guessing.
 - **Early.** The interface is versioned, but 0.x: read the CHANGELOG before a minor update.
