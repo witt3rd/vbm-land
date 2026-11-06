@@ -5,12 +5,13 @@ set -euo pipefail
 export LC_ALL=C GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-T=; SANDBOXES=(); MAINPID=$$; RESULTS=$(mktemp "${TMPDIR:-/tmp}/vbm-land-results.XXXXXX")   # results outlive the sandboxes; subshells append to the file
+TESTTMP=${TMPDIR:-/tmp}; T=; SANDBOXES=(); MAINPID=$$; RESULTS=$(mktemp "$TESTTMP/vbm-land-results.XXXXXX")   # results outlive the sandboxes; subshells append to the file
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
 
 sandbox() {   # sandbox [base-branch]: $T/remote.git (bare), $T/seed (one commit pushed), $T/bin/gh (fake), PATH set
   local base=${1:-main}
-  T=$(mktemp -d "${TMPDIR:-/tmp}/vbm-land-test.XXXXXX"); BASE=$base
+  T=$(mktemp -d "$TESTTMP/vbm-land-test.XXXXXX"); BASE=$base
+  mkdir -p "$T/tmp"; export TMPDIR=$T/tmp   # a test has its OWN tmp dir: whatever the tools under test leave there is this test's, and a check for leftovers never sees another lane's
   # the main shell removes every sandbox and the results file; a ( subshell ) or $( substitution ) that made a sandbox removes only its own
   export GIT_CEILING_DIRECTORIES=$(dirname "$T")   # a scratch directory must never be inside some enclosing repository
   SANDBOXES+=("$T"); trap 'if [ "$BASHPID" = "$MAINPID" ]; then rm -rf "${SANDBOXES[@]}" "$RESULTS"; else rm -rf "$T"; fi' EXIT

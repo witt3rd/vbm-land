@@ -47,4 +47,10 @@ for bad in 'flock -w 5 9' 'lease_acquire' 'exec 9>"$state/lock"' 'stop 15 busy "
   check "a lock put back into the lander is refused by the lint: $bad" test "$rc" != 0; out_has "a lock is back"
 done
 : > "$T/rs/tests/test_zz.sh"; cp "$T/land-direct.orig" "$T/rs/bin/land-direct"; check "and the lint passes again on the untouched lander" "$T/rs/tests/lint.sh"
+# a test that looks at the machine-wide tmp dir is refused by the lint (spelled in pieces so this file is not itself the hit)
+for bad in 'ls "${TMP''DIR:-/tmp}"/land-update.* | wc -l' 'rm -rf /tm''p/vbm-land-x.*' 'find /tm''p/land-update.1 -type d'; do
+  printf '%s\n' "$bad" > "$T/rs/tests/test_zz.sh"; rc=0; "$T/rs/tests/lint.sh" >"$T/out" 2>&1 || rc=$?
+  check "a test that reads the shared tmp dir is refused by the lint: $bad" test "$rc" != 0; out_has "shared tmp dir"
+done
+: > "$T/rs/tests/test_zz.sh"; check "and the lint passes on the clean scratch copy" "$T/rs/tests/lint.sh"
 finish

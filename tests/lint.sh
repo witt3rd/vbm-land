@@ -31,6 +31,9 @@ hits=$(grep -nE 'flock|lease_|exec [0-9]+>|(stop|exit) 15([^0-9]|$)|/lock([^A-Za
 # a test builds its OWN world: it never reads the real repository's approvals, protected list, baselines, config or tags (a test that did failed the first real approval). tests/test_harness.sh proves this check can fail.
 hits=$(grep -nE '(\$\{?(ROOT|root|here)\}?|\.\./)[^ "]*(approvals|protected-paths|baseline|known-flaky|land\.conf|land\.signers)|git +-C +"?\$\{?(ROOT|root)\}?"? +(tag|log|show|describe|rev-parse|ls-files|cat-file|for-each-ref|diff)|(cat|grep|sed|head|tail|wc|source|\.) +[^|;&]*(^| |")scripts/[a-z.-]*(approvals|protected-paths)' tests/lib.sh tests/test_*.sh || true)
 [ -z "$hits" ] || fail "a test reads the real repository's approvals, protected list, baselines, config or tags (build a scratch world instead): $(echo "$hits" | head -2 | tr '\n' ' ' | cut -c1-200)"
+# a test never looks at the machine-wide tmp dir (another lane's leftovers fail it): it lists, finds or removes only under its own sandbox ($T, whose TMPDIR tests/lib.sh sets). tests/test_harness.sh proves this can fail.
+hits=$(grep -nE '(ls|find|rm|cat|grep)[^|;&]*(\$\{?TMPDIR:-/tmp\}?|[ "'"'"'=]/tmp)[^|;& ]*(\*|/land-)' tests/test_*.sh | grep -v 'tests/test_no_crash_record.sh' || true)
+[ -z "$hits" ] || fail "a test reads the shared tmp dir (use its own sandbox, \$T): $(echo "$hits" | head -2 | tr '\n' ' ' | cut -c1-200)"
 # the heavy-host guard: this repository's own helper carries it, refuses with a marker present, and the vendored template is that helper
 bin/no-build-guard --selftest >/dev/null && bin/no-build-guard --lint . >/dev/null || fail "the heavy-host guard lint (bin/no-build-guard --lint .) fails"
 cmp -s scripts/run-scoped.sh templates/run-scoped.sh || fail "templates/run-scoped.sh differs from scripts/run-scoped.sh (the template is the helper a consumer copies)"

@@ -136,7 +136,7 @@ check "the update commit stays local to look at" bash -c "git -C '$T/lu1' log -1
 ( cd "$T/lu1" && scripts/land-direct --release >/dev/null ); git -C "$T/lu1" reset -q --hard origin/main
 expect_exit "--land verifies, commits, and lands through the repository's own lander" 0 "$T/lu1/scripts/land/bin/land-update" --land v1.1.0 --root "$T/lu1"; out_has "pristine clone"; out_has '"result":"landed"'
 check "main pins v1.1.0, in one commit carrying the required trailer" bash -c "git -C '$T/remote.git' show main:scripts/land/PIN | grep -q '^version=v1.1.0\$' && git -C '$T/remote.git' log -1 --format=%B main | grep -q '^Task-ID: vbm-land-update-v1.1.0\$'"
-check "no temporary clone is left behind" bash -c "! ls '${TMPDIR:-/tmp}'/land-update.* 2>/dev/null | grep -q ."
+check "no temporary clone is left behind (in this test's own tmp dir, never the machine's)" bash -c "[ '$TMPDIR' = '$T/tmp' ] && ! ls '$TMPDIR'/land-update.* 2>/dev/null | grep -q ."
 
 echo "## land-update --auto: LAND_AUTO_UPDATE decides what may update itself"
 mk_auto() {   # mk_auto NAME POLICY FROM-TAG: a consumer (with a remote of its own) that landed FROM-TAG with LAND_AUTO_UPDATE=POLICY
