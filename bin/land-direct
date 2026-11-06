@@ -13,8 +13,8 @@
 #
 # What it does, under ONE lock (<git common dir>/vbm-land/lock, with a lease so a dead holder cannot wedge it):
 #   hold? -> fetch -> land-time checks on every commit (Conventional subject, required trailers, size budget) -> lock -> hold? -> red? (bin/land-red:
-#   the one definition of a red main; a fix or a revert may land on a red or frozen main) -> rebase the commits onto <remote>/<base> in a scratch worktree
-#   (<git common dir>/vbm-land/wt; a conflict ONLY in generated files takes base's file and regenerates) -> hooks -> Tier 1 (the gates command, then the test
+#   the one definition of a red main; a fix or a revert may land on a red or frozen main) -> rebase the commits onto <remote>/<base> in this run's own scratch
+#   worktree (<git common dir>/vbm-land/run.<pid>.<random>/wt, removed at exit; a conflict ONLY in generated files takes base's file and regenerates) -> hooks -> Tier 1 (the gates command, then the test
 #   command) on that exact combination -> fetch again: base moved during Tier 1 = rebase and check again (3 tries) -> `git push <remote> <sha>:<base>`, a
 #   plain fast-forward push: there is no force anywhere in this script.
 #
@@ -33,7 +33,7 @@
 #   (hooks, regeneration, the red check), LAND_GIT_TIMEOUT (fetch, push). A step that runs over is killed with one plain line and the run stops as that step's failure.
 # Operator environment (not policy): REMOTE-independent knobs GH, LAND_CONF, LAND_FIX_FOR_RED=1 (treat this change as the fix for a red main), LAND_LOCK_WAIT_SECONDS,
 #   LAND_LEASE_STALE_SECONDS, LAND_DIRECT_LOG, and the timeouts above. Policy keys are never read from the environment.
-# Commands the lander runs get: LAND_TOP (the worktree landed from), LAND_BASE_REF (<remote>/<base>), LAND_STATE_DIR, LAND_TASK (the tip's first required trailer value).
+# Commands the lander runs get: LAND_TOP (the worktree landed from), LAND_BASE_REF (<remote>/<base>), LAND_STATE_DIR (shared by every run of the clone: hold, freeze, metrics), LAND_RUN_DIR (this run's own: scratch worktree, hooks, logs), LAND_TASK (the tip's first required trailer value).
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd); lib=$here/../lib
 . "$lib/conf.sh"; . "$lib/freeze.sh"; . "$lib/approvals.sh"
@@ -56,18 +56,25 @@ while [ $# -gt 0 ]; do case $1 in
 [ ${#args[@]} -le 1 ] || usage
 rev=${args[0]:-HEAD}
 
-hooks=; wt=; sha=; ncommits=; t1=; result=error; waited=; t0=$(date +%s); common=; state=; lease_mine=0; hbf=; extra_json=
+hooks=; wt=; sha=; ncommits=; t1=; result=error; waited=; t0=$(date +%s); common=; state=; run=; lease_mine=0; hbf=; extra_json=
 json_num() { [[ "${1:-}" =~ ^[0-9]+(\.[0-9]+)?$ ]] && printf '%s' "$1" || printf null; }
 json_str() { [[ "${1:-}" =~ ^[A-Za-z0-9._-]+$ ]] && printf '"%s"' "$1" || printf null; }
 onexit() {
   local c=$?
-  [ -z "$op" ] || exit "$c"
+  [ -z "$op" ] || { run_cleanup "$c"; exit "$c"; }
   if [ "$lease_mine" = 1 ] && grep -q "^pid=$$ " "$state/lease" 2>/dev/null; then rm -f "$state/lease" "$hbf"; fi   # our lease ends with us
   if [ -n "$state" ] && [ -d "$state" ]; then   # the measurements, one O_APPEND line each: landings per hour, commit-to-main time
     printf '{"ts":%s,"result":"%s","commits":%s,"wait_s":%s,"tier1_s":%s,"total_s":%s}\n' "$(date +%s)" "$result" "$(json_num "$ncommits")" "$(json_num "$waited")" "$(json_num "$t1")" "$(( $(date +%s) - t0 ))" >> "${LAND_DIRECT_LOG:-$state/metrics.jsonl}" 2>/dev/null || true
   fi
   run_hook on-run >/dev/null 2>&1 || true
   printf '{"sha":%s,"commits":%s,"tier1_seconds":%s,"result":"%s","exit":%s%s}\n' "$(json_str "$sha")" "$(json_num "$ncommits")" "$(json_num "$t1")" "$result" "$c" "$extra_json"
+  run_cleanup "$c"
+}
+# run_cleanup EXITCODE: this run's scratch worktree always goes (through git, never `worktree prune`); on success the whole run dir, on a failure only its *.log files stay (the next run's sweep removes them after a day)
+run_cleanup() {
+  [ -n "$run" ] && [ -d "$run" ] || return 0
+  [ ! -e "$run/wt/.git" ] || git -C "$top" worktree remove -f "$run/wt" >/dev/null 2>&1 || true
+  if [ "$1" = 0 ]; then rm -rf "$run"; else find "$run" -mindepth 1 -maxdepth 1 ! -name '*.log' -exec rm -rf {} + 2>/dev/null || true; fi
 }
 trap onexit EXIT
 # bounded SECS LABEL CMD...: the command under `timeout --kill-after=30`; over the bound it is killed and one plain line says which step and how long. Returns its exit code.
@@ -99,6 +106,16 @@ case $op in
     if [ -r "$state/lease" ]; then echo "lock lease: $(cat "$state/lease")"; else echo "lock lease: none"; fi; exit 0;;
 esac
 
+# ---- this run's own directory: <git common dir>/vbm-land/run.<pid>.<random> holds everything this run writes (scratch worktree, hooks, logs, scratch files), so no two runs share a file.
+# Leftovers of runs that died (their pid is gone and the directory is over a day old) are swept here; a symlink or a live pid's directory is never touched.
+for d in "$state"/run.*; do
+  p=${d##*/run.}; p=${p%%.*}; [ -d "$d" ] && [ ! -L "$d" ] && [[ "$p" =~ ^[0-9]+$ ]] && [ ! -d "/proc/$p" ] && [ -n "$(find "$d" -maxdepth 0 -mmin +1440 2>/dev/null)" ] || continue
+  [ ! -e "$d/wt/.git" ] || git -C "$top" worktree remove -f "$d/wt" >/dev/null 2>&1 || true
+  rm -rf "$d"
+done
+run=$(mktemp -d "$state/run.$$.XXXXXX") || badinput "cannot create a run directory under $state"
+export LAND_RUN_DIR=$run
+
 [ "$op" = print ] || holdcheck
 # ---- fetch, then the repository's configuration (from the base branch; the working tree's copy only when the base has none yet)
 remote=origin; base=$(git -C "$top" symbolic-ref -q --short "refs/remotes/$remote/HEAD" 2>/dev/null | sed "s|^$remote/||" || true)   # to find the config we first need the remote's default branch
@@ -129,9 +146,9 @@ if [ "$op" = print ]; then   # the canonical diff of one file or one file-set, f
   pmb=$(git -C "$top" merge-base "$remote/$base" "$pt") || badinput "no merge base of $remote/$base and ${args[0]:-HEAD}"
   if [ "$pfile" = @protected ]; then
     [ -n "$LAND_PROTECTED_LIST" ] || badinput "@protected: this repository sets no LAND_PROTECTED_LIST"
-    ga_protected_touched "$top" "$remote/$base" "$pmb" "$pt" "$LAND_PROTECTED_LIST" "$prot_extra" "$prot_exempt" "$state" >"$state/print-touched"
+    ga_protected_touched "$top" "$remote/$base" "$pmb" "$pt" "$LAND_PROTECTED_LIST" "$prot_extra" "$prot_exempt" "$run" >"$run/print-touched"
     [ -z "$ga_ptfail" ] || badinput "$ga_ptfail"
-    pfile=$(LC_ALL=C sort -u "$state/print-touched" | paste -sd,); [ -n "$pfile" ] || badinput "no protected path differs between the merge base with $remote/$base and ${args[0]:-HEAD}: nothing to approve"
+    pfile=$(LC_ALL=C sort -u "$run/print-touched" | paste -sd,); [ -n "$pfile" ] || badinput "no protected path differs between the merge base with $remote/$base and ${args[0]:-HEAD}: nothing to approve"
   fi
   IFS=, read -ra pset <<<"$pfile"; [ ${#pset[@]} -gt 0 ] || badinput "no file given"
   for f in "${pset[@]}"; do ga_valid_path "$f" || badinput "'$f' is not a plain repository path"; done
@@ -198,7 +215,7 @@ export LAND_TASK=$task
 
 # ---- hooks: executables of LAND_HOOKS_DIR taken from <remote>/<base> (the rules main already has judge this change); the working tree's only before main has any
 prepare_hooks() {
-  hooks=$state/hooks; rm -rf "$hooks"; mkdir -p "$hooks"
+  hooks=$run/hooks; rm -rf "$hooks"; mkdir -p "$hooks"
   if git -C "$top" cat-file -e "$remote/$base:$LAND_HOOKS_DIR" 2>/dev/null; then
     git -C "$top" archive "$remote/$base" -- "$LAND_HOOKS_DIR" | tar -x -C "$hooks" --strip-components="$(awk -F/ '{print NF}' <<<"$LAND_HOOKS_DIR")" 2>/dev/null || true
   elif [ -d "$wt/$LAND_HOOKS_DIR" ]; then cp -a "$wt/$LAND_HOOKS_DIR/." "$hooks/"; fi
@@ -210,7 +227,7 @@ run_hook() { local n=$1; shift; [ -n "$hooks" ] && [ -x "$hooks/$n" ] || return 
 # ---- the red check: ONE definition (bin/land-red); a fix or a revert passes a red or frozen base
 red_check() {
   local rc=0
-  kfile=; if [ -n "$LAND_KNOWN_FLAKY" ] && git -C "$top" cat-file -e "$remote/$base:$LAND_KNOWN_FLAKY" 2>/dev/null; then kfile=$state/known-flaky.txt; git -C "$top" show "$remote/$base:$LAND_KNOWN_FLAKY" > "$kfile"; fi   # the list main has, not the proposal's
+  kfile=; if [ -n "$LAND_KNOWN_FLAKY" ] && git -C "$top" cat-file -e "$remote/$base:$LAND_KNOWN_FLAKY" 2>/dev/null; then kfile=$run/known-flaky.txt; git -C "$top" show "$remote/$base:$LAND_KNOWN_FLAKY" > "$kfile"; fi   # the list main has, not the proposal's
   LAND_KNOWN_FLAKY_FILE=$kfile LAND_FLAKY_RERUN_WAIT=$LAND_FLAKY_RERUN_WAIT LAND_TIER2_JOB=$LAND_TIER2_JOB LAND_BASE=$base LAND_RED_MODE=$LAND_RED_MODE LAND_CI_WORKFLOW=$LAND_CI_WORKFLOW LAND_TIER1_JOB=$LAND_TIER1_JOB LAND_RED_WAIT=$LAND_RED_WAIT LAND_STATE_DIR=$state bounded "$((st + LAND_RED_WAIT + LAND_FLAKY_RERUN_WAIT))" red-check "$here/land-red" || rc=$?
   case $rc in
     0) ;;
@@ -262,12 +279,10 @@ waited=$(( $(date +%s) - tw ))
 holdcheck; red_check
 
 # ---- the scratch worktree: ours, by path. Never `git worktree prune`: the clone is shared with other lanes' worktrees.
-wt=$state/wt; fresh=0
-if [ ! -e "$wt/.git" ] || ! git -C "$wt" rev-parse --git-dir >/dev/null 2>&1; then rm -rf "$wt"; git -C "$top" worktree add -q -f --detach "$wt" "$remote/$base"; fresh=1; fi
+wt=$run/wt; git -C "$top" worktree add -q -f --detach "$wt" "$remote/$base"
 g() { git -C "$wt" "$@"; }
-g rebase --abort >/dev/null 2>&1 || true; g reset -q --hard; g clean -fdq
 prepare_hooks
-[ "$fresh" = 0 ] || run_hook prepare || stop 12 refused "the prepare hook failed"
+run_hook prepare || stop 12 refused "the prepare hook failed"
 for attempt in 1 2 3; do
   bounded "$gt" "git fetch" git -C "$wt" fetch -q "$remote" "$base" || die "cannot fetch $remote $base (timed out or failed)"
   g reset -q --hard; g clean -fdq; g checkout -q --detach "$tip0"; regenned=0
@@ -285,28 +300,28 @@ for attempt in 1 2 3; do
   if [ "$regenned" = 1 ]; then
     [ -n "$LAND_REGEN_CMD" ] || stop 12 refused "generated files conflicted and LAND_REGEN_CMD is not set: they cannot be regenerated; not landing."
     echo "land-direct: generated files conflicted: took $base's and regenerating"
-    rc=0; (cd "$wt" && bounded "$st" "regenerate (conflict)" bash -c "$LAND_REGEN_CMD") >"$state/regen.log" 2>&1 || rc=$?
-    [ "$rc" = 0 ] || { tail -3 "$state/regen.log" >&2; stop 12 refused "the regeneration after a conflict in generated files failed (exit $rc; log: $state/regen.log); not landing."; }
+    rc=0; (cd "$wt" && bounded "$st" "regenerate (conflict)" bash -c "$LAND_REGEN_CMD") >"$run/regen.log" 2>&1 || rc=$?
+    [ "$rc" = 0 ] || { tail -3 "$run/regen.log" >&2; stop 12 refused "the regeneration after a conflict in generated files failed (exit $rc; log: $run/regen.log); not landing."; }
   fi
   if [ -n "$LAND_GEN_CMD" ]; then   # always regenerated on the rebased tree: two commits that each regenerated correctly can disagree once both are on base
-    rc=0; (cd "$wt" && bounded "$st" "regenerate" bash -c "$LAND_GEN_CMD") >"$state/gen.log" 2>&1 || rc=$?
-    [ "$rc" = 0 ] || { tail -3 "$state/gen.log" >&2; stop 13 tier1 "the generated files cannot be regenerated (exit $rc; log: $state/gen.log); not landing."; }
+    rc=0; (cd "$wt" && bounded "$st" "regenerate" bash -c "$LAND_GEN_CMD") >"$run/gen.log" 2>&1 || rc=$?
+    [ "$rc" = 0 ] || { tail -3 "$run/gen.log" >&2; stop 13 tier1 "the generated files cannot be regenerated (exit $rc; log: $run/gen.log); not landing."; }
   fi
   # the protected set, judged on what would land (the rebased tree against base): touching it is allowed; the hooks and Tier 1 must pass, and it never counts as a fix
-  g diff --name-only "$remote/$base" > "$state/touched.txt"; export LAND_TOUCHED_FILE=$state/touched.txt; prot_hit=
-  if [ ${#prot_globs[@]} -gt 0 ]; then while IFS= read -r f; do matches_any "$f" "${prot_globs[@]}" && prot_hit="$prot_hit $f"; done < "$state/touched.txt"; fi
+  g diff --name-only "$remote/$base" > "$run/touched.txt"; export LAND_TOUCHED_FILE=$run/touched.txt; prot_hit=
+  if [ ${#prot_globs[@]} -gt 0 ]; then while IFS= read -r f; do matches_any "$f" "${prot_globs[@]}" && prot_hit="$prot_hit $f"; done < "$run/touched.txt"; fi
   export LAND_PROTECTED_TOUCHED=${prot_hit# }
   [ -z "$prot_hit" ] && echo "land-direct: protected set: none touched" || echo "land-direct: protected set: TOUCHED ($LAND_PROTECTED_TOUCHED): allowed, every gate must pass"
-  export LAND_GATE_APPROVED_FILE=$state/approved-gate-edits.txt   # the approvals this landing consumes (`FILE HASH` per line): a repository's own judge may accept those files' removed lines
-  ga_judge_run "$wt" "$remote/$base" "$LAND_APPROVALS" "$LAND_APPROVAL_DAYS" "$LAND_GATE_APPEND_ONLY" "$state" "$LAND_PROTECTED_LIST" "$pap" "$prot_extra" || stop 12 refused "the gate-edit judge refused this change (approvals: docs/gate-edit-approvals.md; see above)"
+  export LAND_GATE_APPROVED_FILE=$run/approved-gate-edits.txt   # the approvals this landing consumes (`FILE HASH` per line): a repository's own judge may accept those files' removed lines
+  ga_judge_run "$wt" "$remote/$base" "$LAND_APPROVALS" "$LAND_APPROVAL_DAYS" "$LAND_GATE_APPEND_ONLY" "$run" "$LAND_PROTECTED_LIST" "$pap" "$prot_extra" || stop 12 refused "the gate-edit judge refused this change (approvals: docs/gate-edit-approvals.md; see above)"
   run_hook post-rebase || stop 12 refused "the post-rebase hook refused this change (protected set / gate checks; see above)"
   if [ -x "$wt/scripts/land/bin/land-check" ] && [ -e "$wt/scripts/land/PIN" ]; then   # a vendored copy of this tool: it must still be what its pin says
     rc=0; (cd "$wt" && bounded "$st" "vendored-copy drift check" scripts/land/bin/land-check) >&2 || rc=$?
     [ "$rc" = 0 ] || stop 12 refused "the vendored copy of this tool under scripts/land/ differs from its pin (edit the source repository, not the copy); not landing."
   fi
   ts=$(date +%s)
-  if [ -n "$LAND_GATES_CMD" ]; then (cd "$wt" && bounded "$lt" "Tier 1 gates" bash -c "$LAND_GATES_CMD") >"$state/tier1.log" 2>&1 || { tail -15 "$state/tier1.log" >&2; stop 13 tier1 "Tier 1 (gates) fails on the rebased commits (log: $state/tier1.log); nothing lands."; }; fi
-  if [ -n "$LAND_TEST_CMD" ]; then (cd "$wt" && bounded "$lt" "Tier 1 tests" bash -c "$LAND_TEST_CMD") >>"$state/tier1.log" 2>&1 || { tail -15 "$state/tier1.log" >&2; stop 13 tier1 "Tier 1 (tests) fails on the rebased commits (log: $state/tier1.log); nothing lands."; }; fi
+  if [ -n "$LAND_GATES_CMD" ]; then (cd "$wt" && bounded "$lt" "Tier 1 gates" bash -c "$LAND_GATES_CMD") >"$run/tier1.log" 2>&1 || { tail -15 "$run/tier1.log" >&2; stop 13 tier1 "Tier 1 (gates) fails on the rebased commits (log: $run/tier1.log); nothing lands."; }; fi
+  if [ -n "$LAND_TEST_CMD" ]; then (cd "$wt" && bounded "$lt" "Tier 1 tests" bash -c "$LAND_TEST_CMD") >>"$run/tier1.log" 2>&1 || { tail -15 "$run/tier1.log" >&2; stop 13 tier1 "Tier 1 (tests) fails on the rebased commits (log: $run/tier1.log); nothing lands."; }; fi
   t1=$(( $(date +%s) - ts ))
   run_hook post-tier1 || stop 12 refused "the post-tier1 hook refused this change (a gate that judges the tree after Tier 1, such as an attack suite; see above)"
   # Tier 1 may render generated files: dirty only in generated paths = they were stale: commit them as a commit of the lander (carrying the tip's trailers)
@@ -316,7 +331,7 @@ for attempt in 1 2 3; do
     trailers=; for t in $LAND_REQUIRE_TRAILERS; do trailers="$trailers$(g log -1 --format=%B "$tip0" | sed -n "s/^$t: *//p" | sed -n 1p | sed "s/^/$t: /")"$'\n'; done
     g add -A; g commit -qm "chore: regenerate generated files after rebase onto $base" -m "Generated by land-direct." ${trailers:+-m "${trailers%$'\n'}"}
     # the commit just made is part of what lands: with a protected list the whole judge runs again on it (a generated path that is protected must not change after the verdict)
-    [ -z "$LAND_PROTECTED_LIST" ] || ga_judge_run "$wt" "$remote/$base" "$LAND_APPROVALS" "$LAND_APPROVAL_DAYS" "$LAND_GATE_APPEND_ONLY" "$state" "$LAND_PROTECTED_LIST" "$pap" "$prot_extra" || stop 12 refused "the gate-edit judge refused the tree after Tier 1 regenerated files (see above)"
+    [ -z "$LAND_PROTECTED_LIST" ] || ga_judge_run "$wt" "$remote/$base" "$LAND_APPROVALS" "$LAND_APPROVAL_DAYS" "$LAND_GATE_APPEND_ONLY" "$run" "$LAND_PROTECTED_LIST" "$pap" "$prot_extra" || stop 12 refused "the gate-edit judge refused the tree after Tier 1 regenerated files (see above)"
   fi
   sha=$(g rev-parse HEAD)
   bounded "$gt" "git fetch" git -C "$wt" fetch -q "$remote" "$base" || die "cannot fetch $remote $base (timed out or failed)"
@@ -326,8 +341,8 @@ for attempt in 1 2 3; do
   fi
   holdcheck; red_check   # the verdict is only good for a base that is not red or held now
   [ "$dry" = 0 ] || break
-  if bounded "$gt" "git push" git -C "$wt" push -q "$remote" "$sha:refs/heads/$base" 2>"$state/push.log"; then break; fi   # a plain push: the remote refuses what is not a fast-forward
-  echo "land-direct: the push of ${sha:0:12} to $base was refused (base moved?): rebasing and checking again ($attempt of 3)" >&2; sed 's/^/land-direct: push: /' "$state/push.log" >&2
+  if bounded "$gt" "git push" git -C "$wt" push -q "$remote" "$sha:refs/heads/$base" 2>"$run/push.log"; then break; fi   # a plain push: the remote refuses what is not a fast-forward
+  echo "land-direct: the push of ${sha:0:12} to $base was refused (base moved?): rebasing and checking again ($attempt of 3)" >&2; sed 's/^/land-direct: push: /' "$run/push.log" >&2
   [ "$attempt" -lt 3 ] || die "the push to $base was refused three times; run land-direct again."
 done
 # extra JSON keys from the json-fields hook: `key=value` lines, key [a-z_]+, value a number or [A-Za-z0-9._-]+ (anything else is null)

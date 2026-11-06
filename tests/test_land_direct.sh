@@ -211,6 +211,33 @@ echo "$LAND_RESULT" >> "$LAND_STATE_DIR/on-run.log"'
 worker o6; commit "$T/o6" o6.txt 1
 lands "an on-run hook sees every run" "$T/o6"; check "on-run saw the result" grep -q landed "$T/o6/.git/vbm-land/on-run.log"
 
+echo "## per-run directory: every run writes only in its own"
+sandbox
+set_conf 'LAND_TEST_CMD=echo "$LAND_RUN_DIR" >> '"$T/runs.txt"'; [ "$(pwd -P)" = "$(cd "$LAND_RUN_DIR/wt" && pwd -P)" ]; test ! -e "$LAND_STATE_DIR/wt"'
+worker u1; commit "$T/u1" u1.txt 1
+lands "Tier 1 runs inside this run's own scratch worktree" "$T/u1"
+git -C "$T/u1" fetch -q origin; git -C "$T/u1" reset -q --hard origin/main; commit "$T/u1" u2.txt 2
+lands "and so does the next run in the same clone" "$T/u1"
+v=$T/u1/.git/vbm-land
+distinct_run_dirs() { [ "$(sort -u "$T/runs.txt" | wc -l)" = 2 ] && ! grep -vE "^$v/run\\.[0-9]+\\.[A-Za-z0-9]+\$" "$T/runs.txt"; }
+nothing_left() { [ -z "$(ls "$1/.git/vbm-land" | grep '^run\.' || true)" ] && [ "$(git -C "$1" worktree list | wc -l)" = 1 ]; }
+check "two runs got two different run directories, both inside the clone's vbm-land/" distinct_run_dirs
+check "after a landing no run directory and no worktree registration is left" nothing_left "$T/u1"
+set_conf 'LAND_TEST_CMD=echo tier1-evidence; false'
+worker u3; commit "$T/u3" u3.txt 1; v=$T/u3/.git/vbm-land
+( cd "$T/u3" && "$L" >"$T/out" 2>&1 ) && rc=0 || rc=$?
+only_the_log() { [ "$rc" = 13 ] && grep -q tier1-evidence "$v"/run.*/tier1.log && [ "$(ls "$v"/run.*/ | wc -l)" = 1 ] && [ "$(git -C "$T/u3" worktree list | wc -l)" = 1 ]; }
+check "a failed run leaves its log and nothing else (no worktree), for diagnosis" only_the_log
+# leftovers: a dead pid's old directory is swept by the next run; a young one, a live pid's and a name without a pid are kept; a symlink is never followed
+sleep 300 & alive=$!; true & gone=$!; wait "$gone"
+mkdir "$v/run.$gone.old" "$v/run.$gone.new" "$v/run.$alive.old" "$v/run.junk.old" "$T/precious"; echo keep > "$T/precious/f"; ln -s "$T/precious" "$v/run.$gone.link"
+touch -d '2 days ago' "$v/run.$gone.old" "$v/run.$alive.old" "$v/run.junk.old"; touch -h -d '2 days ago' "$v/run.$gone.link"
+( cd "$T/u3" && "$L" --dry-run >/dev/null 2>&1 ) || true
+kill "$alive" 2>/dev/null || true; wait "$alive" 2>/dev/null || true
+check "the next run sweeps a dead run's old directory" test ! -e "$v/run.$gone.old"
+check "it keeps a young directory, a live pid's and a name without a pid" bash -c "[ -d '$v/run.$gone.new' ] && [ -d '$v/run.$alive.old' ] && [ -d '$v/run.junk.old' ]"
+check "it never follows a symlink out of the clone" bash -c "[ -L '$v/run.$gone.link' ] && [ -e '$T/precious/f' ]"
+set_conf 'LAND_TEST_CMD=true'
 echo "## lock, lease, racing workers"
 worker b1; commit "$T/b1" b.txt 1
 mkdir -p "$T/b1/.git/vbm-land"; ( exec 8>"$T/b1/.git/vbm-land/lock"; flock 8; sleep 8 ) & holder=$!
@@ -225,11 +252,12 @@ sleep 1; check "the stale holder was terminated" bash -c "! kill -0 $victim 2>/d
 check "the break is logged" test -s "$T/l1/.git/vbm-land/lease.log"
 kill "$victim" "$lockholder" 2>/dev/null || true; wait 2>/dev/null || true
 worker p1; worker p2; commit "$T/p1" p1.txt 1; commit "$T/p2" p2.txt 2
-set_conf 'LAND_TEST_CMD=sleep 1' 'LAND_LOCK_WAIT=30'
+set_conf 'LAND_TEST_CMD=echo "$LAND_RUN_DIR" >> '"$T/race-runs.txt"'; sleep 1' 'LAND_LOCK_WAIT=30'
 ( cd "$T/p1" && "$L" >"$T/p1.out" 2>&1 ) & q1=$!; ( cd "$T/p2" && "$L" >"$T/p2.out" 2>&1 ) & q2=$!
 rc1=0; rc2=0; wait $q1 || rc1=$?; wait $q2 || rc2=$?
 check "two racing workers both land" bash -c "[ $rc1 = 0 ] && [ $rc2 = 0 ] && git -C '$T/remote.git' cat-file -e main:p1.txt && git -C '$T/remote.git' cat-file -e main:p2.txt"
 check "history stays linear" test -z "$(git -C "$T/remote.git" rev-list --merges main)"
+check "the two racing runs used two different run directories" bash -c "[ \$(sort -u '$T/race-runs.txt' | wc -l) = 2 ]"
 set_conf 'LAND_TEST_CMD=true'
 
 echo "## group mode (a batch coordinator): --group and LAND_LOCK_HELD"

@@ -4,6 +4,7 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 ## Unreleased
+- `land-direct` keeps everything one run writes in its own directory, `<git common dir>/vbm-land/run.<pid>.<random>/` (scratch worktree, hooks, logs, scratch files), removed at exit (a failed run keeps only its `*.log` files; a later run sweeps directories of dead runs older than a day). The hold, freeze and metrics files stay shared. New in the environment of hooks and Tier 1: `LAND_RUN_DIR`. A hook that wrote scratch files under `LAND_STATE_DIR` should write them under `LAND_RUN_DIR`.
 
 ## 0.4.1
 - Tests and docs only (no interface change; patch). `tests/lint.sh` now fails a test that reads the real repository's approvals, protected list, baselines, config or tags (a test builds its OWN world: a test that read the repository's real approvals file failed the first real approval in a consumer). New `docs/gate-mechanism-acceptance.md` and `tests/acceptance.sh`: before a gate mechanism is rolled, one real approval goes end to end on the real tree (a scratch clone, a real approval line committed into each real approvals file, the real Tier 1 must pass). vbm-land's own tests were already self-contained; this makes the class a lint failure. Upgrade notes: none required; a consumer's tests that read its real approvals file or protected list should build a scratch copy instead.
