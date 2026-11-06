@@ -70,6 +70,21 @@ commit() {    # commit DIR FILE CONTENT [SUBJECT]: write FILE and commit it
   local d=$1 f=$2 c=$3 s=${4:-"feat: change $2"}
   mkdir -p "$(dirname "$d/$f")"; printf '%s\n' "$c" > "$d/$f"; git -C "$d" add -- "$f"; git -C "$d" commit -qm "$s" -m "Task-ID: t1"
 }
+# race_hook K: the remote's pre-receive hook advances main by one competitor commit (same tree) during each of the first K pushes, so git itself refuses those pushes
+race_hook() {
+  cat > "$T/remote.git/hooks/pre-receive" <<HOOK
+#!/bin/sh
+n=\$(cat "$T/race.count" 2>/dev/null || echo 0)
+if [ "\$n" -lt $1 ]; then echo \$((n+1)) > "$T/race.count"
+  unset GIT_QUARANTINE_PATH GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
+  tip=\$(git rev-parse refs/heads/main)
+  c=\$(GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@x GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@x git commit-tree -p "\$tip" -m "chore: competitor \$n" -m "Task-ID: c" "\$tip^{tree}")
+  git update-ref refs/heads/main "\$c" "\$tip"
+fi
+exit 0
+HOOK
+  chmod +x "$T/remote.git/hooks/pre-receive"; rm -f "$T/race.count"
+}
 remote_head() { git -C "$T/remote.git" rev-parse "$BASE"; }
 remote_has()  { git -C "$T/remote.git" cat-file -e "$BASE:$1" 2>/dev/null; }
 # results are appended to a file, so a check run inside a ( subshell ) still counts

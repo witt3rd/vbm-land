@@ -26,7 +26,9 @@ sc_drift()     { scn_prelude; S=$T/src; mkdir -p "$S"; ( cd "$ROOT" && cp -r bin
                git clone -q "$T/remote.git" "$T/w"; "$S/install" --source "$S" --target "$T/w" v1 >/dev/null; printf 'LAND_TEST_CMD=true\nLAND_RED_MODE=off\n' > "$T/w/scripts/land.conf"
                echo '# patched' >> "$T/w/scripts/land/bin/land-red"; git -C "$T/w" add -A; git -C "$T/w" commit -qm "feat: patched copy" -m "Task-ID: t"
                ( cd "$T/w" && env -u X "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
-sc_push_refused() { scn_prelude; set_conf 'LAND_TEST_CMD=true'; printf '#!/bin/sh\necho refused >&2\nexit 1\n' > "$T/remote.git/hooks/pre-receive"; chmod +x "$T/remote.git/hooks/pre-receive"; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
+sc_push_refused() { scn_prelude; set_conf 'LAND_TEST_CMD=true' 'LAND_ATTEMPTS=3'; printf '#!/bin/sh\necho refused >&2\nexit 1\n' > "$T/remote.git/hooks/pre-receive"; chmod +x "$T/remote.git/hooks/pre-receive"; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
+sc_moved_attempts() { scn_prelude; set_conf 'LAND_TEST_CMD=true' 'LAND_ATTEMPTS=3'; race_hook 5; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
+sc_moved_deadline() { scn_prelude; set_conf 'LAND_TEST_CMD=sleep 2' 'LAND_DEADLINE=1'; race_hook 3; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 sc_flaky()     { scn_prelude; seed_push scripts/known-flaky.txt "test_flaky.sh alice 2099-01-01 1"; set_conf 'LAND_TEST_CMD=true' 'LAND_KNOWN_FLAKY=scripts/known-flaky.txt' 'LAND_FLAKY_RERUN_WAIT=2'; gh_mode red; echo "FAIL scripts/test_unlisted.sh" > "$T/gh/failedlog"; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && RED_SLEEP=true "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 sc_tier2()     { scn_prelude; set_conf 'LAND_TEST_CMD=true' 'LAND_TIER2_JOB=tier2'; gh_mode t2red; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 # gate-edit approvals (lib/approvals.sh): AP = the approvals file; ga_h = the diff hash of dropping line b of gate.sh, computed by the real lander
@@ -88,6 +90,9 @@ config from main|13|sc_conf_base|-|s|elif git -C "\$top" cat-file -e "\$remote/\
 drift check|12|sc_drift|-|s|scripts/land/bin/land-check) >\&2|true) >\&2|
 known-flaky list membership|10|sc_flaky|bin/land-red|s/^kf_listed() {$/kf_listed() { return 0;/
 push arbiter: a refused push lands nothing|1|sc_push_refused|-|s/^  if bounded "\$gt" "git push"/  if true || bounded "$gt" "git push"/
+retry bound: attempts|16|sc_moved_attempts|-|s/\[ "\$attempt" -lt "\$LAND_ATTEMPTS" \] \&\& //
+retry bound: deadline|16|sc_moved_deadline|-|s/ \&\& \[ "\$(date +%s)" -lt "\$deadline" \]//
+push refused while the base has not moved is final|1|sc_push_refused|-|s/^  ! g merge-base --is-ancestor "\$remote\/\$base" "\$sha" || die .*$/  :/
 Tier 2 freeze|14|sc_tier2|bin/land-red|s/elif \[ ! -e "\$state\/freeze" \]; then now=/elif false; then now=/
 gate edit: append-only|12|sc_ga_append|lib/approvals.sh|s/ga_refuse "\$f is a gate-defining file/: "\$f is a gate-defining file/
 gate edit: one-time consumption|12|sc_ga_onetime|lib/approvals.sh|s/"\$REM" || ga_refuse "the approval for/"\$REM" || : "the approval for/

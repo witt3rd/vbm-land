@@ -93,6 +93,55 @@ lands "main moving during Tier 1 re-rebases and lands" "$T/mv1"; out_has "moved 
 check "both are on main" bash -c "git -C '$T/remote.git' cat-file -e main:mv2.txt && git -C '$T/remote.git' cat-file -e main:mv1b.txt"
 set_conf 'LAND_TEST_CMD=true'
 
+echo "## the retry loop: lost races are retried within bounds; a crash after an accepted push is a rerun that lands nothing twice"
+sandbox
+set_conf 'LAND_TEST_CMD=echo "$LAND_ATTEMPT:$LAND_PREV_BASE:$(git rev-parse HEAD~1)" >> '"$T/att.txt"
+worker rl1; commit "$T/rl1" rl1.txt 1; race_hook 3
+lands "a push lost to three competitors is retried and lands on the fourth attempt" "$T/rl1"
+check "main has the competitors' three commits and then ours, linear" bash -c "[ \$(git -C '$T/remote.git' rev-list --count main) = \$((\$(git -C '$T/remote.git' rev-list --count main~4) + 4)) ] && git -C '$T/remote.git' cat-file -e main:rl1.txt && [ -z \"\$(git -C '$T/remote.git' rev-list --merges main)\" ]"
+attempts_ok() { [ "$(wc -l < "$T/att.txt")" = 4 ] && [ "$(sed -n 1p "$T/att.txt" | cut -d: -f1,2)" = "1:" ] && [ "$(sed -n 4p "$T/att.txt" | cut -d: -f1)" = 4 ] \
+  && [ "$(sed -n 2p "$T/att.txt" | cut -d: -f2)" = "$(sed -n 1p "$T/att.txt" | cut -d: -f3)" ] && [ "$(sed -n 4p "$T/att.txt" | cut -d: -f2)" = "$(sed -n 3p "$T/att.txt" | cut -d: -f3)" ]; }
+check "Tier 1 saw LAND_ATTEMPT 1..4 and LAND_PREV_BASE = the base the previous attempt validated against (empty at first)" attempts_ok
+check "the metrics line has the attempts (4) and the commit id handed over" bash -c "tail -n1 '$T/rl1/.git/vbm-land/metrics.jsonl' | grep -q '\"attempts\":4' && tail -n1 '$T/rl1/.git/vbm-land/metrics.jsonl' | grep -q '\"commit\":\"'\$(git -C '$T/rl1' rev-parse HEAD)'\"'"
+before=$(git -C "$T/remote.git" rev-list --count main)
+( cd "$T/rl1" && "$L" >"$T/out" 2>&1 ) && rc=0 || rc=$?
+check "run again after that landing (a crash after the accepted push looks the same): exit 0, 'already landed', nothing pushed" bash -c "[ $rc = 0 ] && grep -q 'already landed' '$T/out' && [ \$(git -C '$T/remote.git' rev-list --count main) = $before ]"
+rm -f "$T/remote.git/hooks/pre-receive"; set_conf 'LAND_TEST_CMD=true' 'LAND_ATTEMPTS=3'
+worker rl2; commit "$T/rl2" rl2.txt 1; race_hook 99
+( cd "$T/rl2" && "$L" >"$T/out" 2>&1 ) && rc=0 || rc=$?
+check "main moving at every push: exit 16 after the attempts, nothing of ours on main" bash -c "[ $rc = 16 ] && ! git -C '$T/remote.git' cat-file -e main:rl2.txt"
+out_has "moved faster than I could validate: 3 attempt(s)"; check "the JSON says moved" bash -c "tail -n1 '$T/out' | grep -q '\"result\":\"moved\",\"exit\":16'"
+rm -f "$T/remote.git/hooks/pre-receive"; set_conf 'LAND_TEST_CMD=sleep 2' 'LAND_DEADLINE=1'
+worker rl3; commit "$T/rl3" rl3.txt 1; race_hook 99
+( cd "$T/rl3" && "$L" >"$T/out" 2>&1 ) && rc=0 || rc=$?
+check "a Tier 1 that outlasts LAND_DEADLINE is not run again: exit 16 after one attempt" bash -c "[ $rc = 16 ] && grep -q 'moved faster than I could validate: 1 attempt(s)' '$T/out'"
+rm -f "$T/remote.git/hooks/pre-receive"; set_conf 'LAND_TEST_CMD=true'
+worker rl4; commit "$T/rl4" rl4.txt 1; printf '#!/bin/sh\necho x >> "%s/rej.count"\necho "remote: refused by policy" >&2\nexit 1\n' "$T" > "$T/remote.git/hooks/pre-receive"; chmod +x "$T/remote.git/hooks/pre-receive"
+( cd "$T/rl4" && "$L" >"$T/out" 2>&1 ) && rc=0 || rc=$?
+check "a push refused while main has not moved is final: exit 1, tried once, the remote's reason shown" bash -c "[ $rc = 1 ] && [ \$(wc -l < '$T/rej.count') = 1 ] && grep -q 'has not moved: not retrying' '$T/out' && grep -q 'refused by policy' '$T/out'"
+rm -f "$T/remote.git/hooks/pre-receive"
+# a push that the remote accepted but whose report is lost (a timeout): the lander asks the remote and finds its commit in the base
+mkdir -p "$T/shim2"; printf '#!/usr/bin/env bash\ncase " $* " in *" push "*) %s "$@"; exit 124;; esac\nexec %s "$@"\n' "$(command -v git)" "$(command -v git)" > "$T/shim2/git"; chmod +x "$T/shim2/git"
+worker rl5; commit "$T/rl5" rl5.txt 1
+lands "a push that timed out after the remote accepted it is found in the base: landed" "$T/rl5" PATH="$T/shim2:$PATH"; out_has "is in main: landed"; check "and it is on main once" bash -c "[ \$(git -C '$T/remote.git' log --format=%s main | grep -c 'change rl5.txt') = 1 ]"
+set_conf 'LAND_TEST_CMD=true' 'LAND_ATTEMPTS=0'
+worker rl6; commit "$T/rl6" rl6.txt 1
+refused "LAND_ATTEMPTS=0 is a bad configuration" 2 "$T/rl6"; out_has "LAND_ATTEMPTS"
+# the base of an attempt is pinned when it starts: another lander of the clone moves the shared origin/main ref (here a pre-rebase hook does, once, between the fetch and the rebase);
+# this attempt must still be built on the base it fetched, and notice at the end that the ref moved: a second attempt
+sandbox
+set_conf 'LAND_TEST_CMD=echo "$LAND_ATTEMPT:$LAND_PREV_BASE:$(git rev-parse HEAD~1)" >> '"$T/pin.txt"
+seed_exec scripts/land.d/pre-rebase "#!/usr/bin/env bash
+[ ! -e '$T/pin.flag' ] || exit 0
+: > '$T/pin.flag'
+( cd '$T/seed' && git pull -q origin main && echo c > competitor.txt && git add competitor.txt && git commit -qm 'chore: competitor' -m 'Task-ID: c' && git push -q origin main )
+git -C \"\$LAND_TOP\" fetch -q origin main"
+worker pn1; commit "$T/pn1" pn1.txt 1
+lands "the shared origin/main ref moving under a run does not change the base of its attempt: it lands after a second attempt" "$T/pn1"; out_has "moved during Tier 1"
+pinned_ok() { [ "$(wc -l < "$T/pin.txt")" = 2 ] && [ "$(sed -n 2p "$T/pin.txt" | cut -d: -f2)" = "$(sed -n 1p "$T/pin.txt" | cut -d: -f3)" ] && [ "$(sed -n 1p "$T/pin.txt" | cut -d: -f3)" != "$(sed -n 2p "$T/pin.txt" | cut -d: -f3)" ]; }
+check "attempt 1 ran on the base it had fetched (not the moved ref); attempt 2 on the new one, its LAND_PREV_BASE the first" pinned_ok
+sandbox   # a clean world again for what follows
+
 echo "## generated files"
 seed_push gen/list.txt "gen/out.txt"
 seed_push gen/out.txt "base"
