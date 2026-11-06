@@ -15,6 +15,8 @@ before a gate mechanism is rolled to any consumer, one real approval goes end to
 
 `tests/soak.sh [N]` (default 20; by hand, on a machine with room, never in Tier 1) runs the real lander in a scratch world: N worktrees of ONE clone each land one commit at the same instant with a stub Tier 1 of 10-20 s (a repeat attempt re-checks for 1 s, as a repository's delta selection does with `LAND_ATTEMPT`), plus four landing one hot file and one lander killed with `kill -9` mid-validation; then a race for one real approval. It passes when every lander exits 0 and none is "busy", the remote's history is the base plus the landings, linear, with every file present, exactly one hot lander lands and the rest get exit 11, no lock file exists, the approved edit lands once and an unapproved one is refused (12). `tests/acceptance.sh --soak` runs it after the real-approval step on the candidate tree.
 
+Two landers of the same approved edit are not a refusal case: the approval binds the exact diff of the edited file, the first lander consumes the record, and the second is rebased onto the first one's edit, so it carries no gate edit any more and lands only its other changes (two identical commits: the rebase drops the second, "already landed"). The approved edit is applied once; a lander of a different, unapproved edit is refused (12).
+
 ## The rule behind it
 
 A test builds its own world: its own scratch repository, approvals file(s), protected list, base and tags. It never reads the real repository's approvals, protected list, baselines, config or tags.
