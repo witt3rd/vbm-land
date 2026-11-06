@@ -6,7 +6,7 @@
 set -euo pipefail
 export LC_ALL=C
 root=$(cd "$(dirname "$0")/.." && pwd); cd "$root"
-payload=(bin/land-direct bin/land-red bin/land-check bin/land-update bin/run-probe bin/no-crash-record bin/no-build-guard lib/no-crash-record.sh lib/no-build-host.sh lib/approvals.sh lib/conf.sh lib/freeze.sh lib/infra-re.sh lib/source.sh docs/gate-edit-approvals.md docs/crash-probes.md docs/no-build-host.md VERSION)
+payload=(bin/land-direct bin/land-red bin/land-check bin/land-update bin/run-probe bin/no-crash-record bin/no-build-guard lib/no-crash-record.sh lib/no-build-host.sh lib/approvals.sh lib/conf.sh lib/freeze.sh lib/infra-re.sh lib/source.sh lib/pkg.sh docs/gate-edit-approvals.md docs/crash-probes.md docs/no-build-host.md VERSION)
 while IFS= read -r f; do payload+=("$f"); done < <(find templates -maxdepth 1 -type f | LC_ALL=C sort)   # the templates the skills point at (scripts/land/templates/)
 while IFS= read -r f; do payload+=("$f"); done < <(find skills -mindepth 2 -maxdepth 2 -name SKILL.md | LC_ALL=C sort)   # the agent skills a consumer gets in .agents/skills/
 want=$(for f in "${payload[@]}"; do [ -f "$f" ] || { echo "land-manifest: payload file missing: $f" >&2; exit 1; }; sha256sum -- "$f"; done | LC_ALL=C sort -k2)
