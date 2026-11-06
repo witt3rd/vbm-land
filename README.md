@@ -158,8 +158,8 @@ A repository that lands with this tool has a `scripts/land.conf` (below) and tel
 ```
 bin/land-direct                       # land the local commits that are not on origin/main yet
 bin/land-direct --dry-run             # everything except the push
-bin/land-direct --check               # only the land-time checks (commit messages, size budget)
-bin/land-direct --group               # a batch coordinator's entries: the size budget is only a number anyway
+bin/land-direct --check               # only the land-time checks (commit messages)
+bin/land-direct --group               # accepted and ignored (there is no size budget any more)
 bin/land-direct --hold "reason"       # stop every landing in this clone (even one in flight, right before its push) ...
 bin/land-direct --release             # ... until released
 bin/land-direct --freeze "reason" --owner NAME --for 6h   # only fixes and true reverts land, until the expiry or --thaw
@@ -181,13 +181,9 @@ Locks, markers, logs and the scratch worktree live in `<git common dir>/vbm-land
 | `LAND_REGEN_CMD` | none | Regenerates generated files after a rebase conflict confined to them (the conflict takes base's file, then this runs). Failing refuses (exit 12). |
 | `LAND_GEN_CMD` | none | Always run on the rebased tree; anything it changes lands as a commit of the lander. |
 | `LAND_GENERATED_LIST` | none | Path of a file listing generated paths, one per line, read from base. |
-| `LAND_PROD_PATHS`, `LAND_BUDGET_LINES` | none, `150` | The size budget: changed lines under these paths (not generated ones) may not exceed the budget unless a commit carries a `Diff-Budget: <decomposition note>` trailer. |
 | `LAND_REQUIRE_TRAILERS` | none | Trailer names every commit must carry (for example `Task-ID`). |
 | `LAND_CONVENTIONAL`, `LAND_COMMIT_TYPES` | `1`, the usual types | Require `type(scope): summary` subjects; git's own `Revert "..."` is accepted. |
 | `LAND_PROTECTED` | none | Shell patterns (`*` matches `/`): the gate-defining set. A change that touches it is judged by the `post-rebase` hook; it never counts as a fix for a red main. |
-| `LAND_GATE_APPEND_ONLY` | none | Shell patterns: gate-defining files that may only GAIN lines. A removed or changed line, a deletion or a mode change is refused (12) unless an approval for exactly that diff is already on base (`docs/gate-edit-approvals.md`). |
-| `LAND_APPROVALS`, `LAND_APPROVAL_DAYS` | `scripts/gate-edit-approvals.txt`, `7` | The gate-edit approvals file (always on, always protected, never empty) and how many days an approval stays usable. Records `FILE \| sha256 of the exact diff \| reason \| YYYY-MM-DD`; `land-direct --print-gate-diff-hash FILE` prints the hash. One-time, read from base, landed alone and announced to the judge first. The honest limit is in the document. |
-| `LAND_PROTECTED_LIST`, `LAND_PROTECTED_APPROVALS` | none, the gate-edit approvals file | Path (read from base) of a **protected-paths list**, and the approvals file for it. A landing whose net diff touches any path the list covers (the list itself, the configuration and the hooks always count) is refused (12) unless an approval `FILE-SET \| sha256 of the net diff over that set \| reason \| date` is on base: one-time, exactly that set. An empty or missing list refuses everything. `land-direct --print-gate-diff-hash @protected`. `docs/gate-edit-approvals.md`, "Protected sets": it stops a misread, not a deliberate two-landing self-approval (stated limit). |
 | `LAND_FIX_PATHS` | none | When set, a fix may touch only these paths (tests, CI) to pass a freeze. |
 | `LAND_FAIL_PATTERN` | `^(FAIL\|FAILED)([ :]\|$)` | Extended regular expression: the lines of Tier 1's output that name a failure. A Tier 1 that fails ONLY with failures the bare base also has passes as inherited red (4.4). |
 | `LAND_LOCK_WAIT`, `LAND_CI_WORKFLOW`, `LAND_TIER1_JOB`, `LAND_RED_MODE`, `LAND_RED_WAIT`, `LAND_KNOWN_FLAKY`, `LAND_FLAKY_RERUN_WAIT`, `LAND_TIER2_JOB` | | **Retired** (0.5.0): still accepted, whatever their value, and ignored with one notice. There is no lock, and landing no longer reads CI. |
@@ -217,7 +213,6 @@ Hooks are executables in `scripts/land.d/`, taken from `origin/<base>` (so a cha
 
 The tool is for a repository whose only writers are cooperating agents and people, not for adversaries. It makes mistakes mechanical failures: the gate runs on the exact combination, config and hooks come from main, the push is a plain fast-forward, an unknowable CI state refuses, and there is no lock for a dead lander to wedge (a crash leaves only its own run directory). A lander runs repository-supplied commands with your credentials; protect the gate-defining set accordingly. The lander is the copy in the worktree it is run from; what protects the main branch is the drift check on the rebased tree (6.6), the configuration and hooks read from main, and the independent push CI.
 
-**Gate-edit approvals.** A gate file that may only gain lines (`LAND_GATE_APPEND_ONLY`) loses or changes a line only on an exact diff-hash approval that is already on main: a record in `scripts/gate-edit-approvals.txt`, landed alone (one line, nothing else) in its own commit, announced to the independent judge BEFORE the edit lands, consumed (removed) by the edit's own landing, valid for 7 days (or withdrawn by an `Approval-Withdrawn:` trailer, also announced). Honest limit: an agent with landing rights could write its own approval line; the control is that approvals are visible one-commit records the judge reads before the edit lands, so the approval commit is announced to the judge before the edit commit, always. `land-direct` prints `APPROVAL COMMIT: announce to the judge before landing the edit` whenever one is on its way. Rules, hash definition and steps: `docs/gate-edit-approvals.md`.
 
 ### 6.6 Installing it into a repository: a pinned, vendored copy
 

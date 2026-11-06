@@ -103,28 +103,6 @@ push refused while the base has not moved is final|1|sc_push_refused|-|s/^  ! g 
 land-revert: a failure that does not reproduce is not reverted|0|sc_rv_green|bin/land-revert|s/^if tier1 "\$run\/bis"; then stop 0 green/if false; then stop 0 green/
 land-revert: more than five dependents alert|3|sc_rv_five|bin/land-revert|s/^  \[ \${#later\[@\]} -le 5 \] || stop 3 alert .*$/  :/
 land-revert: a refused landing is an alert|3|sc_rv_refused|bin/land-revert|s/^\[ "\$rc" = 0 \] || stop 3 alert "the revert of/: || stop 3 alert "the revert of/
-gate edit: append-only|12|sc_ga_append|lib/approvals.sh|s/ga_refuse "\$f is a gate-defining file/: "\$f is a gate-defining file/
-gate edit: stale approval|12|sc_ga_stale|lib/approvals.sh|s/^    if ga_fresh "\$d" "\$days"; then$/    if true; then/
-gate edit: removed without consumption|12|sc_ga_removed|lib/approvals.sh|s/ga_refuse "the approval for \$f (\${h:0:12}) was removed/: "the approval for/
-gate edit: approval alone in its landing|12|sc_ga_net_alone|lib/approvals.sh|s/\[ -z "\$others" \] || ga_refuse "this landing adds/: "this landing adds/
-gate edit: approval alone in its commit|12|sc_ga_early|-|s/^ga_early "\$top" "\$commits" "\$LAND_APPROVALS" \&\&/true \&\&/
-gate edit: a withdrawal lands alone|12|sc_ga_wd_alone|lib/approvals.sh|s/\[ -z "\$others" \] || ga_refuse "the approval for/: "the approval for/
-gate edit: one line per approval commit|12|sc_ga_one_early|lib/approvals.sh|s/^    if \[ "\$ns" != "1"\$'\\t'"0" \]; then$/    if false; then/
-gate edit: one approval per landing|12|sc_ga_one_net|lib/approvals.sh|s/^    \[ "\$ns" = "1"\$'\\t'"0" \] || ga_refuse/    : || ga_refuse/
-gate edit: approval window on add|12|sc_ga_window|lib/approvals.sh|s/ga_fresh "\$d" "\$days" || ga_refuse "an approval dated/true || : "an approval dated/
-gate edit: no approval of the approvals file|12|sc_ga_self|lib/approvals.sh|s/\[ "\$p" != "\$x" \] || ga_refuse/true || :/
-gate edit: malformed record|12|sc_ga_malformed|lib/approvals.sh|s/ga_refuse "\$ap: a line that is not an approval record/: "\$ap: a line that is not an approval record/
-protected set: approval required|12|sc_ps_none|lib/approvals.sh|s/^  ga_refuse "this landing touches the protected set/  : "this landing touches the protected set/
-protected set: the approval's set is exactly the touched set|12|sc_ps_set|lib/approvals.sh|s/grep -qxF -- "\$key \$h" "\$used"/grep -qF -- " $h" "$used"/
-protected set: an empty list fails closed|12|sc_ps_empty|lib/approvals.sh|s/if \[ ! -s "\$st\/ga-pe-base" \]; then ga_ptfail=/if false; then ga_ptfail=/
-protected set: the change's own list counts too|12|sc_ps_union|lib/approvals.sh|s/\[ \${#X\[@\]} -eq 0 \] || E+=("\${X\[@\]}")/:/
-protected set: the list itself is protected|12|sc_ps_list|-|s/^prot_extra=\$LAND_PROTECTED_LIST;/prot_extra=;/
-protected set: the configuration is protected|12|sc_ps_conf|-|s/prot_extra="\$prot_extra \$confpath"/:/
-protected set: no rename detection|12|sc_ps_rename|lib/approvals.sh|s/--name-only -z --no-renames/--name-only -z/
-protected set: its own approvals file|12|sc_ps_sep|lib/approvals.sh|s/pused=\$UP; fi/pused=$U; fi/
-protected set: approval alone in its commit (own file)|12|sc_ps_early|-|s/ga_early "\$top" "\$commits" "\$pap"/true/
-protected set: a set key is canonical|12|sc_ps_key|lib/approvals.sh|s/\[ -z "\$prev" \] || \[\[ "\$prev" < "\$p" \]\] || return 1;/:;/
-protected set: judged again after Tier 1 regenerates files|12|sc_ps_regen|-|s/^    \[ -z "\$LAND_PROTECTED_LIST" \] || judge/    true || judge/
 LIST
 got=$(sc_nothing_pushed_on_failure "$ROOT/bin/land-direct"); [ "$got" = 13 ] && pass "a Tier 1 failure leaves the remote untouched" || fail "a Tier 1 failure moved the remote"
 finish

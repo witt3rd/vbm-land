@@ -67,7 +67,13 @@ worker k3; commit "$T/k3" r.txt 1 'Revert "feat: something"'
 lands "git's own Revert \"...\" subject is accepted (no divergence between the subject check and the red rule)" "$T/k3"
 set_conf 'LAND_TEST_CMD=true' 'LAND_PROD_PATHS=src' 'LAND_BUDGET_LINES=5'
 worker k4; mkdir -p "$T/k4/src"; seq 1 20 > "$T/k4/src/big.txt"; git -C "$T/k4" add src; git -C "$T/k4" commit -qm "feat: big" -m "Task-ID: t"
-lands "over the size budget prints the number and lands (a number, never a refusal)" "$T/k4"; out_has "over the 5-line budget"
+lands "over the size budget prints the number and lands (a number, never a refusal)" "$T/k4"
+echo "## a signing keys file that exists changes only by its owner"
+set_conf 'LAND_TEST_CMD=true'; seed_push scripts/x.signers "k1"
+worker sg1; echo k2 > "$T/sg1/scripts/x.signers"; git -C "$T/sg1" add -A; git -C "$T/sg1" commit -qm "feat: swap the signing key" -m "Task-ID: t"
+refused "an existing signing keys file changed by an agent is refused" 12 "$T/sg1"
+worker sg2; echo k > "$T/sg2/scripts/new.signers"; git -C "$T/sg2" add -A; git -C "$T/sg2" commit -qm "feat: a first signers file" -m "Task-ID: t"
+lands "a first signing keys file (an install) lands" "$T/sg2"
 worker k5; mkdir -p "$T/k5/other"; seq 1 20 > "$T/k5/other/big.txt"; git -C "$T/k5" add other; git -C "$T/k5" commit -qm "feat: big elsewhere" -m "Task-ID: t"
 lands "paths outside LAND_PROD_PATHS are not counted" "$T/k5"
 

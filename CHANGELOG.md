@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 ## Unreleased
+## Strip (a deletion release: nothing is added, 1.4k lines go)
+- **Removed: gate-edit approvals, protected-paths lists, the `Protected:` trailer, the append-only judge, the diff budget, `--print-gate-diff[-hash]`.** The keys `LAND_APPROVALS`, `LAND_APPROVAL_DAYS`, `LAND_PROTECTED_LIST`, `LAND_PROTECTED_APPROVALS`, `LAND_GATE_APPEND_ONLY`, `LAND_PROD_PATHS` and `LAND_BUDGET_LINES` are read and ignored (named once). Reason: in a week 50 of 59 stops were false and approvals stopped nothing.
+- **Kept:** the lander, the red-main watchdog, the drift check of the vendored copy (the protection of the lander's own files), the hooks, signed releases. A signing keys file (`*.signers`) that already exists changes only with `LAND_OWNER=1` (a first install of one is not a change).
+- The metrics line keeps `exit`, `step`, `reason`, `last_lines` for every non-landing.
 
 ## 0.6.1 (PATCH: a refusal is no longer reported as a crash)
 - A refusal by the gate-edit judge used to end with `the gate-edit judge failed unexpectedly (line N)` printed over the refusal's real reasons (the judge's last command, the verdict test, failed under `set -e`). It now returns normally and the verdict is the exit status; a genuine crash is still reported as one.
