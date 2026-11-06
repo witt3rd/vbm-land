@@ -230,9 +230,9 @@ ga_judge() {
       fi
     done <<<"$changed"
   fi
-  [ "$ga_refused" = 0 ]
+  return 0   # the verdict is $ga_refused: a refusal is no crash, so the last line must not fail under `set -e` (the trap would print "failed unexpectedly" over a refusal's own reasons)
 }
 # ga_judge_run ARGS...: ga_judge in a bash of its own with `set -e`, which a function called from `||` never has: any command that fails unexpectedly stops the judge, and the landing is refused (fail closed).
 ga_judge_run() {
-  bash -c 'set -eEuo pipefail; trap '"'"'echo "land-direct: the gate-edit judge failed unexpectedly (line $LINENO): refusing" >&2'"'"' ERR; . "$1"; shift; ga_judge "$@"' _ "${BASH_SOURCE[0]}" "$@"
+  bash -c 'set -eEuo pipefail; trap '"'"'echo "land-direct: the gate-edit judge failed unexpectedly (line $LINENO): refusing" >&2'"'"' ERR; . "$1"; shift; ga_judge "$@"; [ "$ga_refused" = 0 ] || exit 3' _ "${BASH_SOURCE[0]}" "$@"
 }

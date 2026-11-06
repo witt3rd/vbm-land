@@ -124,7 +124,7 @@ protected set: no rename detection|12|sc_ps_rename|lib/approvals.sh|s/--name-onl
 protected set: its own approvals file|12|sc_ps_sep|lib/approvals.sh|s/pused=\$UP; fi/pused=$U; fi/
 protected set: approval alone in its commit (own file)|12|sc_ps_early|-|s/ga_early "\$top" "\$commits" "\$pap"/true/
 protected set: a set key is canonical|12|sc_ps_key|lib/approvals.sh|s/\[ -z "\$prev" \] || \[\[ "\$prev" < "\$p" \]\] || return 1;/:;/
-protected set: judged again after Tier 1 regenerates files|12|sc_ps_regen|-|s/^    \[ -z "\$LAND_PROTECTED_LIST" \] || ga_judge_run/    true || ga_judge_run/
+protected set: judged again after Tier 1 regenerates files|12|sc_ps_regen|-|s/^    \[ -z "\$LAND_PROTECTED_LIST" \] || judge/    true || judge/
 LIST
 got=$(sc_nothing_pushed_on_failure "$ROOT/bin/land-direct"); [ "$got" = 13 ] && pass "a Tier 1 failure leaves the remote untouched" || fail "a Tier 1 failure moved the remote"
 finish

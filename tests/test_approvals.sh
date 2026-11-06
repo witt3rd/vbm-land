@@ -39,6 +39,7 @@ worker g1; printf 'd\n' >> "$T/g1/gate.sh"; cm "$T/g1" "feat: add a line to the 
 lands "an append-only gate file may GAIN lines with no approval" "$T/g1"
 worker g2; drop_b "$T/g2"
 refused "a removed line in a gate file with no approval is refused" "$T/g2"; out_has "may only GAIN lines"; out_has "$H"
+check "a plain refusal is not reported as a judge crash (the real symptom: 'failed unexpectedly' printed over the reasons)" bash -c '! grep -q "failed unexpectedly" "$1"' _ "$T/out"
 worker g3; sed -i '1s/a/A/' "$T/g3/gate.sh"; cm "$T/g3" "feat: change line a"
 refused "a CHANGED line is refused too" "$T/g3"
 worker g4; rm "$T/g4/gate.sh"; cm "$T/g4" "feat: delete the gate"

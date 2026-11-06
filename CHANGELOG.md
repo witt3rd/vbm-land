@@ -5,6 +5,10 @@ Additive changes to it are minor releases; anything else is major.
 
 ## Unreleased
 
+## 0.6.1 (PATCH: a refusal is no longer reported as a crash)
+- A refusal by the gate-edit judge used to end with `the gate-edit judge failed unexpectedly (line N)` printed over the refusal's real reasons (the judge's last command, the verdict test, failed under `set -e`). It now returns normally and the verdict is the exit status; a genuine crash is still reported as one.
+- The judge's own messages are kept: they are recorded as `last_lines` of the non-landing in `metrics.jsonl`.
+
 ## 0.6.0 (MINOR in the interface, a simplification: fewer refusals; nothing is added to what a repository must do)
 Upgrade notes:
 - **`Protected: <reason>` trailer.** A landing that touches a protected path (`LAND_PROTECTED_LIST`) or removes or changes a line of an append-only file (`LAND_GATE_APPEND_ONLY`) lands on one conscious trailer line in any of its commits, no hash and no approval. Without the trailer it is refused (exit 12) and says so. Only the lander's own files still need an exact-hash approval: `scripts/land/`, `scripts/land-direct`, any `*.signers`, the configuration, the hooks directory and the protected-paths list itself. `--print-gate-diff-hash @protected` prints the hash of those paths only.
