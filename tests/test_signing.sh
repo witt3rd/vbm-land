@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Signed releases: bin/land-release makes the signed tag (with the manifest hash in its message); install and land-update verify it against the consumer's
-# scripts/land.signers BEFORE anything of the release runs or is written. Each refusal has a negative test, and a refused release leaves the consumer untouched.
+# the consumer's signers file (LAND_SIGNERS_FILE) BEFORE anything of the release runs or is written. Each refusal has a negative test, and a refused release leaves the consumer untouched.
 . "$(dirname "$0")/lib.sh"
 sandbox
 command -v ssh-keygen >/dev/null || { echo "ssh-keygen missing: signing tests skipped"; pass "skipped (no ssh-keygen)"; finish; exit; }
@@ -28,9 +28,9 @@ echo "## install and update verify before they write"
 consumer() { git clone -q "$T/remote.git" "$T/$1"; git -C "$T/$1" config commit.gpgsign false; }
 consumer s1
 expect_exit "a first install with the maintainer's signers file verifies the tag" 0 "$R/install" --source "$O" --target "$T/s1" --signers "$K/signers" v3.0.0; out_has "verified: tag v3.0.0"
-check "the pin says verified, and the signers file is now the repository's own" bash -c "grep -q '^signature=verified\$' '$T/s1/scripts/land/PIN' && cmp -s '$K/signers' '$T/s1/scripts/land.signers'"
+check "the pin says verified, and the signers file is now the repository's own" bash -c "grep -q '^signature=verified\$' '$T/s1/$LAND_PIN' && cmp -s '$K/signers' '$T/s1/$LAND_SIGNERS_FILE'"
 # bad releases, each refused with nothing written
-bad() { consumer "$1"; cp "$K/signers" "$T/$1/scripts-signers.tmp"; mkdir -p "$T/$1/scripts"; mv "$T/$1/scripts-signers.tmp" "$T/$1/scripts/land.signers"; }
+bad() { consumer "$1"; cp "$K/signers" "$T/$1/scripts-signers.tmp"; mkdir -p "$T/$1/$(dirname "$LAND_SIGNERS_FILE")"; mv "$T/$1/scripts-signers.tmp" "$T/$1/$LAND_SIGNERS_FILE"; }
 git -C "$R" commit -q --allow-empty -m "chore: for tag tests"
 git -C "$R" tag -a v3.0.1 -m "unsigned annotated" -m "manifest_sha256=x"
 git -C "$R" tag v3.0.2
@@ -40,10 +40,10 @@ O2=$T/origin2.git; git clone -q --bare "$R" "$O2"
 for spec in "v3.0.1:does not verify" "v3.0.2:lightweight" "v3.0.3:does not verify" "v3.0.4:records manifest_sha256" "$(git -C "$R" rev-parse HEAD):not a release tag"; do
   t=${spec%%:*}; why=${spec#*:}; bad "b-${t:0:6}"
   expect_exit "install refuses $why (${t:0:8})" 1 "$R/install" --source "$O2" --target "$T/b-${t:0:6}" "$t"; out_has "$why"
-  check "and wrote nothing (no scripts/land)" test ! -e "$T/b-${t:0:6}/scripts/land"
+  check "and wrote nothing (no $LAND_DIR)" test ! -e "$T/b-${t:0:6}/$LAND_DIR"
 done
 consumer u1; expect_exit "without a signers file the install goes ahead and says UNVERIFIED" 0 "$R/install" --source "$O2" --target "$T/u1" v3.0.1; out_has "UNVERIFIED"
-check "the pin says unverified" grep -q '^signature=unverified$' "$T/u1/scripts/land/PIN"
+check "the pin says unverified" grep -q '^signature=unverified$' "$T/u1/$LAND_PIN"
 
 echo "## land-update: verify first, and nothing of a refused release runs"
 bump 3.1.0; rel --push >/dev/null
@@ -52,13 +52,13 @@ touch "$T/pwned"
 SH
 git -C "$R" add -A; git -C "$R" commit -qm "chore: a release whose installer is hostile"; echo 3.1.1 > "$R/VERSION"; ( cd "$R" && bin/land-manifest >/dev/null ); git -C "$R" commit -qam "chore: release 3.1.1"
 git -C "$R" -c gpg.format=ssh -c user.signingkey="$K/rogue" tag -s v3.1.1 -m "hostile" -m "manifest_sha256=$(sha256sum < "$R/MANIFEST.sha256" | cut -d' ' -f1)"; git -C "$R" push -q origin main "refs/tags/v3.1.1"
-pin_before=$(cat "$T/s1/scripts/land/PIN")
-expect_exit "a release signed by an unknown key is refused by the vendored land-update" 1 "$T/s1/scripts/land/bin/land-update" v3.1.1 --root "$T/s1"
+pin_before=$(cat "$T/s1/$LAND_PIN")
+expect_exit "a release signed by an unknown key is refused by the vendored land-update" 1 "$T/s1/$LAND_DIR/bin/land-update" v3.1.1 --root "$T/s1"
 check "its installer never ran" test ! -e "$T/pwned"
-check "the consumer's pin is unchanged" test "$(cat "$T/s1/scripts/land/PIN")" = "$pin_before"
-expect_exit "--diff shows what a good release would change and changes nothing" 0 "$T/s1/scripts/land/bin/land-update" --diff v3.1.0 --root "$T/s1"; out_has "land-update --diff: v3.1.0"; out_has "CHANGELOG entries newer than 3.0.0"
-check "--diff left the pin alone" test "$(cat "$T/s1/scripts/land/PIN")" = "$pin_before"
-expect_exit "a good signed release updates" 0 "$T/s1/scripts/land/bin/land-update" v3.1.0 --root "$T/s1"; out_has "verified: tag v3.1.0"
-check "the pin moved and is verified" bash -c "grep -q '^version=v3.1.0\$' '$T/s1/scripts/land/PIN' && grep -q '^signature=verified\$' '$T/s1/scripts/land/PIN'"
-expect_exit "the updated copy passes the drift check" 0 "$T/s1/scripts/land/bin/land-check" --root "$T/s1"
+check "the consumer's pin is unchanged" test "$(cat "$T/s1/$LAND_PIN")" = "$pin_before"
+expect_exit "--diff shows what a good release would change and changes nothing" 0 "$T/s1/$LAND_DIR/bin/land-update" --diff v3.1.0 --root "$T/s1"; out_has "land-update --diff: v3.1.0"; out_has "CHANGELOG entries newer than 3.0.0"
+check "--diff left the pin alone" test "$(cat "$T/s1/$LAND_PIN")" = "$pin_before"
+expect_exit "a good signed release updates" 0 "$T/s1/$LAND_DIR/bin/land-update" v3.1.0 --root "$T/s1"; out_has "verified: tag v3.1.0"
+check "the pin moved and is verified" bash -c "grep -q '^version=v3.1.0\$' '$T/s1/$LAND_PIN' && grep -q '^signature=verified\$' '$T/s1/$LAND_PIN'"
+expect_exit "the updated copy passes the drift check" 0 "$T/s1/$LAND_DIR/bin/land-check" --root "$T/s1"
 finish
