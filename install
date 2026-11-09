@@ -99,8 +99,34 @@ if [ "$migrate" = 1 ]; then   # the old layout: MOVE the repository's own files 
     sed -i -e "s|$legacy_pat/bin/land-direct|$LAND_DIR/bin/land-direct|g" -e 's|/land/bin/land-direct|/tool/bin/land-direct|g' "$target/$LAND_ENTRY"   # beside itself (the stub's form) or from the root: the tool now sits in ./tool
     chmod +x "$target/$LAND_ENTRY"
   fi
+  # a tracked SYMLINK of the repository's own can point into the old tool folder (vbm-sse tracks scripts/lib-no-crash-record.sh -> land/lib/no-crash-record.sh, relative to the link's own directory).
+  # Removing the old tool folder would leave it dangling, so each such link is repointed, BEFORE the removal, to the same sub-path under $LAND_DIR, written relative to the link's own directory.
+  # A relative path is computed in plain shell (no realpath, no GNU-only option): a link that points anywhere else is left alone.
+  relpath() {   # relpath FROMDIR TODIR: TO target expressed relative to FROM, both absolute and normalized (no ".." left in FROM)
+    local from=$1 to=$2 out= f t
+    local IFS=/
+    set -f; f=($from); t=($to); set +f
+    local n=${#f[@]} i=0; [ "$n" -le "${#t[@]}" ] || { echo "$to"; return; }
+    while [ "$i" -lt "$n" ] && [ "$i" -lt "${#t[@]}" ] && [ "${f[$i]}" = "${t[$i]}" ]; do i=$((i+1)); done
+    local j=$i; while [ "$j" -lt "$n" ]; do out="../$out"; j=$((j+1)); done
+    j=$i; while [ "$j" -lt "${#t[@]}" ]; do out="$out${t[$j]}/"; j=$((j+1)); done
+    out=${out%/}; echo "${out:-.}"
+  }
+  links=
+  tdir=$(cd "$target" && pwd -P)   # absolute, so a resolved link path can be compared with it
+  while read -r l; do   # a tracked symlink (mode 120000) of the repository's own: its target as recorded
+    [ -L "$target/$l" ] || continue
+    tgt=$(git -C "$target" cat-file blob ":$l" 2>/dev/null) || continue
+    case $tgt in /*) res=$tgt;; *) res=/$(dirname "$l")/$tgt;; esac   # resolved against the link's own directory
+    res=$(cd "$tdir$(dirname "$res")" 2>/dev/null && pwd -P)/$(basename "$res") || continue   # absolute and normalized (pwd -P)
+    case $res in "$tdir/$LAND_LEGACY_DIR"/*|"$tdir/$LAND_LEGACY_DIR") ;; *) continue;; esac   # points anywhere else: left alone
+    sub=${res#"$tdir/$LAND_LEGACY_DIR"}; [ -n "$sub" ] || continue
+    newtgt=$(relpath "$tdir/$(dirname "$l")" "$tdir/$LAND_DIR$sub")
+    rm -f "$target/$l"; ln -s "$newtgt" "$target/$l"; links="$links $l -> $newtgt"
+  done < <(git -C "$target" ls-files -s 2>/dev/null | awk '$1 == "120000" { print $4 }')   # the tracked symlinks; awk, not read: the stage field is TAB-separated
   rm -rf "$target/$LAND_LEGACY_DIR"
   [ -n "$moved" ] || moved=" nothing of its own files"
+  [ -z "$links" ] || moved="$moved; repointed$links"
   echo "install: migrated the old layout: moved$moved; removed $LAND_LEGACY_DIR; the entry script now runs the tool in ./tool beside it."
   echo "install: INFORMATION ONLY (nothing was edited for you): the repository's own scripts, docs and Tier 1 must be updated from the old names to the new ones (lib/paths.sh: $LAND_DIR, $LAND_PIN, $LAND_CONF_FILE, $LAND_SIGNERS_FILE, $LAND_HOOKS_DEFAULT, $LAND_ENTRY)."
   # the old names are $LAND_LEGACY_DIR and its siblings in $LAND_LEGACY_HOME (lib/paths.sh, sourced above), so the pattern is built from them, not typed again

@@ -35,6 +35,11 @@ export MY_REPO_SETTING=1
 exec "$(cd "$(dirname "$0")" && pwd)/land/bin/land-direct" "$@"
 ENTRY
   chmod +x "$d/$LAND_LEGACY_ENTRY"
+  # a tracked symlink of the repository's OWN that points into the old tool folder (a relative target, resolved from the link's own directory: scripts/ + land/lib/no-crash-record.sh), and one that
+  # points somewhere else (the repository's own file): the migration repoints the first and leaves the second alone
+  printf '#!/bin/sh\nexit 0\n' > "$d/$LAND_LEGACY_HOME/repo-own.sh"; chmod +x "$d/$LAND_LEGACY_HOME/repo-own.sh"
+  ln -s "${LAND_LEGACY_DIR#"$LAND_LEGACY_HOME"/}/lib/no-crash-record.sh" "$d/$LAND_LEGACY_HOME/lib-no-crash-record.sh"
+  ln -s repo-own.sh "$d/$LAND_LEGACY_HOME/lib-repo-own.sh"
   git -C "$d" add -A; git -C "$d" commit -qm "chore(land): vbm-land v1.0.0 (the old layout)" -m "Task-ID: setup"
 }
 entry_ok() { bash -c "cd '$1' && './$LAND_ENTRY' --version | grep -q 'land-direct'"; }   # run as an agent does: from the repository root
@@ -54,6 +59,10 @@ check "the repository's own settings, signers and hooks are the old content, mov
 check "the old files are gone, and the old tool folder with them" bash -c "cd '$T/m1' && test ! -e '$LAND_LEGACY_DIR' -a ! -e '$LAND_LEGACY_CONF_FILE' -a ! -e '$LAND_LEGACY_SIGNERS_FILE' -a ! -e '$LAND_LEGACY_ENTRY' -a ! -e '$LAND_LEGACY_HOOKS_DEFAULT'"
 check "the entry script keeps its own content, but its exec line runs ./tool/bin/land-direct" bash -c "grep -q 'MY_REPO_SETTING=1' '$T/m1/$LAND_ENTRY' && grep -q '/tool/bin/land-direct' '$T/m1/$LAND_ENTRY' && ! grep -q '/land/bin/land-direct' '$T/m1/$LAND_ENTRY'"
 check "and the migrated entry script really runs the vendored lander" entry_ok "$T/m1"
+check "a tracked symlink into the old tool folder is repointed into the new one, relative to its own directory" bash -c "cd '$T/m1' && [ \"\$(readlink '$LAND_LEGACY_HOME/lib-no-crash-record.sh')\" = '../$LAND_DIR/lib/no-crash-record.sh' ]"
+check "and it resolves to the vendored file, which is there" bash -c "cd '$T/m1' && test -f '$LAND_LEGACY_HOME/lib-no-crash-record.sh'"
+check "a symlink that points somewhere else is left alone, and still resolves" bash -c "cd '$T/m1' && [ \"\$(readlink '$LAND_LEGACY_HOME/lib-repo-own.sh')\" = 'repo-own.sh' ] && test -f '$LAND_LEGACY_HOME/lib-repo-own.sh'"
+check "the printed migration line names the repointed link" grep -qF "repointed $LAND_LEGACY_HOME/lib-no-crash-record.sh -> ../$LAND_DIR/lib/no-crash-record.sh" "$T/out"
 check "the pin is the release's (the old PIN did not survive as the pin)" bash -c "grep -q '^version=v1.0.0\$' '$T/m1/$LAND_PIN' && grep -q \"^commit=\$(git -C '$S' rev-parse 'v1.0.0^{commit}')\$\" '$T/m1/$LAND_PIN' && grep -q '^signature=verified\$' '$T/m1/$LAND_PIN'"
 expect_exit "the migrated copy passes the drift check" 0 "$T/m1/$LAND_DIR/bin/land-check" --root "$T/m1"
 check "in git it is one change: the new files tracked, the old ones and the old tool folder gone" bash -c "cd '$T/m1' && git add -A && git ls-files --error-unmatch '$LAND_CONF_FILE' '$LAND_ENTRY' '$LAND_PIN' '$LAND_SIGNERS_FILE' >/dev/null && ! git ls-files --error-unmatch '$LAND_LEGACY_CONF_FILE' '$LAND_LEGACY_ENTRY' '$LAND_LEGACY_DIR/PIN' >/dev/null 2>&1"

@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.8.1 (PATCH: the migration repoints symlinks into the old tool folder)
+
+The 0.8.0 migration missed tracked symlinks: a consumer that tracks a link into `scripts/land/` (vbm-sse: `scripts/lib-no-crash-record.sh -> land/lib/no-crash-record.sh`) was left with a dangling link once the old folder was removed. `install` now repoints every tracked symlink that resolves inside `scripts/land/` to the same sub-path under `.land/tool/` (relative to the link's own directory, e.g. `../.land/tool/lib/no-crash-record.sh`) before removing the old folder, names it in the migration's summary line, and leaves a link that points anywhere else alone.
+
 ## 0.8.0 (MAJOR: everything the tool owns in a consumer is one folder, .land/)
 
 A consumer on 0.7.x updates with `scripts/land/bin/land-update v0.8.0`: the first update migrates it (it moves `land.conf`, `land.signers`, `land.d` and the entry script into `.land/`, removes `scripts/land/`, and prints the consumer's own references to the old names for it to fix). The entry script is now `.land/land-direct`; the move is one `chore(land)` commit, and a repository's own scripts, docs, protected set and Tier 1 must be renamed by hand (the update only lists them).
