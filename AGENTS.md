@@ -27,7 +27,7 @@ A consumer repository keeps everything the lander owns in **one folder, `.land/`
 ## Landing here
 
 - Land with `scripts/land-direct` (a wrapper: `exec bin/land-direct "$@"`). Never push `main` yourself, never force-push it, never open a PR. The repository's own policy text is `templates/AGENTS-block.md`.
-- The payload is what a consumer vendors, and it is published byte for byte: `bin/land-check`, `bin/land-direct`, `bin/land-update`, `bin/no-build-guard`, `bin/no-crash-record`, `bin/run-probe`, all of `lib/`, `VERSION`, every file in `templates/` and every `skills/*/SKILL.md`, plus `docs/packages.md`, `docs/crash-probes.md`, `docs/no-build-host.md` — 35 files, the exact list `MANIFEST.sha256` records.
+- The payload is what a consumer vendors, and it is published byte for byte: `bin/land-check`, `bin/land-direct`, `bin/land-update`, `bin/no-build-guard`, `bin/no-crash-record`, `bin/run-probe`, all of `lib/`, `VERSION`, every file in `templates/` and every `skills/*/SKILL.md`, plus `docs/crash-probes.md`, `docs/no-build-host.md` — 28 files, the exact list `MANIFEST.sha256` records.
 - `bin/land-manifest`, `bin/land-release` and `bin/land-audit` are source-repository only (not vendored); `bin/land-release` is the maintainer's.
 - Never edit `MANIFEST.sha256` by hand: `bin/land-manifest` rewrites it and `bin/land-manifest --check` fails on a stale one.
 - Tier 1 is `tests/run.sh`: `tests/lint.sh`, then every `tests/test_*.sh` in its own scratch sandbox, in parallel. A test script must print `ran: NAME: N cases` with N > 0 and no `SKIPPED` line or the run counts as failed.
@@ -42,6 +42,6 @@ A consumer repository keeps everything the lander owns in **one folder, `.land/`
 
 - `bin/` the published tools; `lib/` their shared shell libraries (`lib/conf.sh` documents every `land.conf` key).
 - `templates/` what a consumer copies: `AGENTS-block.md`, `PUBLIC-REPO-SETTINGS.md`, `land.conf.example`, `land-direct-stub`, `run-scoped.sh`, `ruleset-protect-main.json`, `ruleset-protect-release-tags.json`, `vbm-land-revert.yml`, `vbm-land-update.yml` — all ten.
-- `docs/` design notes: `signing.md`, `packages.md`, `freeze-source.md`, `flip-record.md`, `no-build-host.md`, `crash-probes.md`, `ran-evidence.md`, `gate-mechanism-acceptance.md`.
+- `docs/` design notes: `signing.md`, `freeze-source.md`, `flip-record.md`, `no-build-host.md`, `crash-probes.md`, `ran-evidence.md`, `gate-mechanism-acceptance.md`.
 - `skills/` the seven agent skills that ship to a consumer: `adopt-in-existing-repo`, `hold-and-freeze`, `land-a-change`, `new-repo`, `release`, `triage-red`, `update-vbm-land`.
 - `scripts/` this repository's own `land-direct` wrapper, its `land.conf`, its signers file (`land.signers`) and `bootstrap-land`.

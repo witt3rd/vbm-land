@@ -131,7 +131,7 @@ Measure the same three numbers in every repository:
 | `bin/land-direct` | The lander: the configurable core of section 4.3. Hold and freeze markers, a run directory of its own per run, land-time checks, rebase in a scratch worktree, regeneration of generated files, hooks, Tier 1 on the rebased combination, bounded retries, plain fast-forward push, an exit code that says what to do next, a JSON last line, a metrics log. |
 | `bin/run-probe`, `bin/no-crash-record`, `lib/no-crash-record.sh` | Crash-probe hygiene: deliberate-crash probes run in a private TMPDIR with `ulimit -c 0` plus the dumpable-clear preload (a probe launched otherwise is refused); the landing's no-crash-record check reads only crashes of its own process tree, session, scope or private directories. |
 | `bin/no-build-guard`, `lib/no-build-host.sh`, `templates/run-scoped.sh` | The heavy-host guard (`docs/no-build-host.md`): a host that carries a no-build marker (`/etc/vbm/no-build-host` or `<config dir>/vbm/no-build-host`) makes the helpers refuse (exit 2, nothing started; no override); `--lint` is the Tier 1 check that every declared long runner goes through a helper. |
-| `lib/` | `conf.sh` (the configuration reader), `freeze.sh`, `no-build-host.sh`, `no-crash-record.sh`, `pkg.sh` (a vendored package), `source.sh` (the pinned source). |
+| `lib/` | `conf.sh` (the configuration reader), `freeze.sh`, `no-build-host.sh`, `no-crash-record.sh`, `source.sh` (the pinned source). |
 | `install`, `bin/land-check`, `bin/land-update`, `bin/land-audit`, `bin/land-manifest`, `MANIFEST.sha256` | Pinned vendoring (6.6): the installer, the drift check, the updater, the audit across repositories, and the manifest of every file a consumer vendors. |
 | `skills/` | Agent skills (`SKILL.md`): new-repo, land-a-change, triage-red, update-vbm-land, hold-and-freeze, adopt-in-existing-repo, release. A consumer gets them in `.agents/skills/` (installed and updated with the tool, drift-checked like it). |
 | `templates/` | A starter `land.conf` with examples for four ecosystems, the agent-instructions block, the branch and tag rulesets, and the public-repository settings checklist. |
@@ -237,8 +237,6 @@ Before writing anything the installer checks every file it fetched against the m
 - `scripts/land/bin/land-check --upstream` (by hand) also fetches the manifest at the **pinned commit** from the source and requires it to match, so a forged pin and tree edited together fail; it prints when a newer release exists (advice, never a failure) and exits 3 when the source cannot be reached (not verified).
 - `scripts/land/bin/land-update <tag|commit>` replaces the tree and the pin with another release and verifies it; it commits nothing.
 - `bin/land-audit DIR...`, run from this repository, prints for each repository its pin, whether it is intact, and how far behind it is: the rollout table, from the repositories themselves.
-
-**Packages.** The same flow vendors another signed package (the first: the gate set) into `scripts/NAME/`: `scripts/land/bin/land-update --pkg NAME --source SRC --signers FILE <tag>`, its own `PIN` and `MANIFEST.sha256`, its own signers file, a drift check (`land-check` covers every pinned package) and a `scripts/NAME.conf` that accepts known keys only. Nothing is overridden. [docs/packages.md](docs/packages.md).
 
 A repository takes the next release itself, with `land-update` (see Updating).
 

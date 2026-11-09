@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## Unreleased
+
+**Removed:** the package mechanism (`land-update --pkg`, `--source`, `--signers`, `lib/pkg.sh`, `docs/packages.md`, `land-check --pkg` and the per-package checks) is gone: nothing used it. `land-check` and `land-update` act on this tool's own pin only.
+
 ## 0.7.1 (PATCH: the agent-instructions block carries the family's principles)
 
 The agent-instructions block (`templates/AGENTS-block.md`) carries the family's principles (everything runs before the push; proofs, not tests; nothing added to the process without deleting something; the worker owns its change). Additive; no interface change.
