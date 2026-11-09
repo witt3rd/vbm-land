@@ -24,9 +24,15 @@ refused "an unknown key refuses (a typo must not turn a gate off)" 2 "$T/c1"; ou
 set_conf '# no tier 1 at all' 'LAND_BASE=main'
 worker c2; commit "$T/c2" x.txt 1
 refused "a config without any Tier 1 command refuses" 2 "$T/c2"; out_has "no Tier 1"
-set_conf 'LAND_TEST_CMD=true' 'LAND_RED_MODE=sometimes' 'LAND_CI_WORKFLOW=ci.yml' 'LAND_TIER1_JOB=tier1' 'LAND_RED_WAIT=x' 'LAND_KNOWN_FLAKY=f' 'LAND_FLAKY_RERUN_WAIT=1' 'LAND_TIER2_JOB=t2'
-worker c3; commit "$T/c3" c3.txt 1
-lands "the retired CI keys of an old $(basename "$LAND_CONF_FILE") still load (whatever their value): ignored, named once" "$T/c3"; out_has "note: LAND_CI_WORKFLOW LAND_TIER1_JOB LAND_RED_MODE LAND_RED_WAIT LAND_KNOWN_FLAKY LAND_FLAKY_RERUN_WAIT LAND_TIER2_JOB ignored"
+# a key this tool has retired is not a key: an old config naming one is refused as unknown, by file and line, and nothing lands
+for key in LAND_LOCK_WAIT LAND_CI_WORKFLOW LAND_TIER1_JOB LAND_RED_MODE LAND_RED_WAIT LAND_KNOWN_FLAKY LAND_FLAKY_RERUN_WAIT LAND_TIER2_JOB LAND_APPROVALS \
+           LAND_APPROVAL_DAYS LAND_PROTECTED_LIST LAND_PROTECTED_APPROVALS LAND_GATE_APPEND_ONLY LAND_PROD_PATHS LAND_BUDGET_LINES; do
+  set_conf 'LAND_TEST_CMD=true' "$key=x"
+  worker "c3-$key"; commit "$T/c3-$key" c3.txt 1
+  refused "the retired key $key is refused as unknown (not read and ignored)" 2 "$T/c3-$key"; out_has "unknown key $key"
+  check "the refusal names the file it was read from and the line" grep -qF "origin/main:$LAND_CONF_FILE:2: unknown key $key" "$T/out"
+done
+set_conf 'LAND_TEST_CMD=true'
 set_conf 'LAND_TEST_CMD=true' 'LAND_REGEN_CMD=$(touch /tmp/vbm-land-injected)'   # data, never evaluated at read time (and a regeneration command only runs after a conflict)
 worker c4; commit "$T/c4" x.txt 1
 ( cd "$T/c4" && "$L" >"$T/out" 2>&1 ) || true; check "reading the config executes nothing" test ! -e /tmp/vbm-land-injected; rm -f /tmp/vbm-land-injected
@@ -65,17 +71,14 @@ worker k2; echo 1 > "$T/k2/x.txt"; git -C "$T/k2" add x.txt; git -C "$T/k2" comm
 refused "a missing required trailer refuses" 1 "$T/k2"; out_has "no 'Task-ID:' trailer"
 worker k3; commit "$T/k3" r.txt 1 'Revert "feat: something"'
 lands "git's own Revert \"...\" subject is accepted (no divergence between the subject check and the red rule)" "$T/k3"
-set_conf 'LAND_TEST_CMD=true' 'LAND_PROD_PATHS=src' 'LAND_BUDGET_LINES=5'
-worker k4; mkdir -p "$T/k4/src"; seq 1 20 > "$T/k4/src/big.txt"; git -C "$T/k4" add src; git -C "$T/k4" commit -qm "feat: big" -m "Task-ID: t"
-lands "over the size budget prints the number and lands (a number, never a refusal)" "$T/k4"
 echo "## a signing keys file that exists changes only by its owner"
 set_conf 'LAND_TEST_CMD=true'; seed_push scripts/x.signers "k1"
 worker sg1; echo k2 > "$T/sg1/scripts/x.signers"; git -C "$T/sg1" add -A; git -C "$T/sg1" commit -qm "feat: swap the signing key" -m "Task-ID: t"
 refused "an existing signing keys file changed by an agent is refused" 12 "$T/sg1"
 worker sg2; echo k > "$T/sg2/scripts/new.signers"; git -C "$T/sg2" add -A; git -C "$T/sg2" commit -qm "feat: a first signers file" -m "Task-ID: t"
 lands "a first signing keys file (an install) lands" "$T/sg2"
-worker k5; mkdir -p "$T/k5/other"; seq 1 20 > "$T/k5/other/big.txt"; git -C "$T/k5" add other; git -C "$T/k5" commit -qm "feat: big elsewhere" -m "Task-ID: t"
-lands "paths outside LAND_PROD_PATHS are not counted" "$T/k5"
+worker k5; mkdir -p "$T/k5/src"; seq 1 200 > "$T/k5/src/big.txt"; git -C "$T/k5" add src; git -C "$T/k5" commit -qm "feat: big" -m "Task-ID: t"
+lands "there is no size budget to be over (its keys are retired): a change of 200 lines lands" "$T/k5"
 
 echo "## Tier 1"
 set_conf 'LAND_GATES_CMD=echo gate-ran; test ! -e GATE_BAD' 'LAND_TEST_CMD=echo test-ran; test ! -e TEST_BAD'
@@ -179,16 +182,16 @@ worker h2; commit "$T/h2" h2.txt 1
 expect_exit "--freeze needs an owner and an expiry" 2 bash -c "cd '$T/h2' && '$L' --freeze 'broken' "
 ( cd "$T/h2" && "$L" --freeze "tier 2 broke" --owner alice --for 1h ) >"$T/out" 2>&1; out_has "FROZEN until"
 refused "a frozen base refuses an ordinary change" 14 "$T/h2"; out_has "frozen"
-set_conf 'LAND_TEST_CMD=true' 'LAND_FIX_PATHS=tests/* .github/*' 'LAND_PROTECTED=bin/* lib/*'
+set_conf 'LAND_TEST_CMD=true' 'LAND_PROTECTED=bin/* lib/*'
 worker h3; commit "$T/h3" tests/t.sh 1 "fix(tests): repair"; ( cd "$T/h3" && "$L" --freeze "tier 2 broke" --owner alice --for 1h ) >/dev/null
-lands "a fix touching only test paths lands on a frozen base" "$T/h3"; out_has "frozen; this change is a fix"
+lands "a fix lands on a frozen base" "$T/h3"; out_has "frozen; this change is a fix"
 check "landing the fix does not lift a person's freeze" test -e "$T/h3/.git/vbm-land/freeze"
 worker h4; commit "$T/h4" h4.txt 1
 ( cd "$T/h4" && "$L" --freeze "again" --owner bob --for 1s ) >/dev/null; sleep 2
 lands "an expired freeze is not in force" "$T/h4"
 ( cd "$T/h2" && "$L" --freeze "again" --owner bob --for 1h && "$L" --thaw ) >/dev/null 2>&1; check "--thaw clears it" test ! -e "$T/h2/.git/vbm-land/freeze"
 
-echo "## a red main does not stop landing; a freeze does, but for a fix or a true revert"
+echo "## a red main does not stop landing; a freeze does, but for a fix or a revert (recognised by the commit subject alone)"
 gh_mode red; : > "$T/gh/calls.log"
 worker r1; commit "$T/r1" r1.txt 1
 lands "a red main (CI says its Tier 1 failed) does not refuse an ordinary change" "$T/r1"
@@ -196,19 +199,28 @@ check "and the lander asked nobody (no gh call per landing)" test ! -s "$T/gh/ca
 gh_mode fail; worker r2; commit "$T/r2" r2.txt 1
 lands "a CI that cannot be read changes nothing either" "$T/r2"
 freeze_in() { ( cd "$T/$1" && "$L" --freeze "operator's freeze" --owner operator --for 1h ) >/dev/null; }   # each worker is a clone of its own, with its own markers
-worker r3; commit "$T/r3" other/code.txt 1 "fix(tests): sneaky"; freeze_in r3
-refused "a fix(tests) subject touching non-test paths is not a fix: the freeze refuses it" 14 "$T/r3"
-worker r4; commit "$T/r4" lib/x.sh 1 "fix(ci): touches the protected set"; freeze_in r4
-refused "a fix touching the protected set is not a fix" 14 "$T/r4"
+worker r3; commit "$T/r3" other/code.txt 1 "fix(unrelated): the subject alone decides, no scope list"; freeze_in r3
+lands "a fix(<scope>) subject lands whatever paths it touches (a fix is recognised by its subject, not its paths)" "$T/r3"; out_has "frozen; this change is a fix"
+worker r4; commit "$T/r4" lib/x.sh 1 "fix(ci): a scope list is not required"; freeze_in r4
+lands "any scope counts (fix(ci):), not just ci and tests" "$T/r4"; out_has "frozen; this change is a fix"
+worker r9; commit "$T/r9" tests/plain.sh 1 "fix: no scope at all"; freeze_in r9
+lands "a bare fix: subject (no scope) lands on a frozen main" "$T/r9"; out_has "frozen; this change is a fix"
 worker r5; commit "$T/r5" tests/new.sh 1 "fix(tests): real fix"; freeze_in r5
-lands "a fix touching only test paths lands on a frozen main" "$T/r5"; out_has "frozen; this change is a fix"
+lands "a fix lands on a frozen main" "$T/r5"; out_has "frozen; this change is a fix"
+worker r3b; commit "$T/r3b" tests/x.sh 1 "feat(tests): not a fix, whatever it touches"; freeze_in r3b
+refused "a change touching only test paths is not a fix without a fix subject: the freeze refuses it" 14 "$T/r3b"
 worker r6; commit "$T/r6" r6.txt 1; freeze_in r6
 lands "LAND_FIX_FOR_RED=1 is the operator's override of a freeze" "$T/r6" LAND_FIX_FOR_RED=1
-worker r7; sha=$(git -C "$T/r7" rev-parse HEAD); freeze_in r7
-( cd "$T/r7" && git revert --no-edit "$sha" >/dev/null 2>&1 && git commit -q --amend -m "Revert \"x\"" -m "This reverts commit $sha." -m "Task-ID: t" )
-lands "a true revert (names a commit of main, touches only its files) lands on a frozen main" "$T/r7"
-worker r8; commit "$T/r8" lib/y.sh 1 'Revert "feat: pretend"'; freeze_in r8
-refused "a Revert subject that names no commit of main is not a revert" 14 "$T/r8"
+worker r7; freeze_in r7
+( cd "$T/r7" && git revert --no-edit HEAD >/dev/null 2>&1 && git commit -q --amend -m "Revert \"x\"" -m "This reverts commit sha." -m "Task-ID: t" )
+lands "a Revert subject lands on a frozen main" "$T/r7"
+worker r7b; freeze_in r7b
+( cd "$T/r7b" && git commit -q --allow-empty -m "revert: lower case" -m "Task-ID: t" )
+lands "a subject starting revert (lower case) lands too" "$T/r7b"
+worker r8; commit "$T/r8" lib/y.sh 1 'test: a conventional subject that is not a fix'; freeze_in r8
+refused "a conventional subject that is not fix:/Revert/revert is not a fix" 14 "$T/r8"
+worker r8b; commit "$T/r8b" lib/z.sh 1 'chore(land): a scoped non-fix'; freeze_in r8b
+refused "a scope alone does not make a fix (chore(<scope>): is refused)" 14 "$T/r8b"
 set_conf 'LAND_TEST_CMD=true'
 
 echo "## inherited red: a landing must not ADD a failure; one already on main is not its fault"
@@ -285,7 +297,7 @@ check "the next run sweeps a dead run's old directory" test ! -e "$v/run.$gone.o
 check "it keeps a young directory, a live pid's and a name without a pid" bash -c "[ -d '$v/run.$gone.new' ] && [ -d '$v/run.$alive.old' ] && [ -d '$v/run.junk.old' ]"
 check "it never follows a symlink out of the clone" bash -c "[ -L '$v/run.$gone.link' ] && [ -e '$T/precious/f' ]"
 set_conf 'LAND_TEST_CMD=true'
-echo "## no lock: a stale lock file means nothing, runs in one clone race and both land, the old lock settings are named once and ignored"
+echo "## no lock: a stale lock file means nothing, runs in one clone race and both land, the retired lock settings are refused as an unknown key"
 worker b1; commit "$T/b1" b.txt 1; v=$T/b1/.git/vbm-land; mkdir -p "$v"
 ( exec 8>"$v/lock"; flock 8; sleep 20 ) & holder=$!   # a lock file somebody holds, and a lease that looks like a live, silent holder: the lander must not look at either
 printf 'pid=%s start=1 task=t at=1\n' "$holder" > "$v/lease"; touch -d '2 hours ago' "$v/lease"; sleep 0.3
@@ -293,10 +305,12 @@ lands "a held lock file and a lease that looks live change nothing: it lands" "$
 check "and nothing terminated the holder" kill -0 "$holder"
 kill "$holder" 2>/dev/null || true; wait "$holder" 2>/dev/null || true
 worker b2; commit "$T/b2" b2.txt 1
-lands "the old lock settings of the environment are ignored" "$T/b2" LAND_LOCK_WAIT_SECONDS=1 LAND_LEASE_STALE_SECONDS=1; out_has "LAND_LOCK_WAIT_SECONDS LAND_LEASE_STALE_SECONDS ignored"
+lands "the retired lock environment names are not policy: set, they change nothing (a policy key is never read from the environment)" "$T/b2" LAND_LOCK_WAIT_SECONDS=1 LAND_LEASE_STALE_SECONDS=1
+check "and nothing was named as ignored (there is no shim left to name it)" bash -c "! grep -qi 'ignored' '$T/out'"
 set_conf 'LAND_TEST_CMD=true' 'LAND_LOCK_WAIT=30'
 worker b3; commit "$T/b3" b3.txt 1
-lands "a $(basename "$LAND_CONF_FILE") that still has LAND_LOCK_WAIT loads: ignored, named once" "$T/b3"; out_has "note: LAND_LOCK_WAIT ignored"
+refused "a $(basename "$LAND_CONF_FILE") that still has LAND_LOCK_WAIT is refused as an unknown key" 2 "$T/b3"; out_has "unknown key LAND_LOCK_WAIT"
+set_conf 'LAND_TEST_CMD=true'
 worker p1; git -C "$T/p1" worktree add -q "$T/p2" -b p2 origin/main; git -C "$T/p2" config commit.gpgsign false; commit "$T/p1" p1.txt 1; commit "$T/p2" p2.txt 2   # two worktrees of ONE clone share its .git
 set_conf 'LAND_TEST_CMD=echo "$LAND_RUN_DIR" >> '"$T/race-runs.txt"'; sleep 1'
 ( cd "$T/p1" && "$L" >"$T/p1.out" 2>&1 ) & q1=$!; ( cd "$T/p2" && "$L" >"$T/p2.out" 2>&1 ) & q2=$!
@@ -320,10 +334,8 @@ check "and it was not retried (one fetch, not eight)" test "$(wc -l < "$T/shim/l
 set_conf 'LAND_TEST_CMD=true'
 
 echo "## --group (a batch coordinator's entries)"
-set_conf 'LAND_TEST_CMD=true' 'LAND_PROD_PATHS=src' 'LAND_BUDGET_LINES=3'
 worker gp1; mkdir -p "$T/gp1/src"; seq 1 40 > "$T/gp1/src/f"; git -C "$T/gp1" add src; git -C "$T/gp1" commit -qm "feat: big entry" -m "Task-ID: t"
-lands "over the budget lands too, with or without --group" "$T/gp1"
-set_conf 'LAND_TEST_CMD=true'
+lands "a big entry lands, with --group the same as without it (no budget to waive)" "$T/gp1"
 
 echo "## never force, never prune"
 check "no force push in the lander" bash -c "! grep -nE -- '--force|push +-f|push[^#]*\\+(refs|\\\$)' '$L' | grep -v 'no force\\|never'"

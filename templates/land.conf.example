@@ -14,6 +14,5 @@ LAND_TEST_CMD=true
 
 # Commit rules and the gate-defining set: everything the tool owns in this repository is in .land/, and .land/ is what to protect.
 #LAND_PROTECTED=.land/land.conf .land/land.d/* .land/land-direct
-#LAND_FIX_PATHS=tests/* .github/*
 # A whole folder in one entry, if you want it off limits to agents: LAND_PROTECTED=.land/* (the install --signers FILE copy of land.signers
 # is not a signers-file change; after it, a change to .land/land.signers needs LAND_OWNER=1)

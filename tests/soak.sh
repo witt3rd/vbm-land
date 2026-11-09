@@ -2,9 +2,8 @@
 # SOAK of the lock-free lander (docs/gate-mechanism-acceptance.md). Run by hand, on a machine with room, never from Tier 1: tests/soak.sh [N] (default 20).
 # In a scratch world (a bare remote, ONE clone with many worktrees: the way agents share a clone) N worktrees each land one commit through the REAL bin/land-direct, all at the same
 # instant, with a stub Tier 1 of 10-20 s (a repeat attempt re-checks for 1 s: what a repository's delta selection does with LAND_ATTEMPT), plus 4 landing the same hot file and one lander
-# that is killed (kill -9) in the middle of its validation. Then, apart, a race for one real approval. PASS = N exit 0, none "busy", the remote's history is base + N + 1 linear, every
-# file present (no lost update), exactly one of the hot four landed and the others got exit 11, the killed lander disturbed nobody and no lock file exists anywhere, and the approval race
-# landed the approved edit exactly once while an unapproved edit was refused (12). Knobs: SOAK_T1_MIN, SOAK_T1_MAX (seconds), SOAK_FULL_RERUN=1 (every attempt pays the full stub Tier 1), SOAK_ATTEMPTS (LAND_ATTEMPTS of the world; default: the tool's).
+# that is killed (kill -9) in the middle of its validation. PASS = N exit 0, none "busy", the remote's history is base + N + 1 linear, every
+# file present (no lost update), exactly one of the hot four landed and the others got exit 11, the killed lander disturbed nobody and no lock file exists anywhere. Knobs: SOAK_T1_MIN, SOAK_T1_MAX (seconds), SOAK_FULL_RERUN=1 (every attempt pays the full stub Tier 1), SOAK_ATTEMPTS (LAND_ATTEMPTS of the world; default: the tool's).
 . "$(dirname "$0")/lib.sh"
 N=${1:-20}; T1MIN=${SOAK_T1_MIN:-10}; T1MAX=${SOAK_T1_MAX:-20}; L=$ROOT/bin/land-direct; HOT=4
 sandbox
@@ -37,21 +36,4 @@ check "the hot file on main is the winner's, nothing of the losers" bash -c "[ \
 check "the killed lander's change is not on main and it disturbed nobody" bash -c "! git -C '$T/remote.git' cat-file -e main:victim.txt"
 check "no lock or lease file anywhere in the clone" bash -c "[ -z \"\$(find '$T/clone/.git' \\( -name 'lock' -o -name 'lease*' \\) 2>/dev/null)\" ]"
 if command -v jq >/dev/null; then v "attempts per landing (metrics): $(jq -s -c '[.[] | select(.result=="landed") | .attempts] | {n: length, max: max, mean: (add / length)}' "$T/clone/.git/vbm-land/metrics.jsonl")"; fi
-# ---- a race for one real approval: base holds ONE approval record for one edit of an append-only file
-sandbox
-AP=scripts/gate-edit-approvals.txt
-set_conf 'LAND_TEST_CMD=sleep 3' 'LAND_GATE_APPEND_ONLY=gate.sh'; seed_push gate.sh $'a\nb\nc\nd\ne'
-git clone -q "$T/remote.git" "$T/clone"; git -C "$T/clone" config commit.gpgsign false
-wt() { git -C "$T/clone" worktree add -q "$T/$1" -b "$1" origin/main; git -C "$T/$1" config commit.gpgsign false; }
-drop_b() { sed -i 2d "$T/$1/gate.sh"; [ "${2:-}" != consume ] || : > "$T/$1/$AP"; git -C "$T/$1" add -A; git -C "$T/$1" commit -qm "feat: drop line b ($1)" -m "Task-ID: t"; }
-wt hh; drop_b hh; h=$(cd "$T/hh" && "$L" --print-gate-diff-hash gate.sh 2>/dev/null)
-seed_push $AP "gate.sh | $h | soak: the one approval | $(date -u +%F)"; git -C "$T/clone" fetch -q origin
-wt a1; drop_b a1 consume; echo 1 > "$T/a1/x1.txt"; git -C "$T/a1" add -A; git -C "$T/a1" commit -qm "feat: x1" -m "Task-ID: t"
-wt a2; drop_b a2 consume; echo 2 > "$T/a2/x2.txt"; git -C "$T/a2" add -A; git -C "$T/a2" commit -qm "feat: x2" -m "Task-ID: t"
-wt un; sed -i 5d "$T/un/gate.sh"; git -C "$T/un" add -A; git -C "$T/un" commit -qm "feat: drop line e, no approval" -m "Task-ID: t"
-go a1; go a2; go un; rc_of "${pid[a1]}"; ra1=$RC; rc_of "${pid[a2]}"; ra2=$RC; rc_of "${pid[un]}"; run=$RC
-v "approval race: two landers of the approved edit exit $ra1 and $ra2, the unapproved edit exits $run"
-check "both landers of the approved edit end with exit 0 (the first consumed the approval; the second no longer carries a gate edit once rebased)" bash -c "[ $ra1 = 0 ] && [ $ra2 = 0 ]"
-check "the approved edit is on main exactly once and the record is consumed" bash -c "[ \"\$(git -C '$T/remote.git' show main:gate.sh | tr '\n' ' ')\" = 'a c d e ' ] && ! git -C '$T/remote.git' show main:$AP | grep -q gate.sh"
-check "the unapproved edit was refused (12) and nothing of it reached main" bash -c "[ $run = 12 ] && [ \"\$(git -C '$T/remote.git' show main:gate.sh | wc -l)\" = 4 ] && git -C '$T/remote.git' cat-file -e main:x1.txt && git -C '$T/remote.git' cat-file -e main:x2.txt"
 finish

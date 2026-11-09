@@ -107,15 +107,15 @@ cp -a "$T/c1" "$T/d5"; sed -i 's/^version=.*/version=v1.1.0-dev/' "$T/d5/$LAND_P
 expect_exit "a pre-release pin is behind its own release" 1 upd "$T/d5"; out_has "behind 4 releases"
 before=$(git -C "$T/c1" status --porcelain | sort | md5sum); upd "$T/c1" >/dev/null 2>&1 || true
 check "--check changes nothing in the repository" test "$(git -C "$T/c1" status --porcelain | sort | md5sum)" = "$before"
-GITHUB_ACTIONS=true GITHUB_STEP_SUMMARY=$T/summary expect_exit "under Actions it annotates and writes the summary line" 1 upd "$T/c1"; out_has "::warning title=vbm-land update available::"
-check "the summary line was written" grep -q "behind 3 releases (major)" "$T/summary"
+GITHUB_ACTIONS=true GITHUB_STEP_SUMMARY=$T/summary expect_exit "under GitHub Actions it writes no annotation and no step summary (no CI reads the check)" 1 upd "$T/c1"; out_has "behind 3 releases (major)"
+check "no workflow command was printed" bash -c "! grep -q '::warning' '$T/out'"; check "and no step summary was written" test ! -e "$T/summary"
 expect_exit "an unreachable source is exit 3, never 'up to date'" 3 upd "$T/d2"; out_has "NOT verified up to date"
 rm -rf "$T/d"; mkdir -p "$T/d"; expect_exit "a repository without a pin is exit 2" 2 "$T/c1/$LAND_DIR/bin/land-update" --check --root "$T/d"
 "$S/install" --source "$S" --target "$T/c1" v1.1.0 >/dev/null
 
 echo "## land-update --land: the whole update through the repository's own lander"
 consumer lu1; "$S/install" --source "$S" --target "$T/lu1" v1.0.0 >/dev/null
-printf 'LAND_TEST_CMD=true\nLAND_RED_MODE=off\nLAND_REQUIRE_TRAILERS=Task-ID\n' > "$T/lu1/$LAND_CONF_FILE"
+printf 'LAND_TEST_CMD=true\n' > "$T/lu1/$LAND_CONF_FILE"
 git -C "$T/lu1" add -A; git -C "$T/lu1" commit -qm "chore(land): vbm-land v1.0.0" -m "Task-ID: setup"; ( cd "$T/lu1" && $LAND_ENTRY >/dev/null 2>&1 )
 check "setup: the consumer landed its first copy" bash -c "git -C '$T/remote.git' show main:$LAND_PIN | grep -q '^version=v1.0.0\$'"
 git -C "$T/lu1" fetch -q origin; git -C "$T/lu1" checkout -q -B main origin/main
@@ -126,36 +126,23 @@ check "main did not move" test "$(remote_head)" = "$before"
 check "the update commit stays local to look at" bash -c "git -C '$T/lu1' log -1 --format=%s | grep -q '^chore(land): vbm-land v1.1.0\$'"
 ( cd "$T/lu1" && $LAND_ENTRY --release >/dev/null ); git -C "$T/lu1" reset -q --hard origin/main
 expect_exit "--land verifies, commits, and lands through the repository's own lander" 0 "$T/lu1/$LAND_DIR/bin/land-update" --land v1.1.0 --root "$T/lu1"; out_has "pristine clone"; out_has '"result":"landed"'
-check "main pins v1.1.0, in one commit carrying the required trailer" bash -c "git -C '$T/remote.git' show main:$LAND_PIN | grep -q '^version=v1.1.0\$' && git -C '$T/remote.git' log -1 --format=%B main | grep -q '^Task-ID: vbm-land-update-v1.1.0\$'"
+check "main pins v1.1.0, in one commit carrying the required trailer" bash -c "git -C '$T/remote.git' show main:$LAND_PIN | grep -q '^version=v1.1.0\$' && git -C '$T/remote.git' log -1 --format=%B main | grep -qx 'chore(land): vbm-land v1.1.0' && ! git -C '$T/remote.git' log -1 --format=%B main | grep -q '^Task-ID: vbm-land-update-v1.1.0\$'"
 check "no temporary clone is left behind (in this test's own tmp dir, never the machine's)" bash -c "[ '$TMPDIR' = '$T/tmp' ] && ! ls '$TMPDIR'/land-update.* 2>/dev/null | grep -q ."
 
-echo "## land-update --auto: LAND_AUTO_UPDATE decides what may update itself"
-mk_auto() {   # mk_auto NAME POLICY FROM-TAG: a consumer (with a remote of its own) that landed FROM-TAG with LAND_AUTO_UPDATE=POLICY
-  local n=$1; rm -rf "$T/$n" "$T/$n.git"; git init -q --bare -b main "$T/$n.git"; git clone -q "$T/$n.git" "$T/$n" 2>/dev/null; git -C "$T/$n" config commit.gpgsign false
-  git -C "$T/$n" commit -q --allow-empty -m "chore: init"; git -C "$T/$n" push -q origin main; "$S/install" --source "$S" --target "$T/$n" "$3" >/dev/null
-  printf 'LAND_TEST_CMD=true\nLAND_RED_MODE=off\nLAND_AUTO_UPDATE=%s\n' "$2" > "$T/$n/$LAND_CONF_FILE"
-  git -C "$T/$n" add -A; git -C "$T/$n" commit -qm "chore(land): vbm-land $3"; ( cd "$T/$n" && $LAND_ENTRY >/dev/null 2>&1 ) || true; git -C "$T/$n" fetch -q origin; git -C "$T/$n" checkout -q -B main origin/main
-}
-auto() { "$T/$1/$LAND_DIR/bin/land-update" --auto --root "$T/$1"; }
-pinof() { git -C "$T/$1.git" show main:$LAND_PIN | sed -n 's/^version=//p'; }
-mk_auto au0 none v1.1.0; before=$(git -C "$T/au0.git" rev-parse main)
-expect_exit "policy none only reports" 1 auto au0; out_has "reporting only"; check "and lands nothing" test "$(git -C "$T/au0.git" rev-parse main)" = "$before"
-mk_auto au1 patch v1.1.0
-expect_exit "policy patch takes the newest patch release (v1.1.1), not the minor or the major" 0 auto au1; out_has "updating to v1.1.1"
-check "main pins v1.1.1" test "$(pinof au1)" = v1.1.1
-mk_auto au2 minor v1.1.1
-expect_exit "policy minor takes the newest release of the same major (v1.2.0), never the major" 0 auto au2; out_has "updating to v1.2.0"
-check "main pins v1.2.0" test "$(pinof au2)" = v1.2.0
-mk_auto au3 minor v1.2.0; before=$(git -C "$T/au3.git" rev-parse main)
-expect_exit "a major release is never automatic: only reported" 1 auto au3; out_has "a major waits for a person"
-check "and lands nothing" test "$(git -C "$T/au3.git" rev-parse main)" = "$before"
-mk_auto au4 minor v2.0.0
-expect_exit "up to date: nothing to do" 0 auto au4; out_has "up to date"
-mk_auto au5 sometimes v1.1.0; check "the lander itself refuses a config with a bad LAND_AUTO_UPDATE (nothing was landed)" test ! -e "$T/au5/$LAND_DIR"
-mk_auto au5 none v1.1.0; sed -i 's/^LAND_AUTO_UPDATE=.*/LAND_AUTO_UPDATE=sometimes/' "$T/au5/$LAND_CONF_FILE"; git -C "$T/au5" commit -qam "chore: bad policy"; ( cd "$T/au5" && $LAND_ENTRY >/dev/null 2>&1 ) || true; before=$(git -C "$T/au5.git" rev-parse main)
-expect_exit "a bad LAND_AUTO_UPDATE value that reached main never updates" 1 auto au5; check "and lands nothing" test "$(git -C "$T/au5.git" rev-parse main)" = "$before"
-mk_auto au6 patch v1.1.0; ( cd "$T/au6" && $LAND_ENTRY --hold "freeze for the test" >/dev/null ); before=$(git -C "$T/au6.git" rev-parse main)
-expect_exit "an auto update stops on a refusal (a hold) with the lander's exit code and lands nothing" 14 auto au6; check "main did not move" test "$(git -C "$T/au6.git" rev-parse main)" = "$before"
+echo "## land-update --auto and LAND_AUTO_UPDATE are gone: the mode is an unknown option, the key an unknown key"
+rm -rf "$T/au1.git"; git init -q --bare -b main "$T/au1.git"; git clone -q "$T/au1.git" "$T/au1" 2>/dev/null; git -C "$T/au1" config commit.gpgsign false
+git -C "$T/au1" commit -q --allow-empty -m "chore: init"; git -C "$T/au1" push -q origin main
+"$S/install" --source "$S" --target "$T/au1" v1.1.0 >/dev/null
+printf 'LAND_TEST_CMD=true\nLAND_AUTO_UPDATE=patch\n' > "$T/au1/$LAND_CONF_FILE"
+git -C "$T/au1" add -A; git -C "$T/au1" commit -qm "chore(land): vbm-land v1.1.0 sits on a config naming the retired key"
+before=$(git -C "$T/au1" status --porcelain | sort | md5sum)
+expect_exit "land-update --auto is not a mode any more (usage, exit 2)" 2 "$T/au1/$LAND_DIR/bin/land-update" --auto --root "$T/au1"; out_has "usage: land-update"
+check "and it changed nothing" test "$(git -C "$T/au1" status --porcelain | sort | md5sum)" = "$before"
+expect_exit "a land.conf naming LAND_AUTO_UPDATE is refused as an unknown key (the drift check: exit 1)" 1 bash -c "cd '$T/au1' && $LAND_DIR/bin/land-check"; out_has "unknown key LAND_AUTO_UPDATE"
+check "and the message names the file it was read from and the line" bash -c "grep -qF '$LAND_CONF_FILE:2: unknown key LAND_AUTO_UPDATE' '$T/out'"
+before2=$(git -C "$T/au1.git" rev-parse main)
+expect_exit "the lander refuses it too (its configuration parse refuses it by name before anything is rebased or tested)" 2 bash -c "cd '$T/au1' && $LAND_ENTRY"; out_has "unknown key LAND_AUTO_UPDATE"
+check "and nothing reached the remote" test "$(git -C "$T/au1.git" rev-parse main)" = "$before2"
 
 echo "## audit"
 consumer c3; "$S/install" --source "$S" --target "$T/c3" v1.0.0 >/dev/null; mkdir -p "$T/plain"
@@ -190,7 +177,7 @@ PY
 
 echo "## the lander and its own vendored copy"
 consumer l1; "$S/install" --source "$S" --target "$T/l1" v1.0.0 >/dev/null
-printf 'LAND_TEST_CMD=true\nLAND_RED_MODE=off\n' > "$T/l1/$LAND_CONF_FILE"
+printf 'LAND_TEST_CMD=true\n' > "$T/l1/$LAND_CONF_FILE"
 git -C "$T/l1" add -A; git -C "$T/l1" commit -qm "chore(land): vbm-land v1.0.0" -m "Task-ID: t"
 expect_exit "a vendor commit lands through the stub" 0 bash -c "cd '$T/l1' && $LAND_ENTRY"
 check "the vendored lander landed it" remote_has $LAND_PIN

@@ -4,6 +4,15 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## Unreleased (MAJOR: the dead machinery of the CI era is gone)
+
+Nothing here is kept for compatibility with a thing that no longer exists.
+
+- **Removed:** the auto-update mode `land-update --auto` and the key `LAND_AUTO_UPDATE` (they served a scheduled workflow whose templates are gone: nothing schedules an update any more); the GitHub Actions warning annotation and step-summary line `land-update --check` wrote under Actions (`--check`, `--diff` and the update itself behave as they did). `land-update` has three modes again: `--check`, `--diff` and the update itself.
+- **Removed: the retired-key tolerance.** `lib/conf.sh` no longer lists the retired keys as known, and `bin/land-direct` no longer reads and ignores them with a notice: `LAND_LOCK_WAIT`, `LAND_CI_WORKFLOW`, `LAND_TIER1_JOB`, `LAND_RED_MODE`, `LAND_RED_WAIT`, `LAND_KNOWN_FLAKY`, `LAND_FLAKY_RERUN_WAIT`, `LAND_TIER2_JOB`, `LAND_APPROVALS`, `LAND_APPROVAL_DAYS`, `LAND_PROTECTED_LIST`, `LAND_PROTECTED_APPROVALS`, `LAND_GATE_APPEND_ONLY`, `LAND_PROD_PATHS`, `LAND_BUDGET_LINES` (and, in the environment, `LAND_LOCK_WAIT_SECONDS` and `LAND_LEASE_STALE_SECONDS`, which were only ever read to be named). **A `land.conf` that names a retired key now fails**: conf parsing refuses it like any other unknown key (exit 2, the message naming the key, the file it was read from and the line). Upgrade notes: delete those lines from `.land/land.conf` (the lander reads the copy on the base branch, so that is the copy that must be clean) before the first landing with this version.
+- **Removed:** `docs/freeze-source.md` (a design note about watchdog-driven freezes; no watchdog exists) and `bin/no-build-guard --lint` no longer reads `.github/workflows/*`.
+- **Removed: `LAND_FIX_PATHS`,** a CI-era rule ("a freeze fix may touch only test and CI paths"). A fix for a freeze is now recognised by its commit subject alone: `fix:` or `fix(<scope>):` with any scope, or a subject that starts with `Revert`/`revert`. The `ci|tests` scope list is gone (any scope counts), and the paths a fix touches are not judged.
+
 ## 0.8.1 (PATCH: the migration repoints symlinks into the old tool folder)
 
 The 0.8.0 migration missed tracked symlinks: a consumer that tracks a link into `scripts/land/` (vbm-sse: `scripts/lib-no-crash-record.sh -> land/lib/no-crash-record.sh`) was left with a dangling link once the old folder was removed. `install` now repoints every tracked symlink that resolves inside `scripts/land/` to the same sub-path under `.land/tool/` (relative to the link's own directory, e.g. `../.land/tool/lib/no-crash-record.sh`) before removing the old folder, names it in the migration's summary line, and leaves a link that points anywhere else alone.

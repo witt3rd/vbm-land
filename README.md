@@ -34,7 +34,7 @@ Edit the starter `.land/land.conf` (at least `LAND_TEST_CMD`, your Tier 1 comman
 1. **Land small changes directly on main**, within minutes, through one lander. No pull requests, no queue of reviewers: a mechanical gate decides.
 2. **Tier 1 gates landing** (target under 60 s) and runs once, on the exact combination that will land: your change rebased on current main. **Nothing runs after the push**: no CI, no second tier, no watchdog.
 3. **If main is ever red, whoever sees it reverts the offending commit with `git revert`** and lands the revert; the author reproduces in a new worktree and resubmits. A landing must not add a failure; a failure already on main does not refuse yours ("inherited red").
-4. **Landing stops only by a person's explicit hold or freeze: a named owner and an expiry.** While frozen only a fix or a true revert lands, recognised by what it touches (tests and CI paths, nothing protected), not by its title.
+4. **Landing stops only by a person's explicit hold or freeze: a named owner and an expiry.** While frozen only a fix or a revert lands, recognised by its commit subject: `fix:`, `fix(<scope>):` or a subject that starts with `Revert`/`revert`.
 5. **New behaviour lands switched off.** Landing is not release.
 6. **Small means small**: 150 lines of production code and 45 minutes without a passing build are the defaults. Over either, cut the work.
 7. **The lander never forces.** It pushes a plain fast-forward, with no lock (any number of landers run at once; git's refusal of a push that is not a fast-forward is the only arbiter), after up to `LAND_ATTEMPTS` rebase-and-retest attempts (default 30, within `LAND_DEADLINE` seconds). A hold marker stops landings at any moment.
@@ -99,7 +99,7 @@ Workers never push main by hand; the lander does, with no lock (each run has its
 
 ### 4.5 Freeze
 
-- While frozen the lander takes only a fix or a true revert, recognised by what it touches (only test paths, nothing protected) or by naming the commit it undoes, not by what its title says. A red main does not freeze anything.
+- While frozen the lander takes only a fix or a revert, recognised by its commit subject alone: `fix:` or `fix(<scope>):` with any scope, or a subject that starts with `Revert`/`revert`. What it touches is not judged. A red main does not freeze anything.
 - A freeze is a person's: a named owner and an expiry (`--freeze REASON --owner NAME --for 6h`), lifted by `--thaw` or its expiry; landing a fix does not lift it.
 - A hold marker lets a person stop landings at any moment, even one already in flight.
 
@@ -177,17 +177,14 @@ Hold and freeze markers, logs and the scratch worktree live in `<git common dir>
 | `LAND_GENERATED_LIST` | none | Path of a file listing generated paths, one per line, read from base. |
 | `LAND_REQUIRE_TRAILERS` | none | Trailer names every commit must carry (for example `Task-ID`). |
 | `LAND_CONVENTIONAL`, `LAND_COMMIT_TYPES` | `1`, the usual types | Require `type(scope): summary` subjects; git's own `Revert "..."` is accepted. |
-| `LAND_PROTECTED` | none | Shell patterns (`*` matches `/`): the gate-defining set. A change that touches it is judged by the `post-rebase` hook; it never counts as a fix for a red main. |
-| `LAND_FIX_PATHS` | none | When set, a fix may touch only these paths (tests, CI) to pass a freeze. |
+| `LAND_PROTECTED` | none | Shell patterns (`*` matches `/`): the gate-defining set. A change that touches it is judged by the `post-rebase` hook. |
 | `LAND_FAIL_PATTERN` | `^(FAIL\|FAILED)([ :]\|$)` | Extended regular expression: the lines of Tier 1's output that name a failure. A Tier 1 that fails ONLY with failures the bare base also has passes as inherited red (4.4). |
-| `LAND_LOCK_WAIT`, `LAND_CI_WORKFLOW`, `LAND_TIER1_JOB`, `LAND_RED_MODE`, `LAND_RED_WAIT`, `LAND_KNOWN_FLAKY`, `LAND_FLAKY_RERUN_WAIT`, `LAND_TIER2_JOB` | | **Retired** (0.5.0): still accepted, whatever their value, and ignored with one notice. There is no lock, and landing no longer reads CI. |
 | `LAND_HOOKS_DIR` | `.land/land.d` | Where the repository's hooks live. |
-| `LAND_AUTO_UPDATE` | `none` | `none`, `patch` or `minor`: what `land-update --auto` may take by itself; a major release never. Nothing schedules it: a repository runs it, or nothing. |
 | `LAND_LOCALE` | `C` | Pinned for collation and glob order. |
 | `LAND_ATTEMPTS`, `LAND_DEADLINE` | `30`, `900` s | When main moves under a landing it is rebased and validated again: at most this many attempts, none started after this many seconds (then exit 16). Hooks and Tier 1 see `LAND_ATTEMPT` and `LAND_PREV_BASE` (the base the previous attempt validated against; empty on the first) so a repository may re-run only what the new base can affect. |
 | `LAND_TIER1_TIMEOUT`, `LAND_STEP_TIMEOUT`, `LAND_GIT_TIMEOUT` | `1800`, `600`, `180` s | The bound on every step. A step that runs over is killed with one plain line and the run stops as that step's failure. |
 
-Policy is never read from the environment. The operator may set `LAND_CONF` (another config file), `LAND_FIX_FOR_RED=1` (declare this change a fix, so it passes a freeze), `LAND_DIRECT_LOG` and the three timeouts. `LAND_LOCK_WAIT` (key), `LAND_LOCK_WAIT_SECONDS` and `LAND_LEASE_STALE_SECONDS` (environment) are read and ignored with one notice: there is no lock. Commands the lander runs see `LAND_TOP`, `LAND_BASE_REF` (`origin/main`), `LAND_STATE_DIR` (shared by every run of the clone), `LAND_RUN_DIR` (this run's own), `LAND_ATTEMPT`, `LAND_PREV_BASE` and `LAND_TASK`.
+Policy is never read from the environment. The operator may set `LAND_CONF` (another config file), `LAND_FIX_FOR_RED=1` (declare this change a fix, so it passes a freeze), `LAND_DIRECT_LOG` and the three timeouts. A key this tool has retired is not a key: a `land.conf` that names one is refused as unknown, by file and line. Commands the lander runs see `LAND_TOP`, `LAND_BASE_REF` (`origin/main`), `LAND_STATE_DIR` (shared by every run of the clone), `LAND_RUN_DIR` (this run's own), `LAND_ATTEMPT`, `LAND_PREV_BASE` and `LAND_TASK`.
 
 ### 6.4 Hooks
 
@@ -256,7 +253,7 @@ Preconditions (all three): only you and your agents write to it; main is not dep
 1. **Define Tier 1**: one command that builds, lints and runs the fast tests. Time it. Over a minute: make the slow checks fast first (nothing runs after the push).
 2. **No CI**: delete the repository's workflows (`.github/workflows/`) and any merge-queue or pull-request automation; nothing runs after the push.
 3. **Vendor a signed release** (Quick start, in a fresh worktree off `origin/main`).
-4. **Configure `.land/land.conf`**: `LAND_TEST_CMD` or `LAND_GATES_CMD`, `LAND_PROTECTED` (gate-defining files), `LAND_FIX_PATHS` (tests).
+4. **Configure `.land/land.conf`**: `LAND_TEST_CMD` or `LAND_GATES_CMD`, `LAND_PROTECTED` (gate-defining files).
 5. **Agent instructions**: paste `templates/AGENTS-block.md` into your `AGENTS.md` and delete any "open a PR" text.
 6. **Land the adoption itself** with the new lander: `.land/tool/bin/land-check && git add -A && git commit -m 'chore(land): adopt vbm-land vX.Y.Z' && .land/land-direct`.
 7. **Retire the PR flow**: archive each open PR's diff and a reason, then close it.
@@ -273,7 +270,7 @@ Pull only: a repository decides when it takes a release, and runs the update its
 .land/tool/bin/land-update --land <tag>   # verify, stage, commit `chore(land): vbm-land <version>`, land it through your own lander and gates
 ```
 
-`--land` refuses before anything is written when the release does not verify; a hold, a failed Tier 1 or a refusing hook stops it with the lander's exit code and the commit stays local. By hand instead: `land-update <tag>` (stages only), `land-check`, review `git status`, one commit, `.land/land-direct`. A major release is a person's decision: read the "Upgrade notes" in its CHANGELOG section first (0.8.0 migrates the layout, see 6.6). Nothing schedules an update: there is no CI, no workflow and no Tier 2 (`LAND_AUTO_UPDATE` only bounds what `land-update --auto` may take if a repository runs it).
+`--land` refuses before anything is written when the release does not verify; a hold, a failed Tier 1 or a refusing hook stops it with the lander's exit code and the commit stays local. By hand instead: `land-update <tag>` (stages only), `land-check`, review `git status`, one commit, `.land/land-direct`. A major release is a person's decision: read the "Upgrade notes" in its CHANGELOG section first (0.8.0 migrates the layout, see 6.6). Nothing schedules an update and nothing takes one by itself: there is no CI, no workflow and no Tier 2, and a repository decides when to run `land-update`.
 
 ## Versions and signed tags
 

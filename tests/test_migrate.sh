@@ -23,7 +23,6 @@ old_layout() {   # old_layout DIR: a consumer as a pre-0.8.0 install left it: th
   printf 'source=%s\nversion=v1.0.0\ncommit=%s\nmanifest_sha256=%s\nsignature=unverified\n' "$S" "$(git -C "$S" rev-parse v1.0.0)" "$(sha256sum < "$S/MANIFEST.sha256" | cut -d' ' -f1)" > "$d/$LAND_LEGACY_PIN"
   cat > "$d/$LAND_LEGACY_CONF_FILE" <<'CONF'
 LAND_TEST_CMD=true
-LAND_RED_MODE=off
 # the settings this repository wrote itself, carried over by the migration
 CONF
   cp "$K/signers" "$d/$LAND_LEGACY_SIGNERS_FILE"   # the repository's own signers file (the old path: the migration must move it, and it is enforced before the migration)

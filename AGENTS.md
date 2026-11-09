@@ -42,7 +42,7 @@ A consumer repository keeps everything the lander owns in **one folder, `.land/`
 
 - `bin/` the published tools (a consumer has them in `.land/tool/bin/`); `lib/` their shared shell libraries (`lib/conf.sh` documents every `land.conf` key, `lib/paths.sh` every consumer path).
 - `templates/` what a consumer copies: `AGENTS-block.md`, `PUBLIC-REPO-SETTINGS.md`, `land.conf.example`, `land-direct-stub`, `run-scoped.sh`, `ruleset-protect-main.json`, `ruleset-protect-release-tags.json` — all seven (a consumer gets them in `.land/tool/templates/`).
-- `docs/` design notes: `signing.md`, `freeze-source.md`, `flip-record.md`, `no-build-host.md`, `crash-probes.md`, `ran-evidence.md`, `gate-mechanism-acceptance.md`.
+- `docs/` design notes: `signing.md`, `flip-record.md`, `no-build-host.md`, `crash-probes.md`, `ran-evidence.md`, `gate-mechanism-acceptance.md`.
 - `skills/` the seven agent skills that ship to a consumer: `adopt-in-existing-repo`, `hold-and-freeze`, `land-a-change`, `new-repo`, `release`, `triage-red`, `update-vbm-land`.
 - `.land/` this repository's own folder, laid out as a consumer's: `land-direct` (the entry script), `land.conf` (its settings, Tier 1 = `tests/run.sh`) and `land.signers` (the release key, READ-ONLY by contract: it changes only with `LAND_OWNER=1`). This repository vendors no `.land/tool/` (it *is* the tool) and does not run `.land/tool/bin/land-check` on itself.
 - `scripts/` this repository's own helpers (`bootstrap-land`, `run-scoped.sh`, `generated.txt`, `lib-reap.sh`); `lib/paths.sh` names every consumer path once.
