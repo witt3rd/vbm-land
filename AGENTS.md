@@ -1,6 +1,28 @@
 # AGENTS.md
 
-This repository is the **source tree of vbm-land**: the lander that lands an agent's local commits direct on `main`, no pull request. The tool is the product; a consumer repository vendors a pinned copy of it. `README.md` is the operator's manual and `CHANGELOG.md` the interface history (the stable part: the `land.conf` keys, the exit codes, the JSON last line, the hook and marker names). `VERSION` says 0.6.1; the newest tag in this clone is `v0.6.0`.
+This repository is the **source tree of vbm-land**: the lander that lands an agent's local commits direct on `main`, no pull request. The tool is the product; a consumer repository vendors a pinned copy of it. `README.md` is the operator's manual and `CHANGELOG.md` the interface history (the stable part: the `land.conf` keys, the exit codes, the JSON last line, the hook and marker names). `VERSION` holds the version; releases are signed tags.
+
+## Design: the 0.8.0 layout (decided, not yet built)
+
+A consumer repository keeps everything the lander owns in **one folder, `.land/`**, so the repository's own `scripts/` stays its own and our footprint is self-contained. The lander's agent skills stay in `.agents/skills/` (an agent convention); nothing else of ours lives outside `.land/`.
+
+```
+.land/
+  tool/          the vendored lander, replaced whole on every update, never edited
+  PIN            version, commit and ONE checksum of tool/
+  land.conf      the repository's own settings
+  land.signers   who may sign releases
+  land.d/        the repository's own hooks
+  land-direct    the entry script an agent runs
+```
+
+- **One folder, one checksum.** `bin/land-check` recomputes the hash of `.land/tool/` and compares it with `PIN`; the signed release tag records the same hash. The per-file `MANIFEST.sha256` list goes.
+- **Update replaces the whole folder:** delete `.land/tool/`, copy the new one in, write `PIN`. A file dropped upstream disappears with it. `land-update --diff` still shows the added, changed and removed files before anything is written, and the update refuses to write outside `.land/` and `.agents/skills/`.
+- **Protection is one entry, `.land/`,** for a repository that wants its lander off limits to agents. `scripts/` is the repository's and is not protected on our account.
+- **Migration.** The first 0.8.0 update moves a repository from the old layout (`scripts/land/`, `scripts/land-direct`, `scripts/land.conf`, `scripts/land.d/`, `scripts/land.signers`) as one `chore(land)` commit, removes the old files, and rewrites the references in the repository's `scripts/` and Tier 1.
+- **An upgrade removes what the old version left behind.** That is part of the upgrade, not a follow-up.
+- **Build order, each slice green on its own:** (1) one place defines every path and nothing else hard-codes one; (2) the folder checksum; (3) the `.land/` layout and the migration. Prove it on one repository before any other.
+- Nothing runs after the push: no CI, no Tier 2, no watchdog. The remaining wording about them in `bin/` and `lib/` goes in this release.
 
 ## Landing here
 
