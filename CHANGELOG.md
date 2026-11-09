@@ -6,6 +6,8 @@ Additive changes to it are minor releases; anything else is major.
 
 ## Unreleased
 
+- internal: lib/paths.sh defines every consumer path in one place (no behaviour change).
+
 **Removed:** the package mechanism (`land-update --pkg`, `--source`, `--signers`, `lib/pkg.sh`, `docs/packages.md`, `land-check --pkg` and the per-package checks) is gone: nothing used it. `land-check` and `land-update` act on this tool's own pin only.
 
 ## 0.7.1 (PATCH: the agent-instructions block carries the family's principles)
@@ -23,6 +25,8 @@ Upgrade notes: delete your `.github/workflows/` (CI, the watchdog and the update
 `LAND_RED_MODE` from `scripts/land.conf` (already ignored), and take releases by hand with `land-update`.
 
 ## Unreleased
+
+- internal: lib/paths.sh defines every consumer path in one place (no behaviour change).
 ## Strip (a deletion release: nothing is added, 1.4k lines go)
 - **Removed: gate-edit approvals, protected-paths lists, the `Protected:` trailer, the append-only judge, the diff budget, `--print-gate-diff[-hash]`.** The keys `LAND_APPROVALS`, `LAND_APPROVAL_DAYS`, `LAND_PROTECTED_LIST`, `LAND_PROTECTED_APPROVALS`, `LAND_GATE_APPEND_ONLY`, `LAND_PROD_PATHS` and `LAND_BUDGET_LINES` are read and ignored (named once). Reason: in a week 50 of 59 stops were false and approvals stopped nothing.
 - **Kept:** the lander, the red-main watchdog, the drift check of the vendored copy (the protection of the lander's own files), the hooks, signed releases. A signing keys file (`*.signers`) that already exists changes only with `LAND_OWNER=1` (a first install of one is not a change).
