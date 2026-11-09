@@ -15,15 +15,14 @@
 #   them; it commits nothing. Commit the result as ONE commit (`chore(land): vbm-land <version>`) and land it like any other change.
 set -euo pipefail
 export LC_ALL=C
-here=$(cd "$(dirname "$0")" && pwd); . "$here/../lib/source.sh"
+here=$(cd "$(dirname "$0")" && pwd); . "$here/../lib/source.sh"; . "$here/../lib/paths.sh"   # paths.sh: every consumer path, defined once (LAND_DIR, LAND_ENTRY, ...)
 ref=; root=; check=0; diffonly=0; land=0; auto=0
 usage() { echo "usage: land-update --check | --diff <tag> | [--land] <tag|commit>   [--root DIR]" >&2; exit 2; }
 while [ $# -gt 0 ]; do case $1 in --root) root=${2:?--root needs a directory}; shift;; --check) check=1;; --diff) diffonly=1;; --land) land=1;; --auto) auto=1;; -*) usage;; *) ref=$1;; esac; shift; done
 [ "$check" = 1 ] || [ "$auto" = 1 ] || [ -n "$ref" ] || usage
 [ -n "$root" ] || root=$(git rev-parse --show-toplevel)
-label=vbm-land; pdir=scripts/land; upd=scripts/land/bin/land-update
-vpath() { case "$1" in skills/*) echo ".agents/$1";; *) echo "scripts/land/$1";; esac; }   # where a payload path lives in a consumer
-pin=$root/$pdir/PIN
+label=vbm-land; pdir=$LAND_DIR; upd=$LAND_DIR/bin/land-update
+pin=$root/$LAND_PIN
 pinsrc=$(sed -n 's/^source=//p' "$pin" 2>/dev/null | sed -n 1p || true); src=$pinsrc
 [ -n "$src" ] || { echo "land-update: no $pdir/PIN in $root: install first (install --source SRC <ref>)" >&2; exit 2; }
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/land-update.XXXXXX"); trap 'rm -rf "$tmp"' EXIT
@@ -31,7 +30,7 @@ if [ "$auto" = 1 ]; then   # the policy is the repository's own, read from its b
   . "$here/../lib/conf.sh"; conf_defaults
   git -C "$root" fetch -q origin 2>/dev/null || true
   b=$(git -C "$root" symbolic-ref -q --short refs/remotes/origin/HEAD | sed 's#^origin/##' || true); b=${b:-main}
-  if git -C "$root" cat-file -e "origin/$b:scripts/land.conf" 2>/dev/null; then conf_parse land.conf < <(git -C "$root" show "origin/$b:scripts/land.conf") || exit 2; fi
+  if git -C "$root" cat-file -e "origin/$b:$LAND_CONF_FILE" 2>/dev/null; then conf_parse land.conf < <(git -C "$root" show "origin/$b:$LAND_CONF_FILE") || exit 2; fi
   conf_validate >/dev/null 2>&1 || true
   if [ "$LAND_AUTO_UPDATE" = none ]; then echo "land-update --auto: LAND_AUTO_UPDATE=none: reporting only"; fi
 fi
@@ -65,18 +64,18 @@ if [ "$check" = 1 ] || [ "$auto" = 1 ]; then
   ref=$target; land=1; rm -rf "$tmp/src"
 fi
 c=$(src_fetch "$src" "$ref" "$tmp/src") || exit 1
-sf=scripts/land.signers
+sf=$LAND_SIGNERS_FILE
 signers=; [ ! -r "$root/$sf" ] || signers=$root/$sf
 vrc=0; src_verify "$tmp/src" "$ref" "$signers" || vrc=$?   # BEFORE anything of the new release runs: the installer below is the new release's own
 [ "$vrc" != 1 ] || exit 1
 if [ "$diffonly" = 1 ]; then
   mkdir -p "$tmp/tree"; git -C "$tmp/src" archive "$c" | tar -x -C "$tmp/tree"
   n=0; a=0; r=0; out=$tmp/diff.txt; : > "$out"
-  while read -r _ f; do [ -n "$f" ] || continue; v=$(vpath "$f")
+  while read -r _ f; do [ -n "$f" ] || continue; v=$(land_vpath "$f")
     if [ ! -e "$root/$v" ]; then a=$((a + 1)); echo "ADDED   $v" >> "$out"
     elif ! cmp -s "$tmp/tree/$f" "$root/$v"; then n=$((n + 1)); echo "CHANGED $v" >> "$out"; diff -u "$root/$v" "$tmp/tree/$f" | sed 's/^/    /' >> "$out" || true; fi
   done < "$tmp/tree/MANIFEST.sha256"
-  while read -r _ f; do [ -n "$f" ] || continue; grep -q "  $f\$" "$tmp/tree/MANIFEST.sha256" || { r=$((r + 1)); echo "REMOVED $(vpath "$f")" >> "$out"; }; done < <(cat "$root/$pdir/MANIFEST.sha256" 2>/dev/null)
+  while read -r _ f; do [ -n "$f" ] || continue; grep -q "  $f\$" "$tmp/tree/MANIFEST.sha256" || { r=$((r + 1)); echo "REMOVED $(land_vpath "$f")" >> "$out"; }; done < <(cat "$root/$LAND_MANIFEST_FILE" 2>/dev/null)
   echo "land-update --diff: $ref ($(cat "$tmp/tree/VERSION")) vs the pin: $n changed, $a added, $r removed"; cat "$out"
   pv=$(sed -n 's/^version=v//p' "$pin" | sed -n 1p)
   echo "--- CHANGELOG entries newer than $pv:"; awk -v pv="$pv" '/^## /{h=substr($0,4); if (h==pv) exit} {print}' "$tmp/tree/CHANGELOG.md" 2>/dev/null || true
@@ -89,16 +88,16 @@ if [ "$land" = 1 ]; then
   . "$here/../lib/conf.sh"; conf_defaults
   git -C "$root" fetch -q origin || { echo "land-update: cannot fetch origin" >&2; exit 1; }
   base=$(git -C "$root" symbolic-ref -q --short refs/remotes/origin/HEAD | sed 's#^origin/##' || true); base=${base:-main}
-  if git -C "$root" cat-file -e "origin/$base:scripts/land.conf" 2>/dev/null; then conf_parse land.conf < <(git -C "$root" show "origin/$base:scripts/land.conf") || exit 2; fi
+  if git -C "$root" cat-file -e "origin/$base:$LAND_CONF_FILE" 2>/dev/null; then conf_parse land.conf < <(git -C "$root" show "origin/$base:$LAND_CONF_FILE") || exit 2; fi
   ver=$(sed -n 's/^version=//p' "$root/$pdir/PIN" | sed -n 1p); trl=vbm-land-update-$ver; msg=(-m "Vendored by land-update --land from $ref.")
   for t in $LAND_REQUIRE_TRAILERS; do msg+=(-m "$t: $trl"); done
-  paths=(scripts/land .agents/skills scripts/land.signers scripts/land-direct scripts/land.conf)
+  paths=("$LAND_DIR" "$LAND_SKILLS_DIR" "$LAND_SIGNERS_FILE" "$LAND_ENTRY" "$LAND_CONF_FILE")
   for p in "${paths[@]}"; do [ ! -e "$root/$p" ] || git -C "$root" add -A -- "$p"; done
   git -C "$root" commit -q -m "chore(land): $label $ver" "${msg[@]}" || { echo "land-update: nothing to commit: the pin already is $ver" >&2; exit 1; }
   git clone -q "$(git -C "$root" remote get-url origin)" "$tmp/old" || { echo "land-update: cannot make the pristine clone of $base" >&2; exit 1; }
   git -C "$tmp/old" checkout -q "origin/$base" 2>/dev/null || true
   echo "land-update: landing the update through this repository's own lander (a pristine clone of $base: the old lands the new)"
-  rc=0; ( cd "$root" && "$tmp/old/scripts/land-direct" ) || rc=$?
+  rc=0; ( cd "$root" && "$tmp/old/$LAND_ENTRY" ) || rc=$?
   [ "$rc" = 0 ] || echo "land-update: NOT landed (the lander exited $rc): the commit is local; nothing reached $base. Look at the lander's message above." >&2
   exit "$rc"
 fi
