@@ -10,6 +10,8 @@ Additive changes to it are minor releases; anything else is major.
 
 **Removed:** the package mechanism (`land-update --pkg`, `--source`, `--signers`, `lib/pkg.sh`, `docs/packages.md`, `land-check --pkg` and the per-package checks) is gone: nothing used it. `land-check` and `land-update` act on this tool's own pin only.
 
+Layout (major): everything the tool owns in a consumer moves into one folder, `.land/`: the vendored tool in `.land/tool/` (was `scripts/land/`), the pin `.land/PIN`, the settings `.land/land.conf`, the signers file `.land/land.signers`, the hooks `.land/land.d/` and the entry script `.land/land-direct`; the agent skills stay in `.agents/skills/`, and the repository's own `scripts/` stays its own. `land-check` still verifies one checksum per folder (`.land/tool/MANIFEST.sha256`, recorded by the pin), `land-check` and `land-update` act on it, and the update replaces `.land/tool/` whole. The first install or update of 0.8.0 migrates an old-layout repository (moves `land.conf`, `land.signers`, `land.d` and the entry script, removes `scripts/land/`) and prints the consumer's own references to the old paths; upgrade notes: the move is one `chore(land)` commit, and a repository's own scripts, docs, protected set and Tier 1 must be renamed by hand (the install only lists them). The package mechanism (`land-update --pkg`) is gone; no CI, no Tier 2 and no revert tool remain.
+
 ## 0.7.1 (PATCH: the agent-instructions block carries the family's principles)
 
 The agent-instructions block (`templates/AGENTS-block.md`) carries the family's principles (everything runs before the push; proofs, not tests; nothing added to the process without deleting something; the worker owns its change). Additive; no interface change.

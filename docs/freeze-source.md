@@ -2,7 +2,7 @@
 
 > History (0.7.0): nothing runs after the push in vbm-land any more (no CI, no watchdog); this note is kept as the design record it was.
 
-Update (0.5.0): `bin/land-red` no longer exists. Landing does not read CI; the freeze marker is read by `land-direct` itself, a freeze is only ever a person's, and a red main is the watchdog's (`bin/land-revert`). The Tier 2 trigger below is gone. The hook design is kept as written: it would run in `land-direct`'s freeze check.
+Update (0.5.0): `bin/land-red` no longer exists. Landing does not read CI; the freeze marker is read by `land-direct` itself and a freeze is only ever a person's (0.7.0 then removed the revert tool too: a red main is whoever sees it with `git revert`). The Tier 2 trigger below is gone. The hook design is kept as written: it would run in `land-direct`'s freeze check.
 
 Status: design only. Written so that a repository with its own watchdog (one that decides "landing must stop" somewhere vbm-land cannot see, such as a label on a tracking issue) can adopt
 vbm-land later without losing that behaviour and without a second red definition.
@@ -19,7 +19,7 @@ Landing stops for a fix-or-revert-only regime from two sources today, both read 
 A watchdog that keeps its state elsewhere (an issue label, a ticket, a file on a server) cannot write the marker (it runs in CI, not in the clone) and should not have to. Today the only way to honour it would be a
 repository-specific red command, which is exactly what must not exist: **red has one definition** (`land-red`: the Tier 1 job of the latest push run failed).
 
-## Proposal: `scripts/land.d/freeze`, a hook that can only add a freeze
+## Proposal: `.land/land.d/freeze`, a hook that can only add a freeze
 
 An optional repository-owned executable, taken from `origin/<base>` like every hook, run by `land-red` right before the marker check, bounded by `LAND_STEP_TIMEOUT`, in the scratch worktree:
 
@@ -39,8 +39,8 @@ Properties that keep the design honest:
 
 ## What it enables
 
-A repository that freezes on a label of a tracking issue ships `scripts/land.d/freeze` as: ask `gh` for the label, print its reason, exit 14, else 0. Its revert watchdog keeps running as its own CI script (vbm-land does not own
-reverting yet) and keeps its issue labels; nothing in vbm-land knows the repository.
+A repository that freezes on a label of a tracking issue ships `.land/land.d/freeze` as: ask `gh` for the label, print its reason, exit 14, else 0. Its own tooling keeps the labels and reverts what makes main red (vbm-land does not own
+reverting); nothing in vbm-land knows the repository.
 
 ## Slice (when a consumer needs it)
 

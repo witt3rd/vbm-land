@@ -4,13 +4,13 @@ Thank you for looking. A short, honest note about how this repository works.
 
 ## Who lands changes
 
-**Only the owner lands changes on `main`.** The repository lands directly, with its own lander (`scripts/land-direct`): no pull request is ever merged in the GitHub sense. That is the tool's own model (README, section 1), not a lack of interest in your work.
+**Only the owner lands changes on `main`.** The repository lands directly, with its own lander (`.land/land-direct`): no pull request is ever merged in the GitHub sense. That is the tool's own model (README, section 1), not a lack of interest in your work.
 
 **Outside contributions are welcome**: open an issue, or a pull request from a fork. The owner reads it, and if the change is accepted it lands through the lander as a commit (your authorship is kept where the change is applied as is; otherwise the commit says where it came from). A pull request is therefore a proposal, and may be closed with the change landed separately.
 
-## Pull requests and CI
+## Pull requests and the gate
 
-- CI here runs only on a push to `main` and on manual dispatch, on GitHub-hosted runners. It does not run on pull requests, and it must **never** be run on a self-hosted runner for a pull request from a fork: that would run a stranger's code on a machine of ours. A workflow that names `self-hosted` is refused by `tests/lint.sh` when the repository is public.
+- Nothing runs after the push: there is no CI, no Tier 2 and no watchdog. The one gate is Tier 1, run before the push by the lander on the rebased combination; a pull request is never built by a workflow of ours.
 - Run the checks yourself: `tests/run.sh` (the lints, then every `tests/test_*.sh`; about half a minute; needs bash 4+, git 2.30+, `flock`, `timeout`, `jq`, `python3`, `ps`, `ssh-keygen`). It is the same gate the lander runs.
 
 ## What a good change looks like

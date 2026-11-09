@@ -18,4 +18,4 @@ Out of scope (see "Honest limits" in the README): an attacker who already has wr
 
 ## Release signatures
 
-Releases are ssh-signed annotated tags. The public key is `scripts/land.signers`; its fingerprint is in [docs/signing.md](docs/signing.md). Check the fingerprint out of band before trusting the file.
+Releases are ssh-signed annotated tags. The public key is `.land/land.signers`; its fingerprint is in [docs/signing.md](docs/signing.md). Check the fingerprint out of band before trusting the file.

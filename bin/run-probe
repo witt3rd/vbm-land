@@ -20,7 +20,7 @@ case ${1:-} in
     while IFS= read -r n; do n=${n%%#*}; n=${n// /}; [ -n "$n" ] || continue
       while IFS=: read -r f ln line; do [ "$f" = "$list" ] && continue
         case $line in *run-probe*|*quiet\ *|*probe-ok*) ;; *) echo "run-probe --lint: $f:$ln runs probe '$n' outside run-probe: ${line:0:120}" >&2; bad=1;; esac
-      done < <(git ls-files -z 2>/dev/null | xargs -0 -r grep -InwF -- "$n" 2>/dev/null | grep -v "^${LAND_DIR:-scripts/land}/" | sed 's/^\([^:]*\):\([0-9]*\):/\1:\2:/')
+      done < <(git ls-files -z 2>/dev/null | xargs -0 -r grep -InwF -- "$n" 2>/dev/null | grep -v "^${LAND_DIR:-.land/tool}/" | sed 's/^\([^:]*\):\([0-9]*\):/\1:\2:/')
     done < "$list"; exit $bad;;
   --core-limit) want=${2:?--core-limit needs a value}; shift 2;;
 esac

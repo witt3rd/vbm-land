@@ -143,7 +143,7 @@ fi
 export LC_ALL=$LAND_LOCALE
 lt=${o_t1:-$LAND_TIER1_TIMEOUT}; st=${o_st:-$LAND_STEP_TIMEOUT}; gt=${o_gt:-$LAND_GIT_TIMEOUT}
 for k in LAND_APPROVALS LAND_APPROVAL_DAYS LAND_PROTECTED_LIST LAND_PROTECTED_APPROVALS LAND_GATE_APPEND_ONLY LAND_PROD_PATHS LAND_BUDGET_LINES LAND_LOCK_WAIT LAND_CI_WORKFLOW LAND_TIER1_JOB LAND_RED_MODE LAND_RED_WAIT LAND_KNOWN_FLAKY LAND_FLAKY_RERUN_WAIT LAND_TIER2_JOB; do [ -z "${!k}" ] || ignored="$ignored $k"; done
-[ -z "$ignored" ] || echo "land-direct: note:$ignored ignored: no longer used (there is no lock, landing does not read CI, and approvals, protected lists, the append-only judge and the diff budget are gone: a red main is the watchdog's); remove them" >&2
+[ -z "$ignored" ] || echo "land-direct: note:$ignored ignored: no longer used (there is no lock, landing does not read CI, and approvals, protected lists, the append-only judge and the diff budget are gone: a red main is whoever sees it); remove them" >&2
 export LAND_TOP=$top LAND_BASE_REF=$remote/$base LAND_STATE_DIR=$state
 read -ra prot_globs <<<"$LAND_PROTECTED"; read -ra fix_globs <<<"$LAND_FIX_PATHS"
 

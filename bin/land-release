@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # land-release [--push]   (source repository, maintainer only)
 # Makes the release: the annotated, SIGNED tag v<VERSION> on HEAD, whose message records the hash of MANIFEST.sha256 (so the signature binds the manifest, and through it every
-# vendored file). Consumers verify the signature against their own scripts/land.signers before they touch their tree (land-update, install).
+# vendored file). Consumers verify the signature against their own .land/land.signers before they touch their tree (land-update, install).
 #   Requires: a clean tree, HEAD == origin/main (the release is what main is), a fresh MANIFEST.sha256, the tag not yet existing, and a signing key:
-#   LAND_SIGNING_KEY=<path to an ssh key; the public half is what scripts/land.signers lists>. ssh signing, no gpg. Key custody and rotation are the maintainer's.
+#   LAND_SIGNING_KEY=<path to an ssh key; the public half is what .land/land.signers lists>. ssh signing, no gpg. Key custody and rotation are the maintainer's.
 #   --push also pushes the tag (never a branch).
 set -euo pipefail
 export LC_ALL=C

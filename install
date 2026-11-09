@@ -3,8 +3,7 @@
 #
 # Vendors a PINNED copy of vbm-land into a repository: the tool (read-only by contract, replaced whole on every install) with its MANIFEST.sha256 inside the tool folder, the PIN and the repository's own
 # files (settings, hooks, signers, entry script) in the folder that holds it, and the agent skills in .agents/skills/. The entry script (three lines that exec the tool beside it, so "land with the entry
-# script" stays true) and a starter settings file exist only on the FIRST install and only when absent (they are yours afterwards: delete the workflow if your repository cannot use it and no update
-# brings it back). Every path it writes is defined once, in lib/paths.sh. It commits nothing: review the diff and commit it as one change
+# script" stays true) and a starter settings file exist only on the FIRST install and only when absent (they are yours afterwards: an update never brings back a file the repository removed). Every path it writes is defined once, in lib/paths.sh. It commits nothing: review the diff and commit it as one change
 # (`chore(land): vbm-land <version>`). Re-running it with another ref is the update.
 #
 #   SRC     where the source repository is: OWNER/NAME (GitHub, through `gh`, so a private repository works), or anything git can clone (URL, path).

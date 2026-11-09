@@ -26,12 +26,12 @@ conf_defaults() {
   LAND_PROTECTED_LIST=; LAND_PROTECTED_APPROVALS=   # LEGACY (read and ignored)
   LAND_GATE_APPEND_ONLY=                        # LEGACY (read and ignored)
   LAND_HOOKS_DIR=$LAND_HOOKS_DEFAULT            # repository-owned hooks (README, "Hooks")
-  LAND_AUTO_UPDATE=none                          # none | patch | minor: what the scheduled workflow may update by itself (land-update --auto); a major release never
+  LAND_AUTO_UPDATE=none                          # none | patch | minor: what land-update --auto may take by itself (nothing schedules it: there is no CI); a major release never
   LAND_LOCALE=C                                 # pinned for collation, glob and sort order
   LAND_TIER1_TIMEOUT=1800; LAND_STEP_TIMEOUT=600; LAND_GIT_TIMEOUT=180   # seconds
   LAND_FAIL_PATTERN='^(FAIL|FAILED)([ :]|$)'      # an extended regular expression: the lines of Tier 1's output that name a failure. A landing may pass a Tier 1 that fails ONLY with failures the bare base already has (inherited red)
   LAND_ATTEMPTS=30; LAND_DEADLINE=900           # a landing re-validates when the base moves under it: at most this many attempts, none started after this many seconds (then exit 16)
-  LAND_LOCK_WAIT=; LAND_CI_WORKFLOW=; LAND_TIER1_JOB=; LAND_RED_MODE=; LAND_RED_WAIT=; LAND_KNOWN_FLAKY=; LAND_FLAKY_RERUN_WAIT=; LAND_TIER2_JOB=   # LEGACY keys: read and ignored (land-direct names those a land.conf still sets, once): there is no lock since 0.5.0, and landing no longer reads CI (a red main is the watchdog's: bin/land-revert). Still known keys, so an old file keeps loading
+  LAND_LOCK_WAIT=; LAND_CI_WORKFLOW=; LAND_TIER1_JOB=; LAND_RED_MODE=; LAND_RED_WAIT=; LAND_KNOWN_FLAKY=; LAND_FLAKY_RERUN_WAIT=; LAND_TIER2_JOB=   # LEGACY keys: read and ignored (land-direct names those a land.conf still sets, once): there is no lock since 0.5.0, and landing no longer reads CI (a red main is whoever sees it: git revert). Still known keys, so an old file keeps loading
 }
 
 # conf_parse NAME: read the file's text from stdin; NAME is only used in messages. Returns 2 (with a message) on anything it does not understand.
