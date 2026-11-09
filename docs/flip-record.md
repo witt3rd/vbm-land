@@ -48,4 +48,4 @@ State read while the repository was still private: item 2 (read-only token), ite
 
 ## Consumers
 
-Repositories that vendor this tool read it without a secret once it is public. Each consumer should enable the weekly schedule of `.github/workflows/vbm-land-update.yml` (the two lines `schedule:` and `- cron: '23 6 * * 1'`), landed through its own lander, and may drop the read token it needed while this repository was private. Consumers' pins and tags are unchanged: nothing is re-pinned.
+Repositories that vendor this tool read it without a secret once it is public. Consumers' pins and tags are unchanged: nothing is re-pinned.

@@ -1,10 +1,10 @@
 # vbm-land
 
-A small, language-neutral tool for landing changes **directly on the main branch** of a repository that only you and your own agents work in: one lander, a mechanical gate, a watchdog that reverts what made main red, and a hold switch. Plain bash and git. Nothing in it knows what language your repository is written in.
+A small, language-neutral tool for landing changes **directly on the main branch** of a repository that only you and your own agents work in: one lander, one mechanical gate before the push (nothing runs after it), and a hold switch. Plain bash and git. Nothing in it knows what language your repository is written in.
 
 It is a tool, not a verified library: it is not scored by the [VBM](https://github.com/witt3rd/vbm) scorecard (which measures proofs), and its own assurance is its test suite, including a negative test for every refusal and a mutation self-test that cuts each guard out in turn ([6.1](#61-what-is-here-today)).
 
-> **Status: early (0.x), used in production by its author's own repositories.** The lander (no lock, bounded retries), the revert-first watchdog, pinned vendoring with a drift check, signed releases, the hooks and the test suite exist. Group landing is not built yet ([6.1](#61-what-is-here-today)). The interface (configuration keys, exit codes, the JSON last line, hook names, marker names) is versioned: additive changes are minor releases, anything else is major ([6.6](#66-installing-it-into-a-repository-a-pinned-vendored-copy)).
+> **Status: early (0.x), used in production by its author's own repositories.** The lander (no lock, bounded retries), pinned vendoring with a drift check, signed releases, the hooks and the test suite exist. Group landing is not built yet ([6.1](#61-what-is-here-today)). The interface (configuration keys, exit codes, the JSON last line, hook names, marker names) is versioned: additive changes are minor releases, anything else is major ([6.6](#66-installing-it-into-a-repository-a-pinned-vendored-copy)).
 
 **Who it is for.** A repository whose only writers are you and agents you control, whose main branch is not deployed, and whose fast gate runs in about a minute. **Who it is not for:** repositories with outside contributors, or where a merge to main is automatically a production change ([3](#3-choosing-a-mechanism-is-this-tool-for-your-repository)). It does not defend against an adversary with write access ([6.5](#65-trust-model)).
 
@@ -32,8 +32,8 @@ Edit the starter `scripts/land.conf` (at least `LAND_TEST_CMD`, your Tier 1 comm
 ## The discipline on one page
 
 1. **Land small changes directly on main**, within minutes, through one lander. No pull requests, no queue of reviewers: a mechanical gate decides.
-2. **Tier 1 gates landing** (target under 60 s) and runs on the exact combination that will land: your change rebased on current main. **Tier 2 never gates landing**; it runs after the merge and can only start the watchdog.
-3. **Main is red when the Tier 1 job of a push to it failed. Red does not stop landing.** The watchdog (`bin/land-revert`) reverts the offending commit at once, bisecting the span since the last green run when several landed; a revert lands on its own build and gates, exempt from red rules, and the author is notified, reproduces in a new worktree and resubmits. A landing must not add a failure; a failure already on main is the watchdog's and does not refuse yours ("inherited red").
+2. **Tier 1 gates landing** (target under 60 s) and runs once, on the exact combination that will land: your change rebased on current main. **Nothing runs after the push**: no CI, no second tier, no watchdog.
+3. **If main is ever red, whoever sees it reverts the offending commit with `git revert`** and lands the revert; the author reproduces in a new worktree and resubmits. A landing must not add a failure; a failure already on main is the watchdog's and does not refuse yours ("inherited red").
 4. **Landing stops only by a person's explicit hold or freeze: a named owner and an expiry.** While frozen only a fix or a true revert lands, recognised by what it touches (tests and CI paths, nothing protected), not by its title.
 5. **New behaviour lands switched off.** Landing is not release.
 6. **Small means small**: 150 lines of production code and 45 minutes without a passing build are the defaults. Over either, cut the work.
@@ -80,14 +80,14 @@ Paste at the top of the repository's agent instructions (`AGENTS.md` or equivale
 - Work in a worktree off a fresh origin/main. Diff ≤150 production lines, ≤45 min without a passing build; over either, stop and write a decomposition plan.
 - Commit locally with Conventional Commits. Land only with [LANDER, e.g. scripts/land-direct]; never push main yourself, never force-push it, never open a PR.
 - New behaviour lands behind a flag that defaults OFF. Interface changes: add beside the old, migrate callers, delete at zero references.
-- Main is RED when the Tier 1 job of a push to it failed. Red does not stop landing. The watchdog reverts the offending commit at once (bisecting the span since the last green run when several landed; a revert lands on its own build and gates, exempt from red rules) and notifies the author, who reproduces in a new worktree and resubmits. A landing must not add a failure; a failure already on main is the watchdog's, not a reason to refuse yours. Landing stops only by a person's explicit hold or freeze: a named owner and an expiry.
+- Everything runs before the push, once (Tier 1 on the rebased tree); nothing runs after it. If main is ever red, whoever sees it reverts the offending commit with `git revert` and lands the revert; the author fixes forward in a new worktree. A landing must not add a failure.
 - Decide anything reversible and log it. Escalate only money, data loss, secrets, publishing, or harm to a third party; say so in one line and stop.
 ```
 
-### 4.2 Two gate tiers
+### 4.2 One gate, before the push
 
-- **Tier 1, before landing, target under 60 s.** Build with zero warnings, type check, lints, affected tests, the repository's own fast ratchets. It runs on the exact combination that will land (the change rebased on current main). It gates landing.
-- **Tier 2, after the merge, target under 5 minutes.** The slow checks: full integration, fuzzing, deep proofs, end to end. It runs on main's head. **Tier 2 never gates landing.** It can only start the watchdog (4.5).
+- **Tier 1, before landing, target under 60 s.** Build with zero warnings, type check, lints, affected tests, the repository's own fast ratchets. It runs once, on the exact combination that will land (the change rebased on current main). It gates landing.
+- **Nothing runs after the push.** No CI, no second tier, no watchdog. A slow check is made fast or left out; it is never moved to after the push.
 
 ### 4.3 The lander
 
@@ -95,16 +95,13 @@ Workers never push main by hand; the lander does, with no lock (each run has its
 
 ### 4.4 RED, exactly
 
-**Main is red when the Tier 1 job of a push to it failed.** That is the whole definition; the CI service says it and the watchdog reads it. Tier 2 does not define red. Landing never reads CI: it does not ask whether main is red, so it cannot be stopped by a CI service that is down. A landing's own Tier 1 may fail only with failures the bare base already has ("inherited red": every line of its output matching `LAND_FAIL_PATTERN` is also a failure of the same Tier 1 on the base, one extra run, only then); a failure it adds, or one that prints no failure line, refuses it (13).
+**Main is red when its Tier 1 fails on main's own tip.** Nothing runs after the push, so whoever runs Tier 1 there next finds it (a lander's run, a worker, a person) and reverts the commit that made it red with `git revert` (`triage-red`). Landing never reads CI and does not ask whether main is red. A landing's own Tier 1 may fail only with failures the bare base already has ("inherited red": every line of its output matching `LAND_FAIL_PATTERN` is also a failure of the same Tier 1 on the base, one extra run, only then); a failure it adds, or one that prints no failure line, refuses it (13).
 
-### 4.5 Freeze and watchdog
+### 4.5 Freeze
 
-- `bin/land-revert --bad SHA --good SHA` is the watchdog (bisect by the repository's Tier 1, revert, land through the lander, notify by the `on-revert` hook; `templates/vbm-land-revert.yml` runs it after a failed push run). It **reverts first** and debugs second.
-- **Re-check HEAD before reverting**: if main has moved on or someone already fixed it, do not revert a good commit.
-- While frozen the lander takes only a fix or a true revert, recognised by what it touches (only test or CI paths, nothing protected) or by naming the commit it undoes, not by what its title says. A red main does not freeze anything.
+- While frozen the lander takes only a fix or a true revert, recognised by what it touches (only test paths, nothing protected) or by naming the commit it undoes, not by what its title says. A red main does not freeze anything.
 - A freeze is a person's: a named owner and an expiry (`--freeze REASON --owner NAME --for 6h`), lifted by `--thaw` or its expiry; landing a fix does not lift it.
 - A hold marker lets a person stop landings at any moment, even one already in flight.
-- For repositories with an owner and a ruleset: the watchdog first alerts and opens a revert for a person, and reverts by itself only after two green weeks.
 
 ### 4.6 Archive, then discard
 
@@ -124,7 +121,6 @@ Measure the same three numbers in every repository:
 | **p90 commit-to-main** | minutes from "ready" to "on main" for the slowest 10% | a few minutes |
 | **Red minutes on main** | minutes per week main is red or frozen | near zero; every red minute is a reported incident |
 
-Hosted CI minutes are usually a budgeted resource. A cheap pattern: run Tier 1 in CI only on a push to main (an independent check of what the lander already ran locally) and Tier 2 on a schedule, not on every pull request.
 
 ## 6. The tool
 
@@ -133,17 +129,15 @@ Hosted CI minutes are usually a budgeted resource. A cheap pattern: run Tier 1 i
 | Path | What it is |
 |---|---|
 | `bin/land-direct` | The lander: the configurable core of section 4.3. Hold and freeze markers, a run directory of its own per run, land-time checks, rebase in a scratch worktree, regeneration of generated files, hooks, Tier 1 on the rebased combination, bounded retries, plain fast-forward push, an exit code that says what to do next, a JSON last line, a metrics log. |
-| `bin/land-revert` | The watchdog (4.5): given the commit whose Tier 1 failed on CI and the last green one, bisects them with the repository's own Tier 1, reverts the first failing commit (and, when the revert conflicts, up to five later commits on the same files) and lands the revert through `land-direct`; alerts (exit 3) instead of guessing. `templates/vbm-land-revert.yml` runs it after a failed push run. |
 | `bin/run-probe`, `bin/no-crash-record`, `lib/no-crash-record.sh` | Crash-probe hygiene: deliberate-crash probes run in a private TMPDIR with `ulimit -c 0` plus the dumpable-clear preload (a probe launched otherwise is refused); the landing's no-crash-record check reads only crashes of its own process tree, session, scope or private directories. |
 | `bin/no-build-guard`, `lib/no-build-host.sh`, `templates/run-scoped.sh` | The heavy-host guard (`docs/no-build-host.md`): a host that carries a no-build marker (`/etc/vbm/no-build-host` or `<config dir>/vbm/no-build-host`) makes the helpers refuse (exit 2, nothing started; no override); `--lint` is the Tier 1 check that every declared long runner goes through a helper. |
-| `lib/` | `conf.sh` (the configuration reader), `infra-re.sh` (the infrastructure classifier), `freeze.sh`, `no-build-host.sh`, `no-crash-record.sh`, `pkg.sh` (a vendored package), `source.sh` (the pinned source). |
+| `lib/` | `conf.sh` (the configuration reader), `freeze.sh`, `no-build-host.sh`, `no-crash-record.sh`, `pkg.sh` (a vendored package), `source.sh` (the pinned source). |
 | `install`, `bin/land-check`, `bin/land-update`, `bin/land-audit`, `bin/land-manifest`, `MANIFEST.sha256` | Pinned vendoring (6.6): the installer, the drift check, the updater, the audit across repositories, and the manifest of every file a consumer vendors. |
 | `skills/` | Agent skills (`SKILL.md`): new-repo, land-a-change, triage-red, update-vbm-land, hold-and-freeze, adopt-in-existing-repo, release. A consumer gets them in `.agents/skills/` (installed and updated with the tool, drift-checked like it). |
-| `templates/` | A starter `land.conf` with examples for four ecosystems, the agent-instructions block, a CI workflow with Tier 1 on push and Tier 2 on a schedule, the branch and tag rulesets, and the public-repository settings checklist. |
+| `templates/` | A starter `land.conf` with examples for four ecosystems, the agent-instructions block, the branch and tag rulesets, and the public-repository settings checklist. |
 | `scripts/land.conf`, `scripts/land-direct` | This repository's own configuration and entry script: the repository lands itself with its own lander. |
 | `scripts/bootstrap-land` | A minimal, dependency-light lander. It landed this repository's first commits and stays as the recovery path if the full lander is ever broken on main. |
 | `tests/` | The test suite (below). `tests/run.sh` is this repository's Tier 1: the lints, then every `tests/test_*.sh` in parallel (about half a minute). |
-| `.github/workflows/ci.yml` | Tier 1 on a push to main. |
 
 Not built yet: a batch coordinator (the lander has its half: `--group`).
 
@@ -207,7 +201,6 @@ Hooks are executables in `scripts/land.d/`, taken from `origin/<base>` (so a cha
 | `post-tier1` | after Tier 1 passed: a gate that judges the tree Tier 1 just built (an attack suite, say) | refuses (12) |
 | `json-fields` | after Tier 1; prints `key=value` lines added to the JSON result (keys `[a-z_]+`; the contract keys cannot be overridden) | ignored |
 | `on-run` | at the end of every run, with `LAND_RESULT` | ignored |
-| `on-revert` | at the end of `land-revert`, with `LAND_REVERT_RESULT` (`reverted` or `alert`), `LAND_REVERT_CULPRIT`, `LAND_REVERT_SHAS`, `LAND_REVERT_TASK` (the culprit's first required trailer), `LAND_REVERT_AUTHOR`, `LAND_REVERT_SUBJECT`: tell the author | ignored |
 
 ### 6.5 Trust model
 
@@ -234,21 +227,20 @@ It writes, and commits nothing (review the diff, commit it as `chore(land): vbm-
 - `scripts/land/PIN` `source`, `version`, the 40-hex **`commit`** (a tag can move, a commit cannot) and `manifest_sha256`;
 - `.agents/skills/<name>/SKILL.md` the agent skills, one per file in `skills/` of the release;
 - `scripts/land-direct` a three-line entry script that runs the vendored lander, so "land with `scripts/land-direct`" stays true, **only if absent**: it is the repository's own afterwards (add an environment variable before the exec); the drift check only requires that it is executable and still runs `scripts/land/bin/land-direct`;
-- `.github/workflows/vbm-land-update.yml` the scheduled check (on dispatch, plus weekly only when the source is public (`.github/visibility`); read-only, a workflow of its own so it can never make the base branch red): the drift check with `--upstream`, then `scripts/land/bin/land-update --auto`: with the default `LAND_AUTO_UPDATE=none` it only reports `pinned X, latest Y, behind N (patch|minor|major)` as a warning and a summary line (like `--check`); with `LAND_AUTO_UPDATE=patch` or `minor` in `scripts/land.conf` it lands the newest release of that class itself through the repository's own lander (`land-update --land`), using a push token the repository holds (`VBM_LAND_PUSH_TOKEN`) on a runner that has its Tier 1 toolchain; a major release is never automatic, and a red or a refusal stops it with a failing job; only if absent;
 - `scripts/land.conf` a starter, **only if there is none**.
 
-Before writing anything the installer checks every file it fetched against the manifest at that same commit, and refuses a release that does not match or has no manifest. `templates/AGENTS-block.md` is the agent-instructions block to paste; `templates/ci.yml.example` is the CI workflow.
+Before writing anything the installer checks every file it fetched against the manifest at that same commit, and refuses a release that does not match or has no manifest. `templates/AGENTS-block.md` is the agent-instructions block to paste;
 
 **No local patches.** A repository that needs something different adds a configuration key or a hook upstream (one change, one release), or uses a hook of its own; it never edits the copy. The rule is mechanical:
 
 - `scripts/land/bin/land-check` is the **drift check**. Offline (run it in Tier 1; the lander also runs it on the rebased tree and refuses with exit 12): the manifest must hash to the pin, every vendored file (the tool, the templates, the skills) must hash to its entry and keep its executable bit, nothing else may sit in `scripts/land/`, and the repository's own `scripts/land.conf` (known keys) and `scripts/land.d/` (hooks have the fixed names above and must be executable; `*.sh` files are helpers the hooks source) must be well formed. Any difference fails: *edit vbm-land, not the copy*.
-- `scripts/land/bin/land-check --upstream` (the scheduled Tier 2, or by hand) also fetches the manifest at the **pinned commit** from the source and requires it to match, so a forged pin and tree edited together fail; it prints when a newer release exists (advice, never a failure) and exits 3 when the source cannot be reached (not verified).
+- `scripts/land/bin/land-check --upstream` (by hand) also fetches the manifest at the **pinned commit** from the source and requires it to match, so a forged pin and tree edited together fail; it prints when a newer release exists (advice, never a failure) and exits 3 when the source cannot be reached (not verified).
 - `scripts/land/bin/land-update <tag|commit>` replaces the tree and the pin with another release and verifies it; it commits nothing.
 - `bin/land-audit DIR...`, run from this repository, prints for each repository its pin, whether it is intact, and how far behind it is: the rollout table, from the repositories themselves.
 
 **Packages.** The same flow vendors another signed package (the first: the gate set) into `scripts/NAME/`: `scripts/land/bin/land-update --pkg NAME --source SRC --signers FILE <tag>`, its own `PIN` and `MANIFEST.sha256`, its own signers file, a drift check (`land-check` covers every pinned package) and a `scripts/NAME.conf` that accepts known keys only. Nothing is overridden. [docs/packages.md](docs/packages.md).
 
-How a repository gets the next release (pull only: a scheduled check and `land-update` in the consumer) is designed in [docs/update-propagation.md](docs/update-propagation.md).
+A repository takes the next release itself, with `land-update` (see Updating).
 
 **Signed releases.** A release is a signed, annotated tag made by `bin/land-release` (maintainer only; an ssh key in `LAND_SIGNING_KEY`, no gpg): the tag message records the hash of `MANIFEST.sha256`, so the signature binds the manifest and, through it, every vendored file. A consumer lists the public keys it trusts in its own `scripts/land.signers` (an ssh allowed-signers file, taken from the source out of band: `install --signers FILE`; this repository's own is `scripts/land.signers`, fingerprint and rotation in [docs/signing.md](docs/signing.md)). With that file present, `install` and `land-update` **refuse**, before anything of the new release runs or is written, a ref that is not a signed annotated tag, a signature that does not verify against the file, an unknown signer, or a tag whose recorded manifest hash differs from the manifest at that commit. Without a signers file they say `UNVERIFIED` and go on (the pin records `signature=unverified`). `land-update --land <tag>` is the whole update as the repository's own act: verify, stage, commit `chore(land): vbm-land <version>` (with the trailers its `land.conf` requires), and land it through the repository's **own** lander and gates, run from a pristine fresh clone of the base branch (the old lander lands the new copy); a hold, a red main, a failed Tier 1 or a refusing hook stops it with the lander's exit code, the commit stays local, nothing is forced. `land-update --diff <tag>` verifies the release and prints what it would change (changed, added and removed files with their diffs, and the CHANGELOG entries newer than the pin) without changing anything.
 
@@ -262,12 +254,12 @@ The lander **never force-pushes**: it pushes a plain fast-forward (`git push <re
 
 Preconditions (all three): only you and your agents write to it; main is not deployed; Tier 1 can be about a minute or less. If not, keep pull requests.
 
-1. **Define Tier 1**: one command that builds, lints and runs the fast tests. Time it. Over a minute: move the slow checks to Tier 2 first.
-2. **CI shape**: Tier 1 on `push` to main only, in a job named `tier1`; Tier 2 on a schedule (`templates/ci.yml.example`). Remove the `pull_request` trigger and any merge-queue workflow.
+1. **Define Tier 1**: one command that builds, lints and runs the fast tests. Time it. Over a minute: make the slow checks fast first (nothing runs after the push).
+2. **No CI**: delete the repository's workflows (`.github/workflows/`) and any merge-queue or pull-request automation; nothing runs after the push.
 3. **Vendor a signed release** (Quick start, in a fresh worktree off `origin/main`).
-4. **Configure `scripts/land.conf`**: `LAND_TEST_CMD` or `LAND_GATES_CMD`, `LAND_PROTECTED` (gate-defining files), `LAND_FIX_PATHS` (tests and CI).
+4. **Configure `scripts/land.conf`**: `LAND_TEST_CMD` or `LAND_GATES_CMD`, `LAND_PROTECTED` (gate-defining files), `LAND_FIX_PATHS` (tests).
 5. **Agent instructions**: paste `templates/AGENTS-block.md` into your `AGENTS.md` and delete any "open a PR" text.
-6. **Land the adoption itself** with the new lander: `scripts/land/bin/land-check && git add -A && git commit -m 'chore(land): adopt vbm-land vX.Y.Z' && scripts/land-direct`, then read the push CI.
+6. **Land the adoption itself** with the new lander: `scripts/land/bin/land-check && git add -A && git commit -m 'chore(land): adopt vbm-land vX.Y.Z' && scripts/land-direct`.
 7. **Retire the PR flow**: archive each open PR's diff and a reason, then close it.
 
 The same steps as an agent skill, with the do-not list: `skills/adopt-in-existing-repo/SKILL.md` (vendored into your repository with the tool). A repository created from scratch: `skills/new-repo/SKILL.md`.
@@ -282,10 +274,9 @@ Releases are annotated, ssh-signed tags `vX.Y.Z` made by `bin/land-release`. The
 
 ## Honest limits
 
-- **Not for adversaries.** A lander runs repository-supplied commands with your credentials; the protections (config and hooks read from main, the drift check, the independent push CI) turn mistakes into mechanical failures. They do not stop an agent that holds landing rights and wants to cheat ([6.5](#65-trust-model)).
+- **Not for adversaries.** A lander runs repository-supplied commands with your credentials; the protections (config and hooks read from main, the drift check) turn mistakes into mechanical failures. They do not stop an agent that holds landing rights and wants to cheat ([6.5](#65-trust-model)).
 - **Not built yet:** a batch coordinator (the lander has its half). Linux only.
 - **One writer population.** Pull requests are the right tool for outside contributors. This one is not, and a repository that adopts it should say so.
-- **The watchdog depends on your CI** (`templates/vbm-land-revert.yml`: a push token this repository holds and a runner with your Tier 1's toolchain); landing itself does not.
 - **Early.** The interface is versioned, but 0.x: read the CHANGELOG before a minor update.
 - **Public history as published.** The history was published as it stood, not re-written: early commit messages carry internal task identifiers and the author's name ([docs/flip-record.md](docs/flip-record.md)).
 - **Security and conduct of contributions:** [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md).

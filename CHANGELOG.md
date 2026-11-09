@@ -3,6 +3,17 @@
 Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last line, the hook names and the marker file names.
 Additive changes to it are minor releases; anything else is major.
 
+
+## 0.7.0
+
+Nothing runs after the push. **Removed** (major for a consumer that used them): `bin/land-revert` (the red-main watchdog) and its
+`on-revert` hook, `templates/vbm-land-revert.yml`, `templates/ci.yml.example`, `templates/vbm-land-update.yml` (install no longer
+writes `.github/workflows/vbm-land-update.yml`; land-update no longer stages it) `lib/infra-re.sh` and `docs/update-propagation.md`; this repository's
+own CI workflow. `scripts/bootstrap-land` reads no CI. Tier 1 runs once, before the push, on the rebased combination; if main is ever
+red, whoever sees it reverts the offending commit with `git revert` (`triage-red`).
+Upgrade notes: delete your `.github/workflows/` (CI, the watchdog and the update check), drop `LAND_CI_WORKFLOW`, `LAND_TIER1_JOB`,
+`LAND_RED_MODE` from `scripts/land.conf` (already ignored), and take releases by hand with `land-update`.
+
 ## Unreleased
 ## Strip (a deletion release: nothing is added, 1.4k lines go)
 - **Removed: gate-edit approvals, protected-paths lists, the `Protected:` trailer, the append-only judge, the diff budget, `--print-gate-diff[-hash]`.** The keys `LAND_APPROVALS`, `LAND_APPROVAL_DAYS`, `LAND_PROTECTED_LIST`, `LAND_PROTECTED_APPROVALS`, `LAND_GATE_APPEND_ONLY`, `LAND_PROD_PATHS` and `LAND_BUDGET_LINES` are read and ignored (named once). Reason: in a week 50 of 59 stops were false and approvals stopped nothing.

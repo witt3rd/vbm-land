@@ -10,7 +10,7 @@
 #
 # What it does (NO LOCK: any number of landers run at once, each in its own run directory; the remote's refusal of a push that is not a fast-forward is the only arbiter):
 #   hold? -> fetch -> land-time checks on every commit (Conventional subject, required trailers, size budget) -> hold? -> frozen? (a person's freeze: only a fix or a true revert lands; a RED main does not
-#   stop landing, the watchdog bin/land-revert reverts what made it red; no CI is read) -> rebase the commits onto <remote>/<base> in this run's own scratch
+#   stop landing: whoever sees it reverts the commit that made it red with git revert; nothing runs after the push, no CI is read) -> rebase the commits onto <remote>/<base> in this run's own scratch
 #   worktree (<git common dir>/vbm-land/run.<pid>.<random>/wt, removed at exit; a conflict ONLY in generated files takes base's file and regenerates) -> hooks -> Tier 1 (the gates command, then the test
 #   command) on that exact combination -> fetch again: base moved during Tier 1 = rebase and check again (up to LAND_ATTEMPTS attempts within LAND_DEADLINE seconds, then exit 16) -> `git push <remote> <sha>:<base>`, a
 #   plain fast-forward push: there is no force anywhere in this script.
@@ -203,7 +203,7 @@ prepare_hooks() {
 run_hook() { local n=$1; shift; [ -n "$hooks" ] && [ -x "$hooks/$n" ] || return 0
   (cd "${hookcwd:-$wt}" && LAND_RESULT=$result LAND_SHA=$sha LAND_COMMITS=$ncommits LAND_TIER1_SECONDS=$t1 bounded "$st" "hook $n" "$hooks/$n" "$@") >&2; }
 
-# ---- a freeze (a person's: a named owner and an expiry) stops landing but for a fix or a revert. A RED main does not: the watchdog (bin/land-revert) reverts the commit that made it red.
+# ---- a freeze (a person's: a named owner and an expiry) stops landing but for a fix or a revert. A RED main does not: whoever sees it reverts the commit that made it red with git revert.
 freezecheck() { freeze_active "$freezef" || return 0
   [ "$isfix" = 1 ] && echo "land-direct: $base is frozen; this change is a fix or a revert: landing" || stop 14 held "$base is frozen ($(freeze_describe "$freezef")): only a fix or a revert lands"; }
 
@@ -275,7 +275,7 @@ while :; do
   for stage in gates tests; do
     step=tier1-$stage; t1stage "$stage" "$wt" "$run/tier1.$stage.log" || {
       inherited_red "$stage" || { tail -15 "$run/tier1.$stage.log" >&2; lastlines=$(tail -5 "$run/tier1.$stage.log"); stop 13 tier1 "Tier 1 ($stage) fails on the rebased commits${newfail:+ (a failure $base does not have: $newfail)} (log: $run/tier1.$stage.log); nothing lands."; }
-      inherited=1; echo "land-direct: Tier 1 ($stage) fails, but only with failures $base already has (inherited red: the watchdog's, not yours); landing"; }
+      inherited=1; echo "land-direct: Tier 1 ($stage) fails, but only with failures $base already has (inherited red: not yours); landing"; }
   done
   t1=$(( $(date +%s) - ts )); prev=$bsha
   step=post-tier1-hook; run_hook post-tier1 || stop 12 refused "the post-tier1 hook refused this change (a gate that judges the tree after Tier 1, such as an attack suite; see above)"

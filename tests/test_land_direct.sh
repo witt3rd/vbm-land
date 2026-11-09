@@ -327,7 +327,7 @@ set_conf 'LAND_TEST_CMD=true'
 
 echo "## never force, never prune"
 check "no force push in the lander" bash -c "! grep -nE -- '--force|push +-f|push[^#]*\\+(refs|\\\$)' '$L' | grep -v 'no force\\|never'"
-check "no worktree prune in the lander" bash -c "! grep -n 'worktree prune' '$L' '$ROOT/bin/land-revert' | grep -v ':[0-9]*:[^#]*#'"
+check "no worktree prune in the lander" bash -c "! grep -Hn 'worktree prune' '$L' | grep -v ':[0-9]*:[^#]*#'"
 worker s1; git -C "$T/s1" worktree add -q "$T/s1-other" -b other; commit "$T/s1" s.txt 1
 lands "lands in a clone that has another worktree" "$T/s1"; check "the other worktree is untouched" test -e "$T/s1-other/.git"
 check "its registration is still there" bash -c "git -C '$T/s1' worktree list | grep -q s1-other"

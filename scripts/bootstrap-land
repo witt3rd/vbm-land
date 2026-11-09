@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # bootstrap-land: the minimal, self-contained lander that lands vbm-land's own first commits, and the recovery path
-# if the full lander (bin/land-direct) is ever broken on main. It has no dependencies beside bash, git, flock and gh.
+# if the full lander (bin/land-direct) is ever broken on main. It has no dependencies beside bash, git and flock; it reads no CI.
 #
 #   scripts/bootstrap-land [--dry-run] [<rev>]    lands the commits <remote>/<base>..<rev> (default HEAD) of the worktree it is run in
 #
-# Under one flock: refuse if a hold marker exists or main is red -> fetch -> rebase the commits onto <remote>/<base> in a scratch
+# Under one flock: refuse if a hold marker exists -> fetch -> rebase the commits onto <remote>/<base> in a scratch
 # worktree -> run Tier 1 on that exact combination -> fetch again (main moved: rebase and test again, 3 tries) -> plain fast-forward push.
 # There is no force push anywhere in this file. Locks and markers live in <git common dir>/vbm-land/, the same place bin/land-direct uses,
 # so the two landers exclude each other.
@@ -13,7 +13,7 @@
 #             14 held | 15 busy (lock not free within LAND_LOCK_WAIT_SECONDS, default 90)
 # Last stdout line is JSON: {"sha","commits","tier1_seconds","result","exit"}.
 # Settings (environment): LAND_REMOTE (origin) LAND_BASE (main) LAND_TIER1_CMD (tests/run.sh) LAND_RED_CHECK (on|off: needs gh; default on)
-#   LAND_CI_WORKFLOW (ci.yml) LAND_TIER1_JOB (tier1) LAND_STEP_TIMEOUT (1800) LAND_GIT_TIMEOUT (180) GH (gh)
+#   LAND_STEP_TIMEOUT (1800) LAND_GIT_TIMEOUT (180)
 export LC_ALL=C
 set -euo pipefail
 remote=${LAND_REMOTE:-origin}; base=${LAND_BASE:-main}; tier1=${LAND_TIER1_CMD:-tests/run.sh}; gh=${GH:-gh}
@@ -27,21 +27,6 @@ bounded() { local s=$1 label=$2 rc=0; shift 2; timeout --kill-after=30 "$s" "$@"
 top=$(git rev-parse --show-toplevel) || exit 2
 common=$(git -C "$top" rev-parse --path-format=absolute --git-common-dir); state=$common/vbm-land; mkdir -p "$state"
 hold() { [ ! -e "$state/hold" ] || stop 14 held "HOLD in force: $(sed -n 1p "$state/hold"); not landing."; }
-red() {   # red = the Tier 1 job of the base branch's latest push run failed (finished or not) for a reason that is not the infrastructure's; no run yet is not red; gh failing is red
-  [ "${LAND_RED_CHECK:-on}" = on ] || return 0
-  local r id jobs err n c j j1= l1=
-  err=$(mktemp)
-  r=$("$gh" run list --workflow "${LAND_CI_WORKFLOW:-ci.yml}" --branch "$base" --limit 20 --json databaseId,event --jq '[.[]|select(.event=="push")]|.[0].databaseId // empty' 2>"$err") || {
-    if grep -q 'HTTP 404.*workflow .* not found' "$err"; then rm -f "$err"; echo "bootstrap-land: no CI workflow on $base yet: nothing can be red" >&2; return 0; fi   # the very first landing adds the workflow
-    rm -f "$err"; stop 10 blocked-red "cannot tell whether $base is red (gh failed): not landing"; }
-  rm -f "$err"; [ -n "$r" ] || return 0; id=$r
-  jobs=$("$gh" run view "$id" --json jobs --jq '.jobs[]|[.name,(.conclusion // ""),(.databaseId|tostring)]|join("\u001f")') || stop 10 blocked-red "cannot tell whether $base is red (gh failed): not landing"
-  while IFS=$'\x1f' read -r n c j; do if [ "$n" = "${LAND_TIER1_JOB:-tier1}" ]; then l1=$c; j1=${j:-}; fi; done <<<"$jobs"
-  case $l1 in failure|timed_out)
-    . "$(dirname "$0")/../lib/infra-re.sh"
-    if infra_failure "$id" "$j1"; then echo "bootstrap-land: $base is red for an infrastructure reason (run $id): not blocking" >&2; return 0; fi
-    stop 10 blocked-red "$base is red: Tier 1 of its latest push failed (run $id). Land the fix first.";; esac
-}
 hold
 bounded "${LAND_GIT_TIMEOUT:-180}" fetch git -C "$top" fetch -q "$remote" "$base" || stop 1 error "cannot fetch $remote $base"
 tip=$(git -C "$top" rev-parse --verify -q "$rev^{commit}") || stop 2 error "no such revision: $rev"
@@ -49,7 +34,7 @@ list=$(git -C "$top" rev-list --reverse "$remote/$base..$tip"); [ -n "$list" ] |
 [ -z "$(git -C "$top" rev-list --merges "$remote/$base..$tip")" ] || stop 2 error "merge commits: history lands linear; rebase onto $remote/$base first"
 n=$(wc -l <<<"$list")
 exec 9>"$state/lock"; flock -w "${LAND_LOCK_WAIT_SECONDS:-90}" 9 || stop 15 busy "another lander holds the lock; run again"
-hold; red
+hold
 wt=$state/wt
 if [ ! -e "$wt/.git" ]; then rm -rf "$wt"; git -C "$top" worktree add -q -f --detach "$wt" "$remote/$base"; fi   # our own path only: never `git worktree prune` a shared clone
 g() { git -C "$wt" "$@"; }
@@ -65,7 +50,7 @@ for attempt in 1 2 3; do
   t1=$(( $(date +%s) - ts )); sha=$(g rev-parse HEAD)
   bounded "${LAND_GIT_TIMEOUT:-180}" fetch git -C "$wt" fetch -q "$remote" "$base" || stop 1 error "cannot fetch $remote $base"
   if ! g merge-base --is-ancestor "$remote/$base" HEAD; then [ "$attempt" -lt 3 ] || stop 1 error "$base moved three times during Tier 1; run again."; echo "bootstrap-land: $base moved during Tier 1: again ($attempt of 3)"; continue; fi
-  hold; red
+  hold
   [ "$dry" = 0 ] || { result=would-land; echo "bootstrap-land: dry run: would land ${sha:0:12} (tier1 ${t1}s)"; exit 0; }
   if bounded "${LAND_GIT_TIMEOUT:-180}" push git -C "$wt" push -q "$remote" "$sha:refs/heads/$base" 2>"$state/push.log"; then result=landed; echo "bootstrap-land: ${sha:0:12} is $base: $n commit(s), tier1 ${t1}s"; exit 0; fi
   echo "bootstrap-land: push refused (main moved?): again ($attempt of 3)" >&2

@@ -20,7 +20,7 @@ check "the stub is executable and runs the vendored lander" bash -c "'$T/c1/scri
 check "PIN records source, version, a 40-hex commit and the manifest hash" bash -c "cd '$T/c1/scripts/land' && grep -q '^source=$S\$' PIN && grep -q '^version=v1.0.0\$' PIN && grep -qE '^commit=[0-9a-f]{40}\$' PIN && grep -qE '^manifest_sha256=[0-9a-f]{64}\$' PIN"
 check "the pinned commit is the source's tag" bash -c "grep -q \"^commit=\$(git -C '$S' rev-parse v1.0.0)\$\" '$T/c1/scripts/land/PIN'"
 check "the skills are vendored into .agents/skills/" bash -c "cd '$T/c1' && for n in new-repo land-a-change triage-red update-vbm-land hold-and-freeze adopt-in-existing-repo release; do grep -q \"^name: \$n\\\$\" .agents/skills/\$n/SKILL.md || exit 1; done"
-check "the templates the skills point at are vendored under scripts/land/templates/" bash -c "cd '$T/c1/scripts/land/templates' && test -f AGENTS-block.md -a -f ci.yml.example -a -f ruleset-protect-main.json -a -f ruleset-protect-release-tags.json -a -f PUBLIC-REPO-SETTINGS.md"
+check "the templates the skills point at are vendored under scripts/land/templates/" bash -c "cd '$T/c1/scripts/land/templates' && test -f AGENTS-block.md -a -f ruleset-protect-main.json -a -f ruleset-protect-release-tags.json -a -f PUBLIC-REPO-SETTINGS.md"
 check "a starter scripts/land.conf was created" test -f "$T/c1/scripts/land.conf"
 echo "LAND_TEST_CMD=my-own-tests" > "$T/c1/scripts/land.conf"
 "$S/install" --source "$S" --target "$T/c1" v1.0.0 >/dev/null
@@ -33,7 +33,7 @@ expect_exit "install needs a git repository as target" 2 "$S/install" --source "
 echo "## drift check, offline"
 expect_exit "an untouched copy passes" 0 chk "$T/c1"; out_has "is intact"
 for case_ in "edit:echo '# local patch' >> scripts/land/bin/run-probe:differs from the pinned release" \
-             "delete:rm scripts/land/lib/infra-re.sh:is missing" \
+             "delete:rm scripts/land/lib/freeze.sh:is missing" \
              "extra file:echo x > scripts/land/lib/local.sh:not part of the pinned release" \
              "not executable:chmod -x scripts/land/bin/land-direct:not executable" \
              "entry script no longer runs the lander:echo 'exit 0' > scripts/land-direct:does not run the pinned lander" \
@@ -111,15 +111,6 @@ GITHUB_ACTIONS=true GITHUB_STEP_SUMMARY=$T/summary expect_exit "under Actions it
 check "the summary line was written" grep -q "behind 3 releases (major)" "$T/summary"
 expect_exit "an unreachable source is exit 3, never 'up to date'" 3 upd "$T/d2"; out_has "NOT verified up to date"
 rm -rf "$T/d"; mkdir -p "$T/d"; expect_exit "a repository without a pin is exit 2" 2 "$T/c1/scripts/land/bin/land-update" --check --root "$T/d"
-check "install wrote the update workflow (dispatch only: this source is not public; read-only, a separate file from the gate)" bash -c "f='$T/c1/.github/workflows/vbm-land-update.yml'; ! grep -q 'schedule:\|cron' \$f && ! grep -q '#weekly' \$f && grep -q 'workflow_dispatch' \$f && grep -q 'contents: read' \$f && grep -q 'land-update --auto' \$f && grep -q 'land-check --upstream' \$f"
-mkdir -p "$T/c1p" && git init -q "$T/c1p" && ( cd "$S" && mkdir -p .github && echo public > .github/visibility && git add -A && git -c commit.gpgsign=false commit -qm "chore: mark public" && git tag v1.0.0-pub )
-"$S/install" --source "$S" --target "$T/c1p" v1.0.0-pub >/dev/null
-check "a PUBLIC source ships the weekly schedule too (marker stripped, valid yaml shape)" bash -c "f='$T/c1p/.github/workflows/vbm-land-update.yml'; grep -q '^  schedule:\$' \$f && grep -q \"cron: '23 6 \\* \\* 1'\\$\" \$f && grep -q workflow_dispatch \$f && ! grep -q '#weekly' \$f"
-( cd "$S" && git reset -q --hard v1.0.0 && git tag -d v1.0.0-pub >/dev/null && git clean -fdq )
-echo '# mine' >> "$T/c1/.github/workflows/vbm-land-update.yml"; "$S/install" --source "$S" --target "$T/c1" v1.0.0 >/dev/null
-check "re-installing never overwrites the repository's own workflow" grep -q '^# mine' "$T/c1/.github/workflows/vbm-land-update.yml"
-rm "$T/c1/.github/workflows/vbm-land-update.yml"; "$S/install" --source "$S" --target "$T/c1" v1.0.0 >/dev/null
-check "an update never brings back a workflow the repository deleted (the repository's own files are made by the first install only)" test ! -e "$T/c1/.github/workflows/vbm-land-update.yml"
 "$S/install" --source "$S" --target "$T/c1" v1.1.0 >/dev/null
 
 echo "## land-update --land: the whole update through the repository's own lander"

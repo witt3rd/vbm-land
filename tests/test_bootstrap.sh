@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bootstrap-land against a scratch repo with a bare remote: lands; refuses (red, hold, conflict, Tier 1 failure, busy); main moving
+# bootstrap-land against a scratch repo with a bare remote: lands; refuses (hold, conflict, Tier 1 failure, busy); main moving
 # during Tier 1; two racing workers; never force-pushes; never prunes a shared clone's worktrees.
 . "$(dirname "$0")/lib.sh"
 sandbox
@@ -26,17 +26,8 @@ mkdir -p "$T/w2/.git/vbm-land"; echo "maintenance" > "$T/w2/.git/vbm-land/hold"
 ( cd "$T/w2" && expect_exit "hold refuses" 14 "$L" ); out_has maintenance
 rm -f "$T/w2/.git/vbm-land/hold"
 
-# a red main refuses (and a gh that fails is red: not knowing is not green)
-gh_mode red;  ( cd "$T/w2" && expect_exit "red main refuses" 10 "$L" )
-# an infrastructure failure (billing, runner, network) is not red; a code failure with an unreadable log still is
-gh_mode infra; ( cd "$T/w2" && expect_exit "infrastructure red (log) does not block" 0 "$L" --dry-run ); out_has "infrastructure reason"
-gh_mode red; echo "The job was not started because recent account payments have failed" > "$T/gh/annotations"
 ( cd "$T/w2" && expect_exit "infrastructure red (annotation) does not block" 0 "$L" --dry-run ); rm -f "$T/gh/annotations"
-gh_mode red; ( cd "$T/w2" && expect_exit "code red still blocks" 10 "$L" )
-gh_mode fail; ( cd "$T/w2" && expect_exit "unknowable main refuses" 10 "$L" )
-gh_mode noworkflow; ( cd "$T/w2" && expect_exit "no CI workflow on main yet is not red" 0 "$L" )
 worker w2b; commit "$T/w2b" twob.txt 2
-gh_mode none; ( cd "$T/w2b" && LAND_RED_CHECK=off expect_exit "red check off lands without gh" 0 "$L" )
 
 # main moves during Tier 1: the lander rebases and tests again
 worker w4; worker w5; commit "$T/w4" four.txt 4; commit "$T/w5" five.txt 5
