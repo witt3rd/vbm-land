@@ -11,7 +11,7 @@
 # Exit codes: 0 ok | 1 drift | 2 not installed or unreadable pin | 3 upstream not reachable (1 wins over 3).
 set -euo pipefail
 export LC_ALL=C
-here=$(cd "$(dirname "$0")" && pwd); . "$here/../lib/source.sh"
+here=$(cd "$(dirname "$0")" && pwd); . "$here/../lib/source.sh"; . "$here/../lib/paths.sh"
 upstream=0; root=
 while [ $# -gt 0 ]; do case $1 in --upstream) upstream=1;; --root) root=${2:?--root needs a directory}; shift;; *) echo "usage: land-check [--upstream] [--root DIR]" >&2; exit 2;; esac; shift; done
 [ -n "$root" ] || root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
@@ -19,7 +19,7 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/land-check.XXXXXX"); trap 'rm -rf "$tmp"' EXIT
 . "$here/../lib/conf.sh"; conf_defaults
 allbad=0; unreach=0
 check_one() {   # the pin, the manifest, every listed file (hash, executable bit), nothing extra; with --upstream the source's manifest at the pinned commit
-  local pdir=scripts/land label=vbm-land pin man p_source p_version p_commit p_msha h f v upd=scripts/land/bin/land-update bad=0 msg latest e
+  local pdir=$LAND_DIR label=vbm-land pin man p_source p_version p_commit p_msha h f v upd=$LAND_DIR/bin/land-update bad=0 msg latest e
   pin=$root/$pdir/PIN; man=$root/$pdir/MANIFEST.sha256
   [ -r "$pin" ] && [ -r "$man" ] || { echo "land-check: no pinned copy in $root ($pdir/PIN or MANIFEST.sha256 missing): not installed" >&2; exit 2; }
   pinval() { sed -n "s/^$1=//p" "$pin" | sed -n 1p; }
@@ -29,7 +29,7 @@ check_one() {   # the pin, the manifest, every listed file (hash, executable bit
   [ "$(sha256sum < "$man" | cut -d' ' -f1)" = "$p_msha" ] || drift "$pdir/MANIFEST.sha256 does not hash to the pin's manifest_sha256"
   declare -A listed=()
   while read -r h f; do
-    [ -n "$f" ] || continue; case "$f" in skills/*) v=.agents/$f;; *) v=scripts/land/$f;; esac; listed[$v]=1
+    [ -n "$f" ] || continue; v=$(land_vpath "$f"); listed[$v]=1
     if [ ! -f "$root/$v" ]; then drift "$v is missing"; continue; fi
     [ "$(sha256sum < "$root/$v" | cut -d' ' -f1)" = "$h" ] || drift "$v differs from the pinned release"
     case $f in bin/*) [ -x "$root/$v" ] || drift "$v is not executable";; esac
@@ -39,15 +39,15 @@ check_one() {   # the pin, the manifest, every listed file (hash, executable bit
   done < <(find "$root/$pdir" -type f | LC_ALL=C sort)
   # the repository's own files: well formed. scripts/land-direct is the repository's own entry script (install creates it from templates/land-direct-stub when absent; add what you need before the exec):
   # it must be executable and still run the pinned lander.
-  e=$(grep -v '^[[:space:]]*#' "$root/scripts/land-direct" 2>/dev/null || true)
-  { [ -x "$root/scripts/land-direct" ] && grep -q 'land/bin/land-direct' <<<"$e"; } || drift "scripts/land-direct is missing, not executable, or does not run the pinned lander (scripts/land/bin/land-direct)"
-  if [ -r "$root/scripts/land.conf" ]; then ( conf_defaults; conf_parse scripts/land.conf < "$root/scripts/land.conf" ) 2>&1 >/dev/null | sed 's/^/DRIFT: /' >&2 && [ "${PIPESTATUS[0]}" = 0 ] || bad=1; fi
-  if [ -d "$root/scripts/land.d" ]; then   # hooks have fixed names and must be executable; `*.sh` files are helpers the hooks source; anything else is a hook that would silently never run
-    for h in "$root"/scripts/land.d/*; do [ -f "$h" ] || continue; n=${h##*/}
+  e=$(grep -v '^[[:space:]]*#' "$root/$LAND_ENTRY" 2>/dev/null || true)
+  { [ -x "$root/$LAND_ENTRY" ] && grep -q "${LAND_DIR##*/}/bin/land-direct" <<<"$e"; } || drift "$LAND_ENTRY is missing, not executable, or does not run the pinned lander ($LAND_DIR/bin/land-direct)"
+  if [ -r "$root/$LAND_CONF_FILE" ]; then ( conf_defaults; conf_parse "$LAND_CONF_FILE" < "$root/$LAND_CONF_FILE" ) 2>&1 >/dev/null | sed 's/^/DRIFT: /' >&2 && [ "${PIPESTATUS[0]}" = 0 ] || bad=1; fi
+  if [ -d "$root/$LAND_HOOKS_DEFAULT" ]; then   # hooks have fixed names and must be executable; `*.sh` files are helpers the hooks source; anything else is a hook that would silently never run
+    for h in "$root/$LAND_HOOKS_DEFAULT"/*; do [ -f "$h" ] || continue; n=${h##*/}
       case $n in
-        prepare|pre-rebase|post-rebase|post-tier1|json-fields|on-run) [ -x "$h" ] || drift "scripts/land.d/$n is not executable (a hook that is not executable is silently never run)";;
+        prepare|pre-rebase|post-rebase|post-tier1|json-fields|on-run) [ -x "$h" ] || drift "$LAND_HOOKS_DEFAULT/$n is not executable (a hook that is not executable is silently never run)";;
         *.sh) ;;
-        *) drift "scripts/land.d/$n is not a hook name (prepare, pre-rebase, post-rebase, post-tier1, json-fields, on-run) nor a *.sh helper: it would silently never run";;
+        *) drift "$LAND_HOOKS_DEFAULT/$n is not a hook name (prepare, pre-rebase, post-rebase, post-tier1, json-fields, on-run) nor a *.sh helper: it would silently never run";;
       esac
     done
   fi

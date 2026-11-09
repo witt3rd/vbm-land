@@ -34,14 +34,14 @@
 # Commands the lander runs get: LAND_TOP (the worktree landed from), LAND_BASE_REF (<remote>/<base>), LAND_STATE_DIR (shared by every run of the clone: hold, freeze, metrics), LAND_RUN_DIR (this run's own: scratch worktree, hooks, logs), LAND_ATTEMPT (1, 2, ...) and LAND_PREV_BASE (the base commit the last attempt validated against; empty on the first), LAND_TASK (the tip's first required trailer value).
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd); lib=$here/../lib
-. "$lib/conf.sh"; . "$lib/freeze.sh"
+. "$lib/conf.sh"; . "$lib/freeze.sh"; . "$lib/paths.sh"
 # operator knobs first, then clear every policy variable so only the repository's file can set policy
 ignored=; for k in LAND_LOCK_WAIT_SECONDS LAND_LEASE_STALE_SECONDS; do [ -z "${!k:-}" ] || ignored="$ignored $k"; done   # the lock is gone: these are read, ignored and named once
 o_t1=${LAND_TIER1_TIMEOUT:-}; o_st=${LAND_STEP_TIMEOUT:-}; o_gt=${LAND_GIT_TIMEOUT:-}; o_conf=${LAND_CONF:-}; o_fixred=${LAND_FIX_FOR_RED:-}
 conf_defaults
 
 usage() { echo "usage: land-direct [--dry-run] [--check] [--group] [--conf PATH] [<rev>] | --hold REASON | --release | --freeze REASON --owner NAME --for DURATION | --thaw | --status | --print-gate-diff-hash FILE-SET [<rev>] | --print-gate-diff FILE-SET [<rev>] | --version" >&2; exit 2; }
-dry=0; checkonly=0; group=0; confpath=scripts/land.conf; [ -z "$o_conf" ] || confpath=$o_conf; args=(); op=; opreason=; owner=; dur=; pfile=
+dry=0; checkonly=0; group=0; confpath=$LAND_CONF_FILE; [ -z "$o_conf" ] || confpath=$o_conf; args=(); op=; opreason=; owner=; dur=; pfile=
 while [ $# -gt 0 ]; do case $1 in
   --dry-run) dry=1;; --check) checkonly=1;; --group) group=1;;
   --conf) confpath=${2:?--conf needs a path}; shift;;
@@ -267,9 +267,9 @@ while :; do
   if [ "${LAND_OWNER:-}" != 1 ]; then while IFS= read -r f; do   # a signing keys file that already exists changes only by its owner (a first install of one is not a change)
     case $f in *.signers) ! g cat-file -e "$bsha:$f" 2>/dev/null || stop 12 refused "$f (a signing keys file) changes only by its owner (LAND_OWNER=1); not landing.";; esac; done < "$run/touched.txt"; fi
   step=post-rebase-hook; run_hook post-rebase || stop 12 refused "the post-rebase hook refused this change (protected set / gate checks; see above)"
-  if [ -x "$wt/scripts/land/bin/land-check" ] && [ -e "$wt/scripts/land/PIN" ]; then   # a vendored copy of this tool: it must still be what its pin says
-    rc=0; (cd "$wt" && bounded "$st" "vendored-copy drift check" scripts/land/bin/land-check) >&2 || rc=$?
-    [ "$rc" = 0 ] || stop 12 refused "the vendored copy of this tool under scripts/land/ differs from its pin (edit the source repository, not the copy); not landing."
+  if [ -x "$wt/$LAND_DIR/bin/land-check" ] && [ -e "$wt/$LAND_PIN" ]; then   # a vendored copy of this tool: it must still be what its pin says
+    rc=0; (cd "$wt" && bounded "$st" "vendored-copy drift check" "$LAND_DIR/bin/land-check") >&2 || rc=$?
+    [ "$rc" = 0 ] || stop 12 refused "the vendored copy of this tool under $LAND_DIR/ differs from its pin (edit the source repository, not the copy); not landing."
   fi
   export LAND_ATTEMPT=$attempt LAND_PREV_BASE=$prev; ts=$(date +%s)
   for stage in gates tests; do
