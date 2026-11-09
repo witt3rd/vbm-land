@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # install [--source SRC] [--target DIR] <tag|commit>
 #
-# Vendors a PINNED copy of vbm-land into a repository: scripts/land/ (the tool, read-only by contract), scripts/land/PIN, the agent skills in .agents/skills/<name>/SKILL.md (drift-checked too), the entry script scripts/land-direct (three lines that exec it, so "land with
-# scripts/land-direct" stays true), and a starter scripts/land.conf, each only on the FIRST install and only when absent (they are yours afterwards: delete the workflow if your repository cannot use it and no update brings it back). It commits nothing: review the diff and commit
-# it as one change (`chore(land): vbm-land <version>`). Re-running it with another ref is the update.
+# Vendors a PINNED copy of vbm-land into a repository: the tool (read-only by contract) with its MANIFEST.sha256 and PIN under the tool folder, the agent skills beside them, the entry script (three
+# lines that exec it, so "land with the entry script" stays true), and a starter settings file, each only on the FIRST install and only when absent (they are yours afterwards: delete the workflow if
+# your repository cannot use it and no update brings it back). Every path it writes is defined once, in lib/paths.sh. It commits nothing: review the diff and commit it as one change
+# (`chore(land): vbm-land <version>`). Re-running it with another ref is the update.
 #
 #   SRC     where the source repository is: OWNER/NAME (GitHub, through `gh`, so a private repository works), or anything git can clone (URL, path).
 #           Default: $VBM_LAND_SOURCE.
 #   ref     a tag or a commit. The pin records the 40-hex COMMIT (a tag can move, a commit cannot) and the hash of the release's manifest.
 #   --target DIR   the repository to install into (default: the current repository's root).
-#   --signers FILE an ssh allowed-signers file (the maintainer's public key, taken from a source you trust, out of band): copied to scripts/land.signers when absent. With a signers file the
+#   --signers FILE an ssh allowed-signers file (the maintainer's public key, taken from a source you trust, out of band): copied to the repository's signers file when absent. With a signers file the
 #                  release MUST be a signed tag from an allowed signer that records the manifest it points at, or nothing is written; without one the install says UNVERIFIED.
 #
 # One command, from the target repository:
@@ -21,7 +22,7 @@ export LC_ALL=C
 src=${VBM_LAND_SOURCE:-}; target=; ref=; signers_arg=
 while [ $# -gt 0 ]; do case $1 in
   --source) src=${2:?--source needs a value}; shift;; --target) target=${2:?--target needs a directory}; shift;; --signers) signers_arg=${2:?--signers needs a file}; shift;;
-  -h|--help) sed -n '2,17p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0;;
+  -h|--help) sed -n '2,18p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0;;
   -*) echo "usage: install [--source SRC] [--target DIR] <tag|commit>" >&2; exit 2;; *) ref=$1;; esac; shift; done
 [ -n "$src" ] && [ -n "$ref" ] || { echo "usage: install [--source SRC] [--target DIR] <tag|commit>   (SRC: OWNER/NAME or a git URL or path)" >&2; exit 2; }
 [ -n "$target" ] || target=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "install: not inside a git repository (use --target DIR)" >&2; exit 2; }
@@ -33,12 +34,14 @@ if [[ "$src" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] && [ ! -e "$src" ]; then
 else git clone -q --bare -- "$src" "$tmp/src" >/dev/null 2>&1 || { echo "install: cannot clone $src" >&2; exit 1; }; fi
 commit=$(git -C "$tmp/src" rev-parse --verify -q "$ref^{commit}") || { echo "install: $src has no tag or commit '$ref'" >&2; exit 1; }
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "install: unexpected commit id for $ref" >&2; exit 1; }
-signers=; if [ -n "$signers_arg" ]; then signers=$signers_arg; elif [ -r "$target/scripts/land.signers" ]; then signers=$target/scripts/land.signers; fi
+git -C "$tmp/src" show "$commit:lib/paths.sh" > "$tmp/paths.sh" || { echo "install: $ref has no lib/paths.sh: not a release of this tool" >&2; exit 1; }   # the release defines the paths it writes: read them from it, before anything is written
+. "$tmp/paths.sh"
+signers=; if [ -n "$signers_arg" ]; then signers=$signers_arg; elif [ -r "$target/$LAND_SIGNERS_FILE" ]; then signers=$target/$LAND_SIGNERS_FILE; fi
 src_verify() {   # the same rules as lib/source.sh (the installer of a first install is self-contained)
   local dest=$1 r=$2 sg=${3:-} kind want got
-  if [ -z "$sg" ]; then echo "UNVERIFIED: no signers file (scripts/land.signers): the release signature was not checked"; return 10; fi
+  if [ -z "$sg" ]; then echo "UNVERIFIED: no signers file ($LAND_SIGNERS_FILE): the release signature was not checked"; return 10; fi
   [ -r "$sg" ] || { echo "REFUSED: signers file $sg is not readable" >&2; return 1; }
-  kind=$(git -C "$dest" cat-file -t "refs/tags/$r" 2>/dev/null) || { echo "REFUSED: $r is not a release tag, and this repository requires signed releases (scripts/land.signers); pass the tag, not a commit" >&2; return 1; }
+  kind=$(git -C "$dest" cat-file -t "refs/tags/$r" 2>/dev/null) || { echo "REFUSED: $r is not a release tag, and this repository requires signed releases ($LAND_SIGNERS_FILE); pass the tag, not a commit" >&2; return 1; }
   [ "$kind" = tag ] || { echo "REFUSED: $r is a lightweight tag: a signed, annotated release tag is required" >&2; return 1; }
   git -C "$dest" -c gpg.format=ssh -c "gpg.ssh.allowedSignersFile=$sg" verify-tag "$r" >/dev/null 2>&1 || { echo "REFUSED: the signature of tag $r does not verify against $sg (unsigned, or an unknown signer)" >&2; return 1; }
   want=$(git -C "$dest" tag -l --format='%(contents)' "$r" | sed -n 's/^manifest_sha256=//p' | sed -n 1p)
@@ -55,21 +58,22 @@ while read -r h f; do
   [ -f "$tmp/tree/$f" ] && [ "$(sha256sum < "$tmp/tree/$f" | cut -d' ' -f1)" = "$h" ] || { echo "install: $f at $ref does not match its manifest entry: refusing" >&2; exit 1; }
 done < "$tmp/MANIFEST.sha256"
 version=v$(cat "$tmp/tree/VERSION")
-vpath() { case "$1" in skills/*) echo ".agents/$1";; *) echo "scripts/land/$1";; esac; }
-[ ! -r "$target/scripts/land/MANIFEST.sha256" ] || while read -r _ f; do case $f in skills/*) rm -f "$target/$(vpath "$f")";; esac; done < "$target/scripts/land/MANIFEST.sha256"   # skills the new release dropped
-first=0; [ -e "$target/scripts/land/PIN" ] || first=1   # the repository's own files are created by the FIRST install only
-rm -rf "$target/scripts/land"; mkdir -p "$target/scripts/land"
+# vpath is land_vpath: the release's own lib/paths.sh, sourced above, defines every path this tool writes
+[ ! -r "$target/$LAND_MANIFEST_FILE" ] || while read -r _ f; do case $f in skills/*) rm -f "$target/$(land_vpath "$f")";; esac; done < "$target/$LAND_MANIFEST_FILE"   # skills the new release dropped
+first=0; [ -e "$target/$LAND_PIN" ] || first=1   # the repository's own files are created by the FIRST install only
+rm -rf "$target/$LAND_DIR"; mkdir -p "$target/$LAND_DIR"   # the tool folder is replaced whole: a file the release dropped disappears
+# land_vpath (lib/paths.sh, above): where a path of the release payload goes in the target
 while read -r h f; do
-  [ -n "$f" ] || continue; v=$(vpath "$f"); mkdir -p "$target/$(dirname "$v")"; cp "$tmp/tree/$f" "$target/$v"
+  [ -n "$f" ] || continue; v=$(land_vpath "$f"); mkdir -p "$target/$(dirname "$v")"; cp "$tmp/tree/$f" "$target/$v"
   case $f in bin/*) chmod +x "$target/$v";; *) chmod -x "$target/$v";; esac
 done < "$tmp/MANIFEST.sha256"
-cp "$tmp/MANIFEST.sha256" "$target/scripts/land/MANIFEST.sha256"
-printf 'source=%s\nversion=%s\ncommit=%s\nmanifest_sha256=%s\nsignature=%s\n' "$src" "$version" "$commit" "$(sha256sum < "$tmp/MANIFEST.sha256" | cut -d' ' -f1)" "$([ "$vrc" = 0 ] && echo verified || echo unverified)" > "$target/scripts/land/PIN"
-[ -z "$signers_arg" ] || [ -e "$target/scripts/land.signers" ] || cp "$signers_arg" "$target/scripts/land.signers"
+cp "$tmp/MANIFEST.sha256" "$target/$LAND_MANIFEST_FILE"
+printf 'source=%s\nversion=%s\ncommit=%s\nmanifest_sha256=%s\nsignature=%s\n' "$src" "$version" "$commit" "$(sha256sum < "$tmp/MANIFEST.sha256" | cut -d' ' -f1)" "$([ "$vrc" = 0 ] && echo verified || echo unverified)" > "$target/$LAND_PIN"
+[ -z "$signers_arg" ] || [ -e "$target/$LAND_SIGNERS_FILE" ] || cp "$signers_arg" "$target/$LAND_SIGNERS_FILE"
 created=
-if [ "$first" = 1 ] && [ ! -e "$target/scripts/land-direct" ]; then cp "$tmp/tree/templates/land-direct-stub" "$target/scripts/land-direct"; chmod +x "$target/scripts/land-direct"; created="$created and the entry script scripts/land-direct"; fi
-if [ "$first" = 1 ] && [ ! -e "$target/scripts/land.conf" ]; then cp "$tmp/tree/templates/land.conf.example" "$target/scripts/land.conf"; created="$created and a starter scripts/land.conf (edit it: at least LAND_TEST_CMD or LAND_GATES_CMD)"; fi
-"$target/scripts/land/bin/land-check" --root "$target" >/dev/null || { echo "install: the installed copy fails its own drift check" >&2; exit 1; }
+if [ "$first" = 1 ] && [ ! -e "$target/$LAND_ENTRY" ]; then cp "$tmp/tree/templates/land-direct-stub" "$target/$LAND_ENTRY"; chmod +x "$target/$LAND_ENTRY"; created="$created and the entry script $LAND_ENTRY"; fi
+if [ "$first" = 1 ] && [ ! -e "$target/$LAND_CONF_FILE" ]; then cp "$tmp/tree/templates/land.conf.example" "$target/$LAND_CONF_FILE"; created="$created and a starter $LAND_CONF_FILE (edit it: at least LAND_TEST_CMD or LAND_GATES_CMD)"; fi
+"$target/$LAND_DIR/bin/land-check" --root "$target" >/dev/null || { echo "install: the installed copy fails its own drift check" >&2; exit 1; }
 echo "install: $vmsg"
-echo "install: vbm-land $version ($commit) vendored into $target/scripts/land$created."
+echo "install: vbm-land $version ($commit) vendored into $target/$LAND_DIR$created."
 echo "install: review and commit it as one change: chore(land): vbm-land $version. Agent-instructions block: templates/AGENTS-block.md in the source."

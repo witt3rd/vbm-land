@@ -6,6 +6,8 @@
 # The values that name commands (LAND_GATES_CMD, LAND_TEST_CMD, ...) are run later, by the lander, with `bash -c` inside the scratch worktree.
 #
 # The keys and their defaults are the stable interface of this tool (README, "Configuration"): conf_defaults sets them, conf_parse reads a file.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/paths.sh"   # every consumer path, defined once (lib/paths.sh)
+
 land_conf_keys="LAND_BASE LAND_REMOTE LAND_CI_WORKFLOW LAND_TIER1_JOB LAND_RED_MODE LAND_RED_WAIT LAND_GATES_CMD LAND_TEST_CMD LAND_REGEN_CMD LAND_GEN_CMD
  LAND_GENERATED_LIST LAND_PROD_PATHS LAND_BUDGET_LINES LAND_REQUIRE_TRAILERS LAND_CONVENTIONAL LAND_COMMIT_TYPES LAND_PROTECTED LAND_FIX_PATHS
  LAND_APPROVALS LAND_APPROVAL_DAYS LAND_PROTECTED_LIST LAND_PROTECTED_APPROVALS LAND_GATE_APPEND_ONLY LAND_KNOWN_FLAKY LAND_FLAKY_RERUN_WAIT LAND_TIER2_JOB LAND_HOOKS_DIR LAND_AUTO_UPDATE LAND_LOCALE LAND_FAIL_PATTERN LAND_ATTEMPTS LAND_DEADLINE LAND_LOCK_WAIT LAND_TIER1_TIMEOUT LAND_STEP_TIMEOUT LAND_GIT_TIMEOUT"
@@ -23,7 +25,7 @@ conf_defaults() {
   LAND_APPROVALS=; LAND_APPROVAL_DAYS=          # LEGACY: approvals are gone (read and ignored)
   LAND_PROTECTED_LIST=; LAND_PROTECTED_APPROVALS=   # LEGACY (read and ignored)
   LAND_GATE_APPEND_ONLY=                        # LEGACY (read and ignored)
-  LAND_HOOKS_DIR=scripts/land.d                 # repository-owned hooks (README, "Hooks")
+  LAND_HOOKS_DIR=$LAND_HOOKS_DEFAULT            # repository-owned hooks (README, "Hooks")
   LAND_AUTO_UPDATE=none                          # none | patch | minor: what the scheduled workflow may update by itself (land-update --auto); a major release never
   LAND_LOCALE=C                                 # pinned for collation, glob and sort order
   LAND_TIER1_TIMEOUT=1800; LAND_STEP_TIMEOUT=600; LAND_GIT_TIMEOUT=180   # seconds
