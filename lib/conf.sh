@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The per-repository configuration (default scripts/land.conf), read by bin/land-direct. Sourced, never run.
+# The per-repository configuration (default $LAND_CONF_FILE, lib/paths.sh), read by bin/land-direct. Sourced, never run.
 #
 # The file is DATA, not code: one `LAND_KEY=value` per line, `#` starts a comment line, a value may be wrapped in one pair of single or double
 # quotes, nothing is ever expanded or executed while reading it, and an unknown key is an error (a typo must not silently turn a gate off).

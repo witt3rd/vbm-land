@@ -49,7 +49,7 @@ refused "run-scoped --exec-argfile (the inner side) re-checks the marker" env_cl
 # a helper with no guard next to it refuses (fail closed); the same copy WITH the guard line removed would run: the guard line is what refuses, and the lint insists on it
 mkdir -p "$tmp/lone"; cp "$RS" "$tmp/lone/run-scoped.sh"; marker_off
 refused "run-scoped copied away from its guard" env_clean "$tmp/lone/run-scoped.sh" g 10 touch "$tmp/ran"
-mkdir -p "$tmp/noguard/land/bin"; cp "$RS" "$tmp/noguard/run-scoped.sh"; printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/noguard/land/bin/no-build-guard"; chmod +x "$tmp/noguard/land/bin/no-build-guard"; marker_on
+mkdir -p "$tmp/noguard" "$tmp/.land/tool/bin"; cp "$RS" "$tmp/noguard/run-scoped.sh"; printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/.land/tool/bin/no-build-guard"; chmod +x "$tmp/.land/tool/bin/no-build-guard"; marker_on
 runs "self-test: a helper whose guard does nothing starts the command (the check can fail)" env_clean "$tmp/noguard/run-scoped.sh" g 10 touch "$tmp/ran"
 # 3. run-probe
 if command -v cc >/dev/null; then
@@ -57,7 +57,7 @@ if command -v cc >/dev/null; then
   marker_off; runs "run-probe, no marker" env_clean "$RP" touch "$tmp/ran"
 else fail "run-probe: no C compiler (the preload needs one): the case cannot run"; fi
 # 4. the lint: a repository fixture
-marker_off; fx=$tmp/fx; mkdir -p "$fx/$LAND_DIR/bin" "$fx/$LAND_DIR/lib"; git -C "$fx" init -q
+marker_off; fx=$tmp/fx; mkdir -p "$fx/scripts" "$fx/$LAND_DIR/bin" "$fx/$LAND_DIR/lib"; git -C "$fx" init -q
 cp "$G" "$fx/$LAND_DIR/bin/"; cp "$ROOT/lib/no-build-host.sh" "$fx/$LAND_DIR/lib/"; cp "$RS" "$fx/scripts/run-scoped.sh"
 printf 'mutants.py\nself abi.sh\n' > "$fx/scripts/long-runners.txt"
 printf '#!/usr/bin/env bash\n%s/bin/no-build-guard || exit 2\nexit 0\n' "$LAND_DIR" > "$fx/scripts/abi.sh"; chmod +x "$fx/scripts/abi.sh"

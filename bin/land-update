@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # land-update --check [--root DIR]
 # land-update <tag|commit> [--root DIR]
-# --check: READ-ONLY. Compares the pin (scripts/land/PIN) with the release tags of the source and prints one line:
+# --check: READ-ONLY. Compares the pin ($LAND_PIN, lib/paths.sh) with the release tags of the source and prints one line:
 #     vbm-land: pinned v0.1.0, latest v0.3.2: behind 4 releases (minor)        |      vbm-land: pinned v0.3.2 is the latest release: up to date
 #   The class is the semver distance of the pin to the latest release: patch, minor or major. Exit 0 up to date | 1 behind (visible, never a gate: run it in a workflow of its own) |
 #   2 not installed | 3 the source cannot be reached (not "up to date": nobody knows). Under GitHub Actions it also writes a warning annotation and a step-summary line when behind.
@@ -11,7 +11,7 @@
 # land-update --land <tag|commit>: the whole update as the repository's own act: verify, stage, commit `chore(land): vbm-land <version>` (with the trailers the repository's land.conf requires), then land it
 #   through the repository's OWN lander and gates (its Tier 1, its hooks, its attack suite), run from a pristine fresh clone of the base branch, so the lander that lands the new copy is the old one already on
 #   main. Needs a clean worktree. It stops on the first red or refusal and lands nothing (the commit stays local for you to look at); it never forces. Exit code: the lander's.
-# <tag|commit>: VERIFY the release first (a signed tag from an allowed signer, recording the manifest it points at: scripts/land.signers makes this mandatory; without it the update says UNVERIFIED), then replace the vendored copy of this tool with the release named, from the source recorded in the PIN. It stages the new tree and PIN in the working tree and verifies
+# <tag|commit>: VERIFY the release first (a signed tag from an allowed signer, recording the manifest it points at: $LAND_SIGNERS_FILE makes this mandatory; without it the update says UNVERIFIED), then replace the vendored copy of this tool with the release named, from the source recorded in the PIN. It stages the new tree and PIN in the working tree and verifies
 #   them; it commits nothing. Commit the result as ONE commit (`chore(land): vbm-land <version>`) and land it like any other change.
 set -euo pipefail
 export LC_ALL=C
@@ -24,7 +24,7 @@ while [ $# -gt 0 ]; do case $1 in --root) root=${2:?--root needs a directory}; s
 label=vbm-land; pdir=$LAND_DIR; upd=$LAND_DIR/bin/land-update
 pin=$root/$LAND_PIN
 pinsrc=$(sed -n 's/^source=//p' "$pin" 2>/dev/null | sed -n 1p || true); src=$pinsrc
-[ -n "$src" ] || { echo "land-update: no $pdir/PIN in $root: install first (install --source SRC <ref>)" >&2; exit 2; }
+[ -n "$src" ] || { echo "land-update: no $LAND_PIN in $root: install first (install --source SRC <ref>)" >&2; exit 2; }
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/land-update.XXXXXX"); trap 'rm -rf "$tmp"' EXIT
 if [ "$auto" = 1 ]; then   # the policy is the repository's own, read from its base branch (a change cannot grant itself an auto-update)
   . "$here/../lib/conf.sh"; conf_defaults
@@ -89,9 +89,9 @@ if [ "$land" = 1 ]; then
   git -C "$root" fetch -q origin || { echo "land-update: cannot fetch origin" >&2; exit 1; }
   base=$(git -C "$root" symbolic-ref -q --short refs/remotes/origin/HEAD | sed 's#^origin/##' || true); base=${base:-main}
   if git -C "$root" cat-file -e "origin/$base:$LAND_CONF_FILE" 2>/dev/null; then conf_parse land.conf < <(git -C "$root" show "origin/$base:$LAND_CONF_FILE") || exit 2; fi
-  ver=$(sed -n 's/^version=//p' "$root/$pdir/PIN" | sed -n 1p); trl=vbm-land-update-$ver; msg=(-m "Vendored by land-update --land from $ref.")
+  ver=$(sed -n 's/^version=//p' "$root/$LAND_PIN" | sed -n 1p); trl=vbm-land-update-$ver; msg=(-m "Vendored by land-update --land from $ref.")
   for t in $LAND_REQUIRE_TRAILERS; do msg+=(-m "$t: $trl"); done
-  paths=("$LAND_DIR" "$LAND_SKILLS_DIR" "$LAND_SIGNERS_FILE" "$LAND_ENTRY" "$LAND_CONF_FILE")
+  paths=("$LAND_DIR" "$LAND_PIN" "$LAND_SKILLS_DIR" "$LAND_SIGNERS_FILE" "$LAND_ENTRY" "$LAND_CONF_FILE")   # the PIN lives beside the tool folder: stage it too, or the commit would carry a new tree and the old pin
   for p in "${paths[@]}"; do [ ! -e "$root/$p" ] || git -C "$root" add -A -- "$p"; done
   git -C "$root" commit -q -m "chore(land): $label $ver" "${msg[@]}" || { echo "land-update: nothing to commit: the pin already is $ver" >&2; exit 1; }
   git clone -q "$(git -C "$root" remote get-url origin)" "$tmp/old" || { echo "land-update: cannot make the pristine clone of $base" >&2; exit 1; }

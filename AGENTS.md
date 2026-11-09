@@ -2,14 +2,14 @@
 
 This repository is the **source tree of vbm-land**: the lander that lands an agent's local commits direct on `main`, no pull request. The tool is the product; a consumer repository vendors a pinned copy of it. `README.md` is the operator's manual and `CHANGELOG.md` the interface history (the stable part: the `land.conf` keys, the exit codes, the JSON last line, the hook and marker names). `VERSION` holds the version; releases are signed tags.
 
-## Design: the 0.8.0 layout (decided, not yet built)
+## Design: the 0.8.0 layout (built; the migration of old consumers and the prose are the next commits)
 
 A consumer repository keeps everything the lander owns in **one folder, `.land/`**, so the repository's own `scripts/` stays its own and our footprint is self-contained. The lander's agent skills stay in `.agents/skills/` (an agent convention); nothing else of ours lives outside `.land/`.
 
 ```
 .land/
   tool/          the vendored lander, replaced whole on every update, never edited
-  PIN            version, commit and ONE checksum of tool/
+  PIN            version, commit and the manifest checksum
   land.conf      the repository's own settings
   land.signers   who may sign releases
   land.d/        the repository's own hooks
@@ -26,7 +26,7 @@ A consumer repository keeps everything the lander owns in **one folder, `.land/`
 
 ## Landing here
 
-- Land with `scripts/land-direct` (a wrapper: `exec bin/land-direct "$@"`). Never push `main` yourself, never force-push it, never open a PR. The repository's own policy text is `templates/AGENTS-block.md`.
+- Land with `.land/land-direct` (a wrapper: `exec bin/land-direct "$@"`; this repository is laid out as a consumer is, its own settings in `.land/`). Never push `main` yourself, never force-push it, never open a PR. The repository's own policy text is `templates/AGENTS-block.md`.
 - The payload is what a consumer vendors, and it is published byte for byte: `bin/land-check`, `bin/land-direct`, `bin/land-update`, `bin/no-build-guard`, `bin/no-crash-record`, `bin/run-probe`, all of `lib/`, `VERSION`, every file in `templates/` and every `skills/*/SKILL.md`, plus `docs/crash-probes.md`, `docs/no-build-host.md` — 28 files, the exact list `MANIFEST.sha256` records.
 - `bin/land-manifest`, `bin/land-release` and `bin/land-audit` are source-repository only (not vendored); `bin/land-release` is the maintainer's.
 - Never edit `MANIFEST.sha256` by hand: `bin/land-manifest` rewrites it and `bin/land-manifest --check` fails on a stale one.
@@ -44,4 +44,4 @@ A consumer repository keeps everything the lander owns in **one folder, `.land/`
 - `templates/` what a consumer copies: `AGENTS-block.md`, `PUBLIC-REPO-SETTINGS.md`, `land.conf.example`, `land-direct-stub`, `run-scoped.sh`, `ruleset-protect-main.json`, `ruleset-protect-release-tags.json`, `vbm-land-revert.yml`, `vbm-land-update.yml` — all ten.
 - `docs/` design notes: `signing.md`, `freeze-source.md`, `flip-record.md`, `no-build-host.md`, `crash-probes.md`, `ran-evidence.md`, `gate-mechanism-acceptance.md`.
 - `skills/` the seven agent skills that ship to a consumer: `adopt-in-existing-repo`, `hold-and-freeze`, `land-a-change`, `new-repo`, `release`, `triage-red`, `update-vbm-land`.
-- `scripts/` this repository's own `land-direct` wrapper, its `land.conf`, its signers file (`land.signers`) and `bootstrap-land`.
+- `.land/` this repository's own entry script (`land-direct`), `land.conf` and signers file (`land.signers`); `scripts/` its helpers (`bootstrap-land`, `run-scoped.sh`).

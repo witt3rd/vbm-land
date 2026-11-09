@@ -15,9 +15,9 @@ chk() { "$T/c1/$LAND_DIR/bin/land-check" --root "$1" "${@:2}"; }   # always judg
 echo "## install"
 consumer c1
 expect_exit "install vendors a pinned copy" 0 "$S/install" --source "$S" --target "$T/c1" v1.0.0
-check "$LAND_DIR/ has the tool, the manifest and the PIN" bash -c "cd '$T/c1/$LAND_DIR' && test -x bin/land-direct -a -x bin/run-probe -a -x bin/land-check -a -f lib/conf.sh -a -f MANIFEST.sha256 -a -f PIN"
+check "$LAND_DIR/ has the tool and the manifest, and the PIN is beside it (replacing the folder never removes it)" bash -c "cd '$T/c1/$LAND_DIR' && test -x bin/land-direct -a -x bin/run-probe -a -x bin/land-check -a -f lib/conf.sh -a -f MANIFEST.sha256 -a ! -e PIN && test -f '$T/c1/$LAND_PIN'"
 check "the stub is executable and runs the vendored lander" bash -c "'$T/c1/$LAND_ENTRY' --version | grep -q 'land-direct 1.0.0'"
-check "PIN records source, version, a 40-hex commit and the manifest hash" bash -c "cd '$T/c1/$LAND_DIR' && grep -q '^source=$S\$' PIN && grep -q '^version=v1.0.0\$' PIN && grep -qE '^commit=[0-9a-f]{40}\$' PIN && grep -qE '^manifest_sha256=[0-9a-f]{64}\$' PIN"
+check "PIN records source, version, a 40-hex commit and the manifest hash" bash -c "grep -q '^source=$S\$' '$T/c1/$LAND_PIN' && grep -q '^version=v1.0.0\$' '$T/c1/$LAND_PIN' && grep -qE '^commit=[0-9a-f]{40}\$' '$T/c1/$LAND_PIN' && grep -qE '^manifest_sha256=[0-9a-f]{64}\$' '$T/c1/$LAND_PIN'"
 check "the pinned commit is the source's tag" bash -c "grep -q \"^commit=\$(git -C '$S' rev-parse v1.0.0)\$\" '$T/c1/$LAND_PIN'"
 check "the skills are vendored into $LAND_SKILLS_DIR/" bash -c "cd '$T/c1' && for n in new-repo land-a-change triage-red update-vbm-land hold-and-freeze adopt-in-existing-repo release; do grep -q \"^name: \$n\\\$\" $LAND_SKILLS_DIR/\$n/SKILL.md || exit 1; done"
 check "the templates the skills point at are vendored under $LAND_DIR/templates/" bash -c "cd '$T/c1/$LAND_DIR/templates' && test -f AGENTS-block.md -a -f ruleset-protect-main.json -a -f ruleset-protect-release-tags.json -a -f PUBLIC-REPO-SETTINGS.md"
@@ -64,7 +64,7 @@ check "re-installing never overwrites the repository's own entry script" grep -q
 echo "## a forged copy: tree, manifest and PIN edited together pass offline and fail upstream"
 rm -rf "$T/d"; cp -a "$T/c1" "$T/d"
 ( cd "$T/d/$LAND_DIR" && echo '# evil' >> bin/run-probe && h=$(sha256sum bin/run-probe | cut -d' ' -f1) && sed -i "s|^[0-9a-f]*  bin/run-probe\$|$h  bin/run-probe|" MANIFEST.sha256 \
-  && m=$(sha256sum < MANIFEST.sha256 | cut -d' ' -f1) && sed -i "s|^manifest_sha256=.*|manifest_sha256=$m|" PIN )
+  && m=$(sha256sum < MANIFEST.sha256 | cut -d' ' -f1) && sed -i "s|^manifest_sha256=.*|manifest_sha256=$m|" "$T/d/$LAND_PIN" )
 expect_exit "consistent forgery passes the offline check" 0 chk "$T/d"
 expect_exit "but the upstream check fails it" 1 chk "$T/d" --upstream; out_has "forged"
 expect_exit "upstream check of the genuine copy passes" 0 chk "$T/c1" --upstream; out_has "source confirms"

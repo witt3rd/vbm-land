@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # install [--source SRC] [--target DIR] <tag|commit>
 #
-# Vendors a PINNED copy of vbm-land into a repository: the tool (read-only by contract) with its MANIFEST.sha256 and PIN under the tool folder, the agent skills beside them, the entry script (three
-# lines that exec it, so "land with the entry script" stays true), and a starter settings file, each only on the FIRST install and only when absent (they are yours afterwards: delete the workflow if
-# your repository cannot use it and no update brings it back). Every path it writes is defined once, in lib/paths.sh. It commits nothing: review the diff and commit it as one change
+# Vendors a PINNED copy of vbm-land into a repository: the tool (read-only by contract, replaced whole on every install) with its MANIFEST.sha256 inside the tool folder, the PIN and the repository's own
+# files (settings, hooks, signers, entry script) in the folder that holds it, and the agent skills in .agents/skills/. The entry script (three lines that exec the tool beside it, so "land with the entry
+# script" stays true) and a starter settings file exist only on the FIRST install and only when absent (they are yours afterwards: delete the workflow if your repository cannot use it and no update
+# brings it back). Every path it writes is defined once, in lib/paths.sh. It commits nothing: review the diff and commit it as one change
 # (`chore(land): vbm-land <version>`). Re-running it with another ref is the update.
 #
 #   SRC     where the source repository is: OWNER/NAME (GitHub, through `gh`, so a private repository works), or anything git can clone (URL, path).
@@ -68,6 +69,7 @@ while read -r h f; do
   case $f in bin/*) chmod +x "$target/$v";; *) chmod -x "$target/$v";; esac
 done < "$tmp/MANIFEST.sha256"
 cp "$tmp/MANIFEST.sha256" "$target/$LAND_MANIFEST_FILE"
+mkdir -p "$(dirname "$target/$LAND_PIN")"   # the pin lives beside the tool folder, never inside it: replacing the folder must not remove it
 printf 'source=%s\nversion=%s\ncommit=%s\nmanifest_sha256=%s\nsignature=%s\n' "$src" "$version" "$commit" "$(sha256sum < "$tmp/MANIFEST.sha256" | cut -d' ' -f1)" "$([ "$vrc" = 0 ] && echo verified || echo unverified)" > "$target/$LAND_PIN"
 [ -z "$signers_arg" ] || [ -e "$target/$LAND_SIGNERS_FILE" ] || cp "$signers_arg" "$target/$LAND_SIGNERS_FILE"
 created=

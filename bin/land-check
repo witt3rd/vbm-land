@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # land-check [--upstream] [--root DIR]: is the vendored copy of this tool in DIR (default: the repository root) still exactly its pin?
 #
-# Offline (the default; in Tier 1; well under a second): scripts/land/PIN names the release (source, version, commit, manifest_sha256); the vendored
-# MANIFEST.sha256 must hash to that value, every file it lists (under scripts/land/, and the skills in .agents/skills/) must hash to its entry and have its
-# executable bit, and scripts/land/ may hold nothing else. ANY difference fails: edit the tool in its source repository, not the copy.
-# The repository's own files (scripts/land.conf: known keys only; scripts/land.d/: hooks executable and correctly named, `*.sh` helpers allowed) are checked for being well formed, not for content.
+# Offline (the default; in Tier 1; well under a second): $LAND_PIN (.land/PIN, beside the tool folder) names the release (source, version, commit, manifest_sha256);
+# the tool folder's MANIFEST.sha256 must hash to that value, every file it lists (under $LAND_DIR, and the skills in .agents/skills/) must hash to its entry and have
+# its executable bit, and $LAND_DIR may hold nothing else. ANY difference fails: edit the tool in its source repository, not the copy.
+# The repository's own files ($LAND_CONF_FILE: known keys only; $LAND_HOOKS_DEFAULT: hooks executable and correctly named, `*.sh` helpers allowed) are checked for being well formed, not for content.
 #
 # --upstream (the 6-hourly job; by hand): also fetch the manifest at the PINNED COMMIT from the source and require it to equal the local one, so a forged PIN
 # and tree together fail; and say whether a newer release exists (advice, never a failure). Exit 3 when the source cannot be reached (not verified).
@@ -20,13 +20,13 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/land-check.XXXXXX"); trap 'rm -rf "$tmp"' EXIT
 allbad=0; unreach=0
 check_one() {   # the pin, the manifest, every listed file (hash, executable bit), nothing extra; with --upstream the source's manifest at the pinned commit
   local pdir=$LAND_DIR label=vbm-land pin man p_source p_version p_commit p_msha h f v upd=$LAND_DIR/bin/land-update bad=0 msg latest e
-  pin=$root/$pdir/PIN; man=$root/$pdir/MANIFEST.sha256
-  [ -r "$pin" ] && [ -r "$man" ] || { echo "land-check: no pinned copy in $root ($pdir/PIN or MANIFEST.sha256 missing): not installed" >&2; exit 2; }
+  pin=$root/$LAND_PIN; man=$root/$LAND_MANIFEST_FILE   # the pin sits beside the tool folder, the manifest inside it
+  [ -r "$pin" ] && [ -r "$man" ] || { echo "land-check: no pinned copy in $root ($LAND_PIN or $LAND_MANIFEST_FILE missing): not installed" >&2; exit 2; }
   pinval() { sed -n "s/^$1=//p" "$pin" | sed -n 1p; }
   p_source=$(pinval source); p_version=$(pinval version); p_commit=$(pinval commit); p_msha=$(pinval manifest_sha256)
-  [ -n "$p_source" ] && [[ "$p_commit" =~ ^[0-9a-f]{40}$ ]] && [[ "$p_msha" =~ ^[0-9a-f]{64}$ ]] || { echo "land-check: $pdir/PIN is unreadable (needs source=, version=, a 40-hex commit= and a manifest_sha256=)" >&2; exit 2; }
+  [ -n "$p_source" ] && [[ "$p_commit" =~ ^[0-9a-f]{40}$ ]] && [[ "$p_msha" =~ ^[0-9a-f]{64}$ ]] || { echo "land-check: $LAND_PIN is unreadable (needs source=, version=, a 40-hex commit= and a manifest_sha256=)" >&2; exit 2; }
   drift() { echo "DRIFT: $*" >&2; bad=1; }
-  [ "$(sha256sum < "$man" | cut -d' ' -f1)" = "$p_msha" ] || drift "$pdir/MANIFEST.sha256 does not hash to the pin's manifest_sha256"
+  [ "$(sha256sum < "$man" | cut -d' ' -f1)" = "$p_msha" ] || drift "$LAND_MANIFEST_FILE does not hash to the pin's manifest_sha256"
   declare -A listed=()
   while read -r h f; do
     [ -n "$f" ] || continue; v=$(land_vpath "$f"); listed[$v]=1
@@ -34,13 +34,14 @@ check_one() {   # the pin, the manifest, every listed file (hash, executable bit
     [ "$(sha256sum < "$root/$v" | cut -d' ' -f1)" = "$h" ] || drift "$v differs from the pinned release"
     case $f in bin/*) [ -x "$root/$v" ] || drift "$v is not executable";; esac
   done < "$man"
-  while IFS= read -r f; do f=${f#"$root"/}; case $f in "$pdir/PIN"|"$pdir/MANIFEST.sha256") continue;; esac
+  while IFS= read -r f; do f=${f#"$root"/}; case $f in "$LAND_MANIFEST_FILE") continue;; esac   # the manifest is the only file under $pdir that lists itself
     [ -n "${listed[$f]:-}" ] || drift "$f is not part of the pinned release (an extra or local file inside the vendored tree)"
   done < <(find "$root/$pdir" -type f | LC_ALL=C sort)
   # the repository's own files: well formed. $LAND_ENTRY is the repository's own entry script (install creates it from templates/land-direct-stub when absent; add what you need before the exec):
-  # it must be executable and still run the pinned lander ($LAND_DIR/bin/land-direct).
+  # it must be executable and still run the pinned lander, named either from the repository root ($LAND_DIR/bin/land-direct) or, as the stub does, beside itself (tool/bin/land-direct).
   e=$(grep -v '^[[:space:]]*#' "$root/$LAND_ENTRY" 2>/dev/null || true)
-  { [ -x "$root/$LAND_ENTRY" ] && [[ $e == *"${LAND_DIR##*/}/bin/land-direct"* ]]; } || drift "$LAND_ENTRY is missing, not executable, or does not run the pinned lander ($LAND_DIR/bin/land-direct)"
+  lander_rel=${LAND_DIR#"$(dirname "$LAND_ENTRY")"/}   # $LAND_DIR as the entry script sees it, from its own folder (.land/land-direct -> tool)
+  { [ -x "$root/$LAND_ENTRY" ] && { [[ $e == *"$LAND_DIR/bin/land-direct"* ]] || [[ $e == *"$lander_rel/bin/land-direct"* ]]; }; } || drift "$LAND_ENTRY is missing, not executable, or does not run the pinned lander ($LAND_DIR/bin/land-direct)"
   if [ -r "$root/$LAND_CONF_FILE" ]; then ( conf_defaults; conf_parse "$LAND_CONF_FILE" < "$root/$LAND_CONF_FILE" ) 2>&1 >/dev/null | sed 's/^/DRIFT: /' >&2 && [ "${PIPESTATUS[0]}" = 0 ] || bad=1; fi
   if [ -d "$root/$LAND_HOOKS_DEFAULT" ]; then   # hooks have fixed names and must be executable; `*.sh` files are helpers the hooks source; anything else is a hook that would silently never run
     for h in "$root/$LAND_HOOKS_DEFAULT"/*; do [ -f "$h" ] || continue; n=${h##*/}
