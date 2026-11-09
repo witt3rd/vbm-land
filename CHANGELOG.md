@@ -4,13 +4,13 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
-## Unreleased
+## 0.8.0 (MAJOR: everything the tool owns in a consumer is one folder, .land/)
 
-- internal: lib/paths.sh defines every consumer path in one place (no behaviour change).
+A consumer on 0.7.x updates with `scripts/land/bin/land-update v0.8.0`: the first update migrates it (it moves `land.conf`, `land.signers`, `land.d` and the entry script into `.land/`, removes `scripts/land/`, and prints the consumer's own references to the old names for it to fix). The entry script is now `.land/land-direct`; the move is one `chore(land)` commit, and a repository's own scripts, docs, protected set and Tier 1 must be renamed by hand (the update only lists them).
 
-**Removed:** the package mechanism (`land-update --pkg`, `--source`, `--signers`, `lib/pkg.sh`, `docs/packages.md`, `land-check --pkg` and the per-package checks) is gone: nothing used it. `land-check` and `land-update` act on this tool's own pin only.
-
-Layout (major): everything the tool owns in a consumer moves into one folder, `.land/`: the vendored tool in `.land/tool/` (was `scripts/land/`), the pin `.land/PIN`, the settings `.land/land.conf`, the signers file `.land/land.signers`, the hooks `.land/land.d/` and the entry script `.land/land-direct`; the agent skills stay in `.agents/skills/`, and the repository's own `scripts/` stays its own. `land-check` still verifies one checksum per folder (`.land/tool/MANIFEST.sha256`, recorded by the pin), `land-check` and `land-update` act on it, and the update replaces `.land/tool/` whole. The first install or update of 0.8.0 migrates an old-layout repository (moves `land.conf`, `land.signers`, `land.d` and the entry script, removes `scripts/land/`) and prints the consumer's own references to the old paths; upgrade notes: the move is one `chore(land)` commit, and a repository's own scripts, docs, protected set and Tier 1 must be renamed by hand (the install only lists them). The package mechanism (`land-update --pkg`) is gone; no CI, no Tier 2 and no revert tool remain.
+- **Layout** (major): everything the tool owns in a consumer moves into one folder, `.land/`: the vendored tool in `.land/tool/` (was `scripts/land/`), the pin `.land/PIN`, the settings `.land/land.conf`, the signers file `.land/land.signers`, the hooks `.land/land.d/` and the entry script `.land/land-direct`; the agent skills stay in `.agents/skills/`, and the repository's own `scripts/` stays its own. `land-check` still verifies one checksum per folder (`.land/tool/MANIFEST.sha256`, recorded by the pin), `land-check` and `land-update` act on it, and the update replaces `.land/tool/` whole. The first install or update of 0.8.0 migrates an old-layout repository (moves `land.conf`, `land.signers`, `land.d` and the entry script, removes `scripts/land/`) and prints the consumer's own references to the old paths; upgrade notes: the move is one `chore(land)` commit, and a repository's own scripts, docs, protected set and Tier 1 must be renamed by hand (the install only lists them). The package mechanism (`land-update --pkg`) is gone; no CI, no Tier 2 and no revert tool remain.
+- **Removed:** the package mechanism (`land-update --pkg`, `--source`, `--signers`, `lib/pkg.sh`, `docs/packages.md`, `land-check --pkg` and the per-package checks) is gone: nothing used it. `land-check` and `land-update` act on this tool's own pin only.
+- **Internal:** lib/paths.sh defines every consumer path in one place (no behaviour change).
 
 ## 0.7.1 (PATCH: the agent-instructions block carries the family's principles)
 
