@@ -14,6 +14,13 @@
 #   --signers FILE an ssh allowed-signers file (the maintainer's public key, taken from a source you trust, out of band): copied to the repository's signers file when absent. With a signers file the
 #                  release MUST be a signed tag from an allowed signer that records the manifest it points at, or nothing is written; without one the install says UNVERIFIED.
 #
+# MIGRATION (the old layout, before 0.8.0). A consumer that still keeps the tool in $LAND_LEGACY_DIR (its PIN there, and no $LAND_PIN yet) is migrated by the same install that writes the new layout: once the
+# new tool, PIN and skills are in place, the repository's OWN files are MOVED, never rewritten ($LAND_LEGACY_CONF_FILE, $LAND_LEGACY_SIGNERS_FILE, $LAND_LEGACY_HOOKS_DEFAULT and $LAND_LEGACY_ENTRY to their
+# $LAND_HOME names), and then the old $LAND_LEGACY_DIR tree is removed. The entry script keeps its content but for the one path in its exec line: `/land/bin/land-direct` becomes `/tool/bin/land-direct`, because
+# the tool now sits in ./tool beside it (an exec naming the old folder from the repository root becomes the $LAND_DIR one). Nothing of the repository's own is overwritten or lost: if a destination already
+# exists the install STOPS, names it, and writes nothing (the whole migration is refused, before any file is written). Every path above is defined once, in lib/paths.sh. What the repository's own scripts, docs
+# and Tier 1 still call by the old names is printed as information only: the migration never edits a file of the repository's own beyond those moves.
+
 # One command, from the target repository:
 #   gh api repos/OWNER/vbm-land/contents/install?ref=<tag> -H 'Accept: application/vnd.github.raw' | bash -s -- --source OWNER/vbm-land <tag>
 # or, with a checkout of the source:  /path/to/vbm-land/install --source /path/to/vbm-land <tag>
@@ -23,7 +30,7 @@ export LC_ALL=C
 src=${VBM_LAND_SOURCE:-}; target=; ref=; signers_arg=
 while [ $# -gt 0 ]; do case $1 in
   --source) src=${2:?--source needs a value}; shift;; --target) target=${2:?--target needs a directory}; shift;; --signers) signers_arg=${2:?--signers needs a file}; shift;;
-  -h|--help) sed -n '2,18p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0;;
+  -h|--help) sed -n '2,27p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0;;
   -*) echo "usage: install [--source SRC] [--target DIR] <tag|commit>" >&2; exit 2;; *) ref=$1;; esac; shift; done
 [ -n "$src" ] && [ -n "$ref" ] || { echo "usage: install [--source SRC] [--target DIR] <tag|commit>   (SRC: OWNER/NAME or a git URL or path)" >&2; exit 2; }
 [ -n "$target" ] || target=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "install: not inside a git repository (use --target DIR)" >&2; exit 2; }
@@ -37,7 +44,7 @@ commit=$(git -C "$tmp/src" rev-parse --verify -q "$ref^{commit}") || { echo "ins
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "install: unexpected commit id for $ref" >&2; exit 1; }
 git -C "$tmp/src" show "$commit:lib/paths.sh" > "$tmp/paths.sh" || { echo "install: $ref has no lib/paths.sh: not a release of this tool" >&2; exit 1; }   # the release defines the paths it writes: read them from it, before anything is written
 . "$tmp/paths.sh"
-signers=; if [ -n "$signers_arg" ]; then signers=$signers_arg; elif [ -r "$target/$LAND_SIGNERS_FILE" ]; then signers=$target/$LAND_SIGNERS_FILE; fi
+signers=; if [ -n "$signers_arg" ]; then signers=$signers_arg; elif [ -r "$target/$LAND_SIGNERS_FILE" ]; then signers=$target/$LAND_SIGNERS_FILE; elif [ -r "$target/$LAND_LEGACY_SIGNERS_FILE" ]; then signers=$target/$LAND_LEGACY_SIGNERS_FILE; fi   # a consumer still in the old layout keeps its signers file at the old path: it makes the signature mandatory all the same (the migration moves it)
 src_verify() {   # the same rules as lib/source.sh (the installer of a first install is self-contained)
   local dest=$1 r=$2 sg=${3:-} kind want got
   if [ -z "$sg" ]; then echo "UNVERIFIED: no signers file ($LAND_SIGNERS_FILE): the release signature was not checked"; return 10; fi
@@ -60,6 +67,17 @@ while read -r h f; do
 done < "$tmp/MANIFEST.sha256"
 version=v$(cat "$tmp/tree/VERSION")
 # vpath is land_vpath: the release's own lib/paths.sh, sourced above, defines every path this tool writes
+# The OLD layout (before 0.8.0): the tool in $LAND_LEGACY_DIR with its own PIN there, and no $LAND_PIN yet. Then this install migrates the repository (below, after the new tool, PIN and skills are written).
+migrate=0; [ ! -e "$target/$LAND_LEGACY_PIN" ] || [ -e "$target/$LAND_PIN" ] || migrate=1
+if [ "$migrate" = 1 ]; then   # the whole migration is refused HERE, before anything at all is written: a destination that already exists would be overwritten, or the repository's own file lost
+  clash=
+  for pair in "$LAND_LEGACY_CONF_FILE:$LAND_CONF_FILE" "$LAND_LEGACY_SIGNERS_FILE:$LAND_SIGNERS_FILE" "$LAND_LEGACY_HOOKS_DEFAULT:$LAND_HOOKS_DEFAULT" "$LAND_LEGACY_ENTRY:$LAND_ENTRY"; do
+    o=${pair%%:*}; n=${pair#*:}; [ -e "$target/$o" ] || continue
+    [ ! -e "$target/$n" ] || clash="$clash $n"
+  done
+  [ -z "$clash" ] || { echo "install: REFUSED: this repository is still in the old layout ($LAND_LEGACY_DIR) and migrating it would put the repository's own files onto ones that already exist:$clash" >&2
+    echo "install: move or remove those, then run the install again. Nothing was written: no $LAND_DIR, no $LAND_PIN, no skill." >&2; exit 1; }
+fi
 [ ! -r "$target/$LAND_MANIFEST_FILE" ] || while read -r _ f; do case $f in skills/*) rm -f "$target/$(land_vpath "$f")";; esac; done < "$target/$LAND_MANIFEST_FILE"   # skills the new release dropped
 first=0; [ -e "$target/$LAND_PIN" ] || first=1   # the repository's own files are created by the FIRST install only
 rm -rf "$target/$LAND_DIR"; mkdir -p "$target/$LAND_DIR"   # the tool folder is replaced whole: a file the release dropped disappears
@@ -71,6 +89,27 @@ done < "$tmp/MANIFEST.sha256"
 cp "$tmp/MANIFEST.sha256" "$target/$LAND_MANIFEST_FILE"
 mkdir -p "$(dirname "$target/$LAND_PIN")"   # the pin lives beside the tool folder, never inside it: replacing the folder must not remove it
 printf 'source=%s\nversion=%s\ncommit=%s\nmanifest_sha256=%s\nsignature=%s\n' "$src" "$version" "$commit" "$(sha256sum < "$tmp/MANIFEST.sha256" | cut -d' ' -f1)" "$([ "$vrc" = 0 ] && echo verified || echo unverified)" > "$target/$LAND_PIN"
+if [ "$migrate" = 1 ]; then   # the old layout: MOVE the repository's own files into $LAND_HOME (their content is kept; only the entry script's one exec path is rewritten), then remove the old tool folder
+  mkdir -p "$target/$LAND_HOME"; moved=
+  for pair in "$LAND_LEGACY_CONF_FILE:$LAND_CONF_FILE" "$LAND_LEGACY_SIGNERS_FILE:$LAND_SIGNERS_FILE" "$LAND_LEGACY_HOOKS_DEFAULT:$LAND_HOOKS_DEFAULT"; do
+    o=${pair%%:*}; n=${pair#*:}; [ -e "$target/$o" ] || continue; mv "$target/$o" "$target/$n"; moved="$moved $o -> $n"
+  done
+  if [ -e "$target/$LAND_LEGACY_ENTRY" ]; then   # the entry script is the repository's own: same content, but the tool now sits in ./tool beside it
+    mv "$target/$LAND_LEGACY_ENTRY" "$target/$LAND_ENTRY"; moved="$moved $LAND_LEGACY_ENTRY -> $LAND_ENTRY"
+    legacy_pat=$(printf '%s' "$LAND_LEGACY_DIR" | sed 's/\./\\./g')   # the old tool folder, as the entry script may spell it from the repository root
+    sed -i -e "s|$legacy_pat/bin/land-direct|$LAND_DIR/bin/land-direct|g" -e 's|/land/bin/land-direct|/tool/bin/land-direct|g' "$target/$LAND_ENTRY"   # beside itself (the stub's form) or from the root: the tool now sits in ./tool
+    chmod +x "$target/$LAND_ENTRY"
+  fi
+  rm -rf "$target/$LAND_LEGACY_DIR"
+  [ -n "$moved" ] || moved=" nothing of its own files"
+  echo "install: migrated the old layout: moved$moved; removed $LAND_LEGACY_DIR; the entry script now runs the tool in ./tool beside it."
+  echo "install: INFORMATION ONLY (nothing was edited for you): the repository's own scripts, docs and Tier 1 must be updated from the old names to the new ones (lib/paths.sh: $LAND_DIR, $LAND_PIN, $LAND_CONF_FILE, $LAND_SIGNERS_FILE, $LAND_HOOKS_DEFAULT, $LAND_ENTRY)."
+  # the old names are $LAND_LEGACY_DIR and its siblings in $LAND_LEGACY_HOME (lib/paths.sh, sourced above), so the pattern is built from them, not typed again
+  oldpat="$(printf '%s' "$LAND_LEGACY_DIR" | sed 's/\./\\./g')([/.-]|$)"
+  refs=$(git -C "$target" grep -n -E "$oldpat" -- . ":(exclude)$LAND_HOME" ":(exclude)$LAND_SKILLS_DIR" 2>/dev/null || true)   # the repository's own tracked files (its own scripts/ included: the old tool tree is already gone)
+  if [ -n "$refs" ]; then echo "install: $(printf '%s\n' "$refs" | wc -l) reference(s) to the old paths are left in the repository's own tracked files, outside $LAND_HOME/ and $LAND_SKILLS_DIR/ (first 20):"; printf '%s\n' "$refs" | sed -n '1,20p' | sed 's/^/    /'
+  else echo "install: no reference to the old paths is left in the repository's own tracked files, outside $LAND_HOME/ and $LAND_SKILLS_DIR/."; fi
+fi
 [ -z "$signers_arg" ] || [ -e "$target/$LAND_SIGNERS_FILE" ] || cp "$signers_arg" "$target/$LAND_SIGNERS_FILE"
 created=
 if [ "$first" = 1 ] && [ ! -e "$target/$LAND_ENTRY" ]; then cp "$tmp/tree/templates/land-direct-stub" "$target/$LAND_ENTRY"; chmod +x "$target/$LAND_ENTRY"; created="$created and the entry script $LAND_ENTRY"; fi

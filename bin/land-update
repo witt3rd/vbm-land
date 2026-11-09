@@ -91,8 +91,13 @@ if [ "$land" = 1 ]; then
   if git -C "$root" cat-file -e "origin/$base:$LAND_CONF_FILE" 2>/dev/null; then conf_parse land.conf < <(git -C "$root" show "origin/$base:$LAND_CONF_FILE") || exit 2; fi
   ver=$(sed -n 's/^version=//p' "$root/$LAND_PIN" | sed -n 1p); trl=vbm-land-update-$ver; msg=(-m "Vendored by land-update --land from $ref.")
   for t in $LAND_REQUIRE_TRAILERS; do msg+=(-m "$t: $trl"); done
-  paths=("$LAND_DIR" "$LAND_PIN" "$LAND_SKILLS_DIR" "$LAND_SIGNERS_FILE" "$LAND_ENTRY" "$LAND_CONF_FILE")   # the PIN lives beside the tool folder: stage it too, or the commit would carry a new tree and the old pin
-  for p in "${paths[@]}"; do [ ! -e "$root/$p" ] || git -C "$root" add -A -- "$p"; done
+  # The PIN lives beside the tool folder: stage it too, or the commit would carry a new tree and the old pin. The OLD layout's paths are staged as well: an update that migrates a
+  # repository (install's migration, lib/paths.sh) MOVES the repository's own files out of $LAND_LEGACY_HOME and removes $LAND_LEGACY_DIR, and those deletions belong in this commit.
+  paths=("$LAND_DIR" "$LAND_PIN" "$LAND_SKILLS_DIR" "$LAND_SIGNERS_FILE" "$LAND_ENTRY" "$LAND_CONF_FILE" "$LAND_LEGACY_DIR" "$LAND_LEGACY_CONF_FILE" "$LAND_LEGACY_HOOKS_DEFAULT" "$LAND_LEGACY_SIGNERS_FILE" "$LAND_LEGACY_ENTRY")
+  for p in "${paths[@]}"; do   # a path the update DELETED is still tracked: stage it too, or a migration's deletions would not be in this commit (a path that is neither there nor tracked has nothing to stage)
+    [ -e "$root/$p" ] || [ -n "$(git -C "$root" ls-files -- "$p")" ] || continue
+    git -C "$root" add -A -- "$p"
+  done
   git -C "$root" commit -q -m "chore(land): $label $ver" "${msg[@]}" || { echo "land-update: nothing to commit: the pin already is $ver" >&2; exit 1; }
   git clone -q "$(git -C "$root" remote get-url origin)" "$tmp/old" || { echo "land-update: cannot make the pristine clone of $base" >&2; exit 1; }
   git -C "$tmp/old" checkout -q "origin/$base" 2>/dev/null || true
