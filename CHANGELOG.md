@@ -4,7 +4,9 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
-## Unreleased (MAJOR: the dead machinery of the CI era is gone)
+## 0.9.0 (MAJOR: dead machinery removed; a land.conf naming a retired key is now refused)
+
+A consumer updates with `.land/tool/bin/land-update v0.9.0` after removing any retired key (the list is in the entry) from its `.land/land.conf`.
 
 Nothing here is kept for compatibility with a thing that no longer exists.
 
