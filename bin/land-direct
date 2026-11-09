@@ -15,7 +15,7 @@
 #   command) on that exact combination -> fetch again: base moved during Tier 1 = rebase and check again (up to LAND_ATTEMPTS attempts within LAND_DEADLINE seconds, then exit 16) -> `git push <remote> <sha>:<base>`, a
 #   plain fast-forward push: there is no force anywhere in this script.
 #
-# CONFIGURATION is the repository's own file (default scripts/land.conf; lib/conf.sh documents every key). It is read from <remote>/<base>, i.e. from what main
+# CONFIGURATION is the repository's own file (default $LAND_CONF_FILE, lib/paths.sh; lib/conf.sh documents every key). It is read from <remote>/<base>, i.e. from what main
 # already says, so a commit cannot loosen the rules it is judged by; only when main has no such file yet (the first landing) is the working tree's copy used.
 # HOOKS are repository-owned executables in LAND_HOOKS_DIR, taken from <remote>/<base> too: pre-rebase, post-rebase, post-tier1, json-fields, on-run, prepare.
 #

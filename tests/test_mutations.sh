@@ -86,7 +86,7 @@ Tier 1 gates|13|sc_gates|-|s/^t1cmd() { case \$1 in gates) echo "\$LAND_GATES_CM
 conflict|11|sc_conflict|-|s/stop 11 conflict/echo conflict-ignored; stop 0 landed/
 Conventional subject|1|sc_subject|-|s/\[ "\$LAND_CONVENTIONAL" = 1 \]/false/
 config from main|13|sc_conf_base|-|s|elif git -C "\$top" cat-file -e "\$remote/\$base:\$confpath" 2>/dev/null;|elif false;|
-drift check|12|sc_drift|-|s|scripts/land/bin/land-check) >\&2|true) >\&2|
+drift check|12|sc_drift|-|s|"vendored-copy drift check" "\$LAND_DIR/bin/land-check") >\&2|"vendored-copy drift check" true) >\&2|
 push arbiter: a refused push lands nothing|1|sc_push_refused|-|s/^  if bounded "\$gt" "git push"/  if true || bounded "$gt" "git push"/
 freeze|14|sc_freeze|-|s/^freezecheck() { freeze_active/freezecheck() { return 0; freeze_active/
 inherited red: a new failure is refused|13|sc_ih_new|-|s/^  \[ -z "\$newfail" \]; }/  true; }/

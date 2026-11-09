@@ -37,10 +37,10 @@ check_one() {   # the pin, the manifest, every listed file (hash, executable bit
   while IFS= read -r f; do f=${f#"$root"/}; case $f in "$pdir/PIN"|"$pdir/MANIFEST.sha256") continue;; esac
     [ -n "${listed[$f]:-}" ] || drift "$f is not part of the pinned release (an extra or local file inside the vendored tree)"
   done < <(find "$root/$pdir" -type f | LC_ALL=C sort)
-  # the repository's own files: well formed. scripts/land-direct is the repository's own entry script (install creates it from templates/land-direct-stub when absent; add what you need before the exec):
-  # it must be executable and still run the pinned lander.
+  # the repository's own files: well formed. $LAND_ENTRY is the repository's own entry script (install creates it from templates/land-direct-stub when absent; add what you need before the exec):
+  # it must be executable and still run the pinned lander ($LAND_DIR/bin/land-direct).
   e=$(grep -v '^[[:space:]]*#' "$root/$LAND_ENTRY" 2>/dev/null || true)
-  { [ -x "$root/$LAND_ENTRY" ] && grep -q "${LAND_DIR##*/}/bin/land-direct" <<<"$e"; } || drift "$LAND_ENTRY is missing, not executable, or does not run the pinned lander ($LAND_DIR/bin/land-direct)"
+  { [ -x "$root/$LAND_ENTRY" ] && [[ $e == *"${LAND_DIR##*/}/bin/land-direct"* ]]; } || drift "$LAND_ENTRY is missing, not executable, or does not run the pinned lander ($LAND_DIR/bin/land-direct)"
   if [ -r "$root/$LAND_CONF_FILE" ]; then ( conf_defaults; conf_parse "$LAND_CONF_FILE" < "$root/$LAND_CONF_FILE" ) 2>&1 >/dev/null | sed 's/^/DRIFT: /' >&2 && [ "${PIPESTATUS[0]}" = 0 ] || bad=1; fi
   if [ -d "$root/$LAND_HOOKS_DEFAULT" ]; then   # hooks have fixed names and must be executable; `*.sh` files are helpers the hooks source; anything else is a hook that would silently never run
     for h in "$root/$LAND_HOOKS_DEFAULT"/*; do [ -f "$h" ] || continue; n=${h##*/}
