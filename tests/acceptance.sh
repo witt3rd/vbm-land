@@ -6,11 +6,11 @@
 set -euo pipefail
 export LC_ALL=C
 soak=0; [ "${1:-}" != --soak ] || { soak=1; shift; }
-root=$(cd "$(dirname "$0")/.." && pwd); rev=${1:-HEAD}; d=$(mktemp -d "${TMPDIR:-/tmp}/vbm-land-accept.XXXXXX"); trap 'rm -rf "$d"' EXIT
+root=$(cd "$(dirname "$0")/.." && pwd); . "$root/lib/paths.sh"; rev=${1:-HEAD}; d=$(mktemp -d "${TMPDIR:-/tmp}/vbm-land-accept.XXXXXX"); trap 'rm -rf "$d"' EXIT
 git clone -q "$root" "$d/t"; git -C "$d/t" checkout -q "$(git -C "$root" rev-parse "$rev")"; git -C "$d/t" config commit.gpgsign false
 cd "$d/t"; today=$(date -u +%F); h=$(printf '%s' "acceptance $rev" | sha256sum | cut -d' ' -f1)
-files=$(git ls-files 'scripts/*approvals*.txt'; sed -n 's/^LAND_\(PROTECTED_\)\{0,1\}APPROVALS=//p' scripts/land.conf); files=$(printf '%s\n' scripts/gate-edit-approvals.txt scripts/protected-approvals.txt $files | sort -u)
-for f in $files; do printf 'bin/land-direct | %s | acceptance: one real approval on the real tree | %s\n' "$h" "$today" >> "$f"; echo "record added to $f"; done
+files=$(git ls-files 'scripts/*approvals*.txt'; sed -n 's/^LAND_\(PROTECTED_\)\{0,1\}APPROVALS=//p' "$LAND_CONF_FILE"); files=$(printf '%s\n' scripts/gate-edit-approvals.txt scripts/protected-approvals.txt $files | sort -u)
+for f in $files; do printf '%s | %s | acceptance: one real approval on the real tree | %s\n' "$LAND_ENTRY" "$h" "$today" >> "$f"; echo "record added to $f"; done
 git add -A; git -c user.name=t -c user.email=t@example.invalid commit -qm "chore(approvals): acceptance record" -m "Task-ID: acceptance"
 tests/run.sh && echo "ACCEPTANCE PASSED: the real Tier 1 is green with a real approval line in $(echo $files)"
 [ "$soak" = 0 ] || { tests/soak.sh && echo "SOAK PASSED"; }

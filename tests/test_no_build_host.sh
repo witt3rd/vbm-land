@@ -57,20 +57,20 @@ if command -v cc >/dev/null; then
   marker_off; runs "run-probe, no marker" env_clean "$RP" touch "$tmp/ran"
 else fail "run-probe: no C compiler (the preload needs one): the case cannot run"; fi
 # 4. the lint: a repository fixture
-marker_off; fx=$tmp/fx; mkdir -p "$fx/scripts/land/bin" "$fx/scripts/land/lib"; git -C "$fx" init -q
-cp "$G" "$fx/scripts/land/bin/"; cp "$ROOT/lib/no-build-host.sh" "$fx/scripts/land/lib/"; cp "$RS" "$fx/scripts/run-scoped.sh"
+marker_off; fx=$tmp/fx; mkdir -p "$fx/$LAND_DIR/bin" "$fx/$LAND_DIR/lib"; git -C "$fx" init -q
+cp "$G" "$fx/$LAND_DIR/bin/"; cp "$ROOT/lib/no-build-host.sh" "$fx/$LAND_DIR/lib/"; cp "$RS" "$fx/scripts/run-scoped.sh"
 printf 'mutants.py\nself abi.sh\n' > "$fx/scripts/long-runners.txt"
-printf '#!/usr/bin/env bash\nscripts/land/bin/no-build-guard || exit 2\nexit 0\n' > "$fx/scripts/abi.sh"; chmod +x "$fx/scripts/abi.sh"
+printf '#!/usr/bin/env bash\n%s/bin/no-build-guard || exit 2\nexit 0\n' "$LAND_DIR" > "$fx/scripts/abi.sh"; chmod +x "$fx/scripts/abi.sh"
 printf '#!/usr/bin/env bash\nscripts/run-scoped.sh mutants 3600 python3 scripts/mutants.py --jobs 4\nscripts/abi.sh\n' > "$fx/scripts/tier1.sh"
-lintfx() { git -C "$fx" add -A >/dev/null; env_clean "$fx/scripts/land/bin/no-build-guard" --lint "$fx"; }
+lintfx() { git -C "$fx" add -A >/dev/null; env_clean "$fx/$LAND_DIR/bin/no-build-guard" --lint "$fx"; }
 expect_exit "lint: a repository that runs everything through the helper passes" 0 lintfx
 printf '#!/usr/bin/env bash\npython3 scripts/mutants.py --jobs 4\n' > "$fx/scripts/tier1.sh"
 expect_exit "lint: a direct call of a declared runner fails" 1 lintfx; out_has "runs mutants.py outside run-scoped.sh"
 printf '#!/usr/bin/env bash\nmise exec -- scripts/mutants.py\n' > "$fx/scripts/tier1.sh"; expect_exit "lint: a mise-prefixed call fails" 1 lintfx
 printf '#!/usr/bin/env bash\nscripts/run-scoped.sh mutants 3600 python3 scripts/mutants.py\n' > "$fx/scripts/tier1.sh"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$fx/scripts/abi.sh"; expect_exit "lint: a self runner with no guard call fails" 1 lintfx
-printf '#!/usr/bin/env bash\n# scripts/land/bin/no-build-guard\nexit 0\n' > "$fx/scripts/abi.sh"; expect_exit "lint: a guard call that is only a comment fails" 1 lintfx
-printf '#!/usr/bin/env bash\nscripts/land/bin/no-build-guard || exit 2\n' > "$fx/scripts/abi.sh"; expect_exit "lint: restored, passes again" 0 lintfx
+printf '#!/usr/bin/env bash\n# %s/bin/no-build-guard\nexit 0\n' "$LAND_DIR" > "$fx/scripts/abi.sh"; expect_exit "lint: a guard call that is only a comment fails" 1 lintfx
+printf '#!/usr/bin/env bash\n%s/bin/no-build-guard || exit 2\n' "$LAND_DIR" > "$fx/scripts/abi.sh"; expect_exit "lint: restored, passes again" 0 lintfx
 cp "$RS" "$fx/scripts/run-scoped.sh"; grep -v 'no-build-guard' "$RS" > "$fx/scripts/run-scoped.sh"; chmod +x "$fx/scripts/run-scoped.sh"
 expect_exit "lint: a helper without the guard fails" 1 lintfx; out_has "does not call no-build-guard"
 # a helper that mentions the guard in a comment only, or calls it after it started something

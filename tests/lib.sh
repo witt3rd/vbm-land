@@ -5,6 +5,7 @@ set -euo pipefail
 export LC_ALL=C GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+. "$ROOT/lib/paths.sh"   # every consumer path a test names comes from here (LAND_DIR, LAND_CONF_FILE, LAND_ENTRY, LAND_SKILLS_DIR, ...): never a literal
 TESTTMP=${TMPDIR:-/tmp}; T=; SANDBOXES=(); MAINPID=$$; RESULTS=$(mktemp "$TESTTMP/vbm-land-results.XXXXXX")   # results outlive the sandboxes; subshells append to the file
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
 
@@ -59,8 +60,8 @@ seed_push() {   # seed_push FILE CONTENT [SUBJECT]: commit a file straight onto 
 seed_exec() {   # seed_exec FILE CONTENT [SUBJECT]: the same, executable
   seed_push "$@"; ( cd "$T/seed" && chmod +x "$1" && git add -- "$1" && git commit -qm "chore: make $1 executable" -m "Task-ID: seed" && git push -q origin "$BASE" )
 }
-set_conf() {   # set_conf LINES...: the repository's scripts/land.conf on the remote's base branch (one LAND_KEY=value per argument)
-  local c; c=$(printf '%s\n' "$@"); seed_push scripts/land.conf "$c" "chore: land.conf"
+set_conf() {   # set_conf LINES...: the repository's own $LAND_CONF_FILE on the remote's base branch (one LAND_KEY=value per argument)
+  local c; c=$(printf '%s\n' "$@"); seed_push "$LAND_CONF_FILE" "$c" "chore: land.conf"
 }
 gh_mode() { echo "$1" > "$T/gh/mode"; }
 worker() {    # worker NAME: a fresh clone of the remote at $T/NAME

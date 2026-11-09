@@ -84,7 +84,7 @@ if command -v journalctl >/dev/null; then sleep 3; n=$(journalctl -o json --no-p
 mkdir -p "$tmp/r/scripts"; git -C "$tmp/r" init -q; printf 'abi_t\n' > "$tmp/r/scripts/probes.txt"
 printf '#!/usr/bin/env bash\n/tmp/abi_t /tmp/v.jsonl\n' > "$tmp/r/scripts/bad.sh"; git -C "$tmp/r" add -A
 expect_exit "lint: a probe run outside the helper fails" 1 "$RP" --lint scripts/probes.txt "$tmp/r"; out_has "bad.sh:2"
-printf '#!/usr/bin/env bash\nscripts/land/bin/run-probe "$D/abi_t" /tmp/v.jsonl\n' > "$tmp/r/scripts/bad.sh"; git -C "$tmp/r" add -A
+printf '#!/usr/bin/env bash\n%s/bin/run-probe "$D/abi_t" /tmp/v.jsonl\n' "$LAND_DIR" > "$tmp/r/scripts/bad.sh"; git -C "$tmp/r" add -A
 expect_exit "lint: the same call through the helper passes" 0 "$RP" --lint scripts/probes.txt "$tmp/r"
 printf '#!/usr/bin/env bash\n"$D/abi_t" x   # probe-ok: not a crash\n' > "$tmp/r/scripts/bad.sh"; git -C "$tmp/r" add -A
 expect_exit "lint: an explicit probe-ok marker is allowed" 0 "$RP" --lint scripts/probes.txt "$tmp/r"
