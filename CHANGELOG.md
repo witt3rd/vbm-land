@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.7.1 (PATCH: the agent-instructions block carries the family's principles)
+
+The agent-instructions block (`templates/AGENTS-block.md`) carries the family's principles (everything runs before the push; proofs, not tests; nothing added to the process without deleting something; the worker owns its change). Additive; no interface change.
+
 ## 0.7.0
 
 Nothing runs after the push. **Removed** (major for a consumer that used them): `bin/land-revert` (the red-main watchdog) and its
