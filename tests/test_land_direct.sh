@@ -26,15 +26,15 @@ worker c2; commit "$T/c2" x.txt 1
 refused "a config without any Tier 1 command refuses" 2 "$T/c2"; out_has "no Tier 1"
 set_conf 'LAND_TEST_CMD=true' 'LAND_RED_MODE=sometimes' 'LAND_CI_WORKFLOW=ci.yml' 'LAND_TIER1_JOB=tier1' 'LAND_RED_WAIT=x' 'LAND_KNOWN_FLAKY=f' 'LAND_FLAKY_RERUN_WAIT=1' 'LAND_TIER2_JOB=t2'
 worker c3; commit "$T/c3" c3.txt 1
-lands "the retired CI keys of an old land.conf still load (whatever their value): ignored, named once" "$T/c3"; out_has "note: LAND_CI_WORKFLOW LAND_TIER1_JOB LAND_RED_MODE LAND_RED_WAIT LAND_KNOWN_FLAKY LAND_FLAKY_RERUN_WAIT LAND_TIER2_JOB ignored"
+lands "the retired CI keys of an old $(basename "$LAND_CONF_FILE") still load (whatever their value): ignored, named once" "$T/c3"; out_has "note: LAND_CI_WORKFLOW LAND_TIER1_JOB LAND_RED_MODE LAND_RED_WAIT LAND_KNOWN_FLAKY LAND_FLAKY_RERUN_WAIT LAND_TIER2_JOB ignored"
 set_conf 'LAND_TEST_CMD=true' 'LAND_REGEN_CMD=$(touch /tmp/vbm-land-injected)'   # data, never evaluated at read time (and a regeneration command only runs after a conflict)
 worker c4; commit "$T/c4" x.txt 1
 ( cd "$T/c4" && "$L" >"$T/out" 2>&1 ) || true; check "reading the config executes nothing" test ! -e /tmp/vbm-land-injected; rm -f /tmp/vbm-land-injected
 
 echo "## first landing: the base has no config yet, the working tree's is used"
 sandbox
-worker f1; mkdir -p "$T/f1/scripts"; echo 'LAND_TEST_CMD=true' > "$T/f1/scripts/land.conf"; git -C "$T/f1" add scripts/land.conf; git -C "$T/f1" commit -qm "chore: add land.conf"
-lands "the first landing (config only in the working tree) lands" "$T/f1"; out_has "has no scripts/land.conf yet"
+worker f1; mkdir -p "$T/f1/$(dirname "$LAND_CONF_FILE")"; echo 'LAND_TEST_CMD=true' > "$T/f1/$LAND_CONF_FILE"; git -C "$T/f1" add "$LAND_CONF_FILE"; git -C "$T/f1" commit -qm "chore: add $LAND_CONF_FILE"
+lands "the first landing (config only in the working tree) lands" "$T/f1"; out_has "has no $LAND_CONF_FILE yet"
 
 echo "## landing"
 sandbox
@@ -54,9 +54,9 @@ git -C "$T/a4" checkout -q main 2>/dev/null; git -C "$T/a4" merge -q --no-ff -m 
 if [ -n "$(git -C "$T/a4" rev-list --merges origin/main..HEAD)" ]; then refused "merge commits are refused (history lands linear)" 2 "$T/a4"; else pass "merge-commit setup unavailable here (skipped)"; fi
 
 echo "## config comes from the base branch, never from the change"
-worker g1; mkdir -p "$T/g1"; : > "$T/g1/BAD"; printf 'LAND_TEST_CMD=true\n' > "$T/g1/scripts/land.conf"
+worker g1; mkdir -p "$T/g1"; : > "$T/g1/BAD"; printf 'LAND_TEST_CMD=true\n' > "$T/g1/$LAND_CONF_FILE"
 git -C "$T/g1" add -A; git -C "$T/g1" commit -qm "feat: bad file and a loosened config" -m "Task-ID: t"
-refused "a change that loosens land.conf is still judged by main's" 13 "$T/g1"
+refused "a change that loosens $(basename "$LAND_CONF_FILE") is still judged by main's" 13 "$T/g1"
 
 echo "## land-time checks"
 worker k; echo 1 > "$T/k/x.txt"; git -C "$T/k" add x.txt; git -C "$T/k" commit -qm "not conventional" -m "Task-ID: t"
@@ -135,7 +135,7 @@ refused "LAND_ATTEMPTS=0 is a bad configuration" 2 "$T/rl6"; out_has "LAND_ATTEM
 # this attempt must still be built on the base it fetched, and notice at the end that the ref moved: a second attempt
 sandbox
 set_conf 'LAND_TEST_CMD=echo "$LAND_ATTEMPT:$LAND_PREV_BASE:$(git rev-parse HEAD~1)" >> '"$T/pin.txt"
-seed_exec scripts/land.d/pre-rebase "#!/usr/bin/env bash
+seed_exec "$LAND_HOOKS_DEFAULT/pre-rebase" "#!/usr/bin/env bash
 [ ! -e '$T/pin.flag' ] || exit 0
 : > '$T/pin.flag'
 ( cd '$T/seed' && git pull -q origin main && echo c > competitor.txt && git add competitor.txt && git commit -qm 'chore: competitor' -m 'Task-ID: c' && git push -q origin main )
@@ -232,28 +232,28 @@ sandbox
 echo "## hooks (taken from main, so a change cannot rewrite the rules it is judged by)"
 gh_mode ok
 set_conf 'LAND_TEST_CMD=true' 'LAND_PROTECTED=guarded/*'
-seed_exec scripts/land.d/post-rebase '#!/usr/bin/env bash
+seed_exec "$LAND_HOOKS_DEFAULT/post-rebase" '#!/usr/bin/env bash
 [ -z "$LAND_PROTECTED_TOUCHED" ] || { echo "hook: protected file touched: $LAND_PROTECTED_TOUCHED"; exit 1; }
 grep -q . "$LAND_TOUCHED_FILE" || exit 1'
-seed_exec scripts/land.d/json-fields '#!/usr/bin/env bash
+seed_exec "$LAND_HOOKS_DEFAULT/json-fields" '#!/usr/bin/env bash
 echo "extra_metric=42"; echo "label=ok-1"; echo "bad key=1"; echo "sha=evil"; echo "text=has spaces"'
 worker o1; commit "$T/o1" guarded/g.txt 1
 refused "a post-rebase hook refuses a protected-set change" 12 "$T/o1"; out_has "protected file touched: guarded/g.txt"; out_has "protected set: TOUCHED"
-worker o2; commit "$T/o2" guarded/g.txt 1; printf '#!/usr/bin/env bash\nexit 0\n' > "$T/o2/scripts/land.d/post-rebase"; git -C "$T/o2" add -A; git -C "$T/o2" commit -qm "feat: also neuter the hook" -m "Task-ID: t"
+worker o2; commit "$T/o2" guarded/g.txt 1; printf '#!/usr/bin/env bash\nexit 0\n' > "$T/o2/$LAND_HOOKS_DEFAULT/post-rebase"; git -C "$T/o2" add -A; git -C "$T/o2" commit -qm "feat: also neuter the hook" -m "Task-ID: t"
 refused "a change that rewrites the hook is still judged by main's hook" 12 "$T/o2"
 worker o3; commit "$T/o3" free.txt 1
 lands "an unprotected change passes the hook" "$T/o3"
 check "json-fields adds numeric and safe string keys" bash -c "tail -n1 '$T/out' | grep -q '\"extra_metric\":42,\"label\":\"ok-1\"'"
 check "json-fields cannot override the contract keys or add junk" bash -c "tail -n1 '$T/out' | grep -vq 'evil' && tail -n1 '$T/out' | grep -q '\"text\":null'"
-seed_exec scripts/land.d/pre-rebase '#!/usr/bin/env bash
+seed_exec "$LAND_HOOKS_DEFAULT/pre-rebase" '#!/usr/bin/env bash
 test ! -e NOPE'
 worker o4; commit "$T/o4" NOPE 1
 refused "a pre-rebase hook can refuse (exit 12)" 12 "$T/o4"
-seed_exec scripts/land.d/post-tier1 '#!/usr/bin/env bash
+seed_exec "$LAND_HOOKS_DEFAULT/post-tier1" '#!/usr/bin/env bash
 test ! -e NOPE2'
 worker o5; commit "$T/o5" NOPE2 1
 refused "a post-tier1 hook can refuse (exit 12)" 12 "$T/o5"
-seed_exec scripts/land.d/on-run '#!/usr/bin/env bash
+seed_exec "$LAND_HOOKS_DEFAULT/on-run" '#!/usr/bin/env bash
 echo "$LAND_RESULT" >> "$LAND_STATE_DIR/on-run.log"'
 worker o6; commit "$T/o6" o6.txt 1
 lands "an on-run hook sees every run" "$T/o6"; check "on-run saw the result" grep -q landed "$T/o6/.git/vbm-land/on-run.log"
@@ -296,7 +296,7 @@ worker b2; commit "$T/b2" b2.txt 1
 lands "the old lock settings of the environment are ignored" "$T/b2" LAND_LOCK_WAIT_SECONDS=1 LAND_LEASE_STALE_SECONDS=1; out_has "LAND_LOCK_WAIT_SECONDS LAND_LEASE_STALE_SECONDS ignored"
 set_conf 'LAND_TEST_CMD=true' 'LAND_LOCK_WAIT=30'
 worker b3; commit "$T/b3" b3.txt 1
-lands "a land.conf that still has LAND_LOCK_WAIT loads: ignored, named once" "$T/b3"; out_has "note: LAND_LOCK_WAIT ignored"
+lands "a $(basename "$LAND_CONF_FILE") that still has LAND_LOCK_WAIT loads: ignored, named once" "$T/b3"; out_has "note: LAND_LOCK_WAIT ignored"
 worker p1; git -C "$T/p1" worktree add -q "$T/p2" -b p2 origin/main; git -C "$T/p2" config commit.gpgsign false; commit "$T/p1" p1.txt 1; commit "$T/p2" p2.txt 2   # two worktrees of ONE clone share its .git
 set_conf 'LAND_TEST_CMD=echo "$LAND_RUN_DIR" >> '"$T/race-runs.txt"'; sleep 1'
 ( cd "$T/p1" && "$L" >"$T/p1.out" 2>&1 ) & q1=$!; ( cd "$T/p2" && "$L" >"$T/p2.out" 2>&1 ) & q2=$!

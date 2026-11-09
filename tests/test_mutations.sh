@@ -17,11 +17,11 @@ sc_tier1()     { scn_prelude; set_conf 'LAND_TEST_CMD=false'; worker w; commit "
 sc_gates()     { scn_prelude; set_conf 'LAND_GATES_CMD=false'; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 sc_conflict()  { scn_prelude; set_conf 'LAND_TEST_CMD=true'; worker w; worker v; commit "$T/w" a.txt 1; commit "$T/v" a.txt 2; ( cd "$T/v" && "$1" >/dev/null 2>&1 ); ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 sc_subject()   { scn_prelude; set_conf 'LAND_TEST_CMD=true'; worker w; echo 1 > "$T/w/a"; git -C "$T/w" add a; git -C "$T/w" commit -qm "not conventional"; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
-sc_conf_base() { scn_prelude; set_conf 'LAND_TEST_CMD=test ! -e BAD'; worker w; : > "$T/w/BAD"; echo 'LAND_TEST_CMD=true' > "$T/w/scripts/land.conf"; git -C "$T/w" add -A; git -C "$T/w" commit -qm "feat: loosen" -m "Task-ID: t"; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
+sc_conf_base() { scn_prelude; set_conf 'LAND_TEST_CMD=test ! -e BAD'; worker w; : > "$T/w/BAD"; echo 'LAND_TEST_CMD=true' > "$T/w/$LAND_CONF_FILE"; git -C "$T/w" add -A; git -C "$T/w" commit -qm "feat: loosen" -m "Task-ID: t"; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 # (hooks are read from main twice over: from main's tree and from a scratch worktree that starts at main, so no single-line mutant removes that guard)
-sc_hook_base() { scn_prelude; set_conf 'LAND_TEST_CMD=true'; seed_exec scripts/land.d/post-rebase $'#!/usr/bin/env bash\nexit 1'; worker w; printf '#!/usr/bin/env bash\nexit 0\n' > "$T/w/scripts/land.d/post-rebase"; git -C "$T/w" add -A; git -C "$T/w" commit -qm "feat: neuter hook" -m "Task-ID: t"; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
+sc_hook_base() { scn_prelude; set_conf 'LAND_TEST_CMD=true'; seed_exec "$LAND_HOOKS_DEFAULT/post-rebase" $'#!/usr/bin/env bash\nexit 1'; worker w; printf '#!/usr/bin/env bash\nexit 0\n' > "$T/w/$LAND_HOOKS_DEFAULT/post-rebase"; git -C "$T/w" add -A; git -C "$T/w" commit -qm "feat: neuter hook" -m "Task-ID: t"; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 sc_drift()     { scn_prelude; S=$T/src; mkdir -p "$S"; ( cd "$ROOT" && cp -r bin lib docs templates skills install VERSION "$S/" ); ( cd "$S" && git init -q -b main && git config commit.gpgsign false && bin/land-manifest >/dev/null && git add -A && git commit -qm "chore: r" && git tag v1 )
-               git clone -q "$T/remote.git" "$T/w"; "$S/install" --source "$S" --target "$T/w" v1 >/dev/null; printf 'LAND_TEST_CMD=true\nLAND_RED_MODE=off\n' > "$T/w/scripts/land.conf"
+               git clone -q "$T/remote.git" "$T/w"; "$S/install" --source "$S" --target "$T/w" v1 >/dev/null; printf 'LAND_TEST_CMD=true\nLAND_RED_MODE=off\n' > "$T/w/$LAND_CONF_FILE"
                echo '# patched' >> "$T/w/scripts/land/bin/run-probe"; git -C "$T/w" add -A; git -C "$T/w" commit -qm "feat: patched copy" -m "Task-ID: t"
                ( cd "$T/w" && env -u X "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 sc_push_refused() { scn_prelude; set_conf 'LAND_TEST_CMD=true' 'LAND_ATTEMPTS=3'; printf '#!/bin/sh\necho refused >&2\nexit 1\n' > "$T/remote.git/hooks/pre-receive"; chmod +x "$T/remote.git/hooks/pre-receive"; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
@@ -53,10 +53,10 @@ sc_ga_self()      { ga_prelude; worker w; echo "$AP | $ga_hz | r | $ga_today" > 
 sc_ga_malformed() { ga_prelude; worker w; echo "gate.sh | nothash | r | $ga_today" > "$T/w/$AP"; gacm "$T/w" "chore: approval"; ga_go "$1"; }
 # protected sets (lib/approvals.sh ga_protected): PL = the protected-paths list, PP = the approvals file of their own; the lander computes the hash
 PL=scripts/protected-paths.txt; PP=scripts/protected-approvals.txt
-ps_prelude() { scn_prelude; set_conf 'LAND_TEST_CMD=true' "LAND_PROTECTED_LIST=$PL" "$@"; seed_push keys.signers $'a\nb\nc'; seed_push scripts/land.d/x $'1\n2'; seed_push "$PL" $'keys.signers\nscripts/land.d/'; }
+ps_prelude() { scn_prelude; set_conf 'LAND_TEST_CMD=true' "LAND_PROTECTED_LIST=$PL" "$@"; seed_push keys.signers $'a\nb\nc'; seed_push "$LAND_HOOKS_DEFAULT/x" $'1\n2'; seed_push "$PL" $'keys.signers\n'"$LAND_HOOKS_DEFAULT/"; }
 ps_h() { worker h; ga_drop "$T/h" keys.signers; ( cd "$T/h" && "$ROOT/bin/land-direct" --print-gate-diff-hash "${1:-keys.signers}" 2>/dev/null ); }
 sc_ps_none()    { ps_prelude; worker w; ga_drop "$T/w" keys.signers; ga_go "$1"; }
-sc_ps_set()     { ps_prelude; h=$(ps_h); seed_push $AP "keys.signers,scripts/land.d/x | $h | r | $ga_today"; worker w; ga_drop "$T/w" keys.signers; : > "$T/w/$AP"; gacm "$T/w" "chore: consume"; ga_go "$1"; }
+sc_ps_set()     { ps_prelude; h=$(ps_h); seed_push $AP "keys.signers,${LAND_HOOKS_DEFAULT}/x | $h | r | $ga_today"; worker w; ga_drop "$T/w" keys.signers; : > "$T/w/$AP"; gacm "$T/w" "chore: consume"; ga_go "$1"; }
 sc_ps_empty()   { ps_prelude; seed_push $PL "# no entries"; worker w; commit "$T/w" z.txt 1; ga_go "$1"; }
 sc_ps_union()   { ps_prelude; worker h; echo 'new/' >> "$T/h/$PL"; gacm "$T/h" "feat: entry"; hl=$( cd "$T/h" && "$ROOT/bin/land-direct" --print-gate-diff-hash "$PL" 2>/dev/null ); seed_push $AP "$PL | $hl | r | $ga_today"
                   worker w; echo 'new/' >> "$T/w/$PL"; mkdir "$T/w/new"; echo n > "$T/w/new/f"; : > "$T/w/$AP"; gacm "$T/w" "feat: entry and a file under it"; ga_go "$1"; }
@@ -65,8 +65,8 @@ sc_ps_rename()  { ps_prelude; worker w; git -C "$T/w" mv keys.signers moved.sh; 
 sc_ps_onetime() { ps_prelude; h=$(ps_h); seed_push $AP "keys.signers | $h | r | $ga_today"; worker w; ga_drop "$T/w" keys.signers; ga_go "$1"; }
 sc_ps_sep()     { ps_prelude "LAND_PROTECTED_APPROVALS=$PP"; h=$(ps_h); seed_push $AP "keys.signers | $h | r | $ga_today"; worker w; ga_drop "$T/w" keys.signers; : > "$T/w/$AP"; gacm "$T/w" "chore: consume"; ga_go "$1"; }
 sc_ps_early()   { ps_prelude "LAND_PROTECTED_APPROVALS=$PP"; worker w; echo "keys.signers | $ga_hz | r | $ga_today" > "$T/w/$PP"; echo n > "$T/w/n.txt"; gacm "$T/w" "chore: approval and n"; git -C "$T/w" rm -q n.txt; gacm "$T/w" "chore: no n"; ga_go "$1"; }
-sc_ps_key()     { ps_prelude; worker w; echo "scripts/land.d/x,keys.signers | $ga_hz | r | $ga_today" > "$T/w/$AP"; gacm "$T/w" "chore: approval"; ga_go "$1"; }
-sc_ps_conf()    { ps_prelude; worker w; echo '# x' >> "$T/w/scripts/land.conf"; gacm "$T/w" "feat: touch the configuration"; ga_go "$1"; }
+sc_ps_key()     { ps_prelude; worker w; echo "${LAND_HOOKS_DEFAULT}/x,keys.signers | $ga_hz | r | $ga_today" > "$T/w/$AP"; gacm "$T/w" "chore: approval"; ga_go "$1"; }
+sc_ps_conf()    { ps_prelude; worker w; echo '# x' >> "$T/w/$LAND_CONF_FILE"; gacm "$T/w" "feat: touch the configuration"; ga_go "$1"; }
 sc_ps_regen()   { scn_prelude; set_conf 'LAND_TEST_CMD=echo regenerated > gen.txt' 'LAND_GENERATED_LIST=scripts/generated.txt' "LAND_PROTECTED_LIST=$PL"; seed_push scripts/generated.txt gen.txt; seed_push gen.txt stale; seed_push $PL $'keys.signers\ngen.txt'; worker w; commit "$T/w" z.txt 1; ga_go "$1"; }
 sc_nothing_pushed_on_failure() { scn_prelude; set_conf 'LAND_TEST_CMD=false'; worker w; commit "$T/w" a.txt 1; b=$(remote_head); ( cd "$T/w" && "$1" >/dev/null 2>&1 ) || true; [ "$(remote_head)" = "$b" ] && echo 13 || echo 0; }
 
