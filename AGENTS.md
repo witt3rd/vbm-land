@@ -16,12 +16,12 @@ A consumer repository keeps everything the lander owns in **one folder, `.land/`
   land-direct    the entry script an agent runs
 ```
 
-- **One folder, one checksum.** `bin/land-check` recomputes the hash of `.land/tool/` and compares it with `PIN`; the signed release tag records the same hash. The per-file `MANIFEST.sha256` list goes.
+- **One folder, one checksum.** `.land/tool/` holds the payload and its `MANIFEST.sha256`; `PIN` and the signed release tag record the hash of that manifest, and `bin/land-check` verifies every file against it. That is already one checksum for the whole folder, so it does not change.
 - **Update replaces the whole folder:** delete `.land/tool/`, copy the new one in, write `PIN`. A file dropped upstream disappears with it. `land-update --diff` still shows the added, changed and removed files before anything is written, and the update refuses to write outside `.land/` and `.agents/skills/`.
 - **Protection is one entry, `.land/`,** for a repository that wants its lander off limits to agents. `scripts/` is the repository's and is not protected on our account.
 - **Migration.** The first 0.8.0 update moves a repository from the old layout (`scripts/land/`, `scripts/land-direct`, `scripts/land.conf`, `scripts/land.d/`, `scripts/land.signers`) as one `chore(land)` commit, removes the old files, and rewrites the references in the repository's `scripts/` and Tier 1.
 - **An upgrade removes what the old version left behind.** That is part of the upgrade, not a follow-up.
-- **Build order, each slice green on its own:** (1) one place defines every path and nothing else hard-codes one; (2) the folder checksum; (3) the `.land/` layout and the migration. Prove it on one repository before any other.
+- **Build order, each slice green on its own:** (0) delete the unused package mechanism (done); (1) one place, `lib/paths.sh`, defines every path (done); (2) the checksum is already one, so no slice; (3) the tests take their paths from `lib/paths.sh`, then the `.land/` layout and the migration are one flip of those values. Prove it on one repository before any other.
 - Nothing runs after the push: no CI, no Tier 2, no watchdog. The remaining wording about them in `bin/` and `lib/` goes in this release.
 
 ## Landing here
