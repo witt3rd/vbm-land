@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.11.1 (patch)
+
+- A RELATIVE `--signers` path now works: the verifier runs `git` inside its scratch clone, so a relative path was looked up there and a good signature was reported as "unsigned, or an unknown signer". `lib/verify.sh` makes the path absolute (and so does the embedded copy in `install`); `tests/test_signing.sh` has the case.
+
 ## 0.11.0 (minor: additive; a repository takes it by deleting its own copies of what moved into the tool)
 
 - **One verifier.** `lib/verify.sh` is the only code that verifies a release tag and hashes a tree (`land-update`, `land-pin`, `land-release`); a release is verified by the tree hash its signed tag records, which covers the manifest and every file (tags keep recording `manifest_sha256=` until every consumer has taken this release). `install` embeds the file verbatim, and `tests/test_verifier_one.sh` fails if the copy differs or a second verifier appears. `lib/treehash.sh` is merged into it.

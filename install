@@ -72,6 +72,7 @@ export_commit() { git -C "$1" archive --format=tar "$2" | tar -x -C "$3"; }
 src_check_tag() {
   local dest=$1 ref=$2 signers=${3:-} out=${4:-} kind want got d
   { [ -n "$signers" ] && [ -r "$signers" ]; } || { echo "REFUSED: no readable signers file: a release signature cannot be checked" >&2; return 1; }
+  signers=$(readlink -f "$signers")   # git below runs in the clone's directory: a relative path would be looked up there and a good signature would look unknown
   kind=$(git -C "$dest" cat-file -t "refs/tags/$ref" 2>/dev/null) || { echo "REFUSED: $ref is not a release tag, and signed releases are required; pass the tag, not a commit" >&2; return 1; }
   [ "$kind" = tag ] || { echo "REFUSED: $ref is a lightweight tag: a signed, annotated release tag is required" >&2; return 1; }
   git -C "$dest" -c gpg.format=ssh -c "gpg.ssh.allowedSignersFile=$signers" verify-tag "$ref" >/dev/null 2>&1 || { echo "REFUSED: the signature of tag $ref does not verify against $signers (unsigned, or an unknown signer)" >&2; return 1; }

@@ -28,6 +28,7 @@ expect_exit "a tag is never moved: releasing the same version again is refused" 
 echo "## install and update verify before they write"
 consumer() { git clone -q "$T/remote.git" "$T/$1"; git -C "$T/$1" config commit.gpgsign false; }
 consumer s1
+consumer s0; expect_exit "a RELATIVE --signers path works (the verifier runs elsewhere; a relative path must not make a good signature look unknown)" 0 bash -c "cd '$K' && '$R/install' --source '$O' --target '$T/s0' --signers signers v3.0.0"; out_has "verified: tag v3.0.0"
 expect_exit "a first install with the maintainer's signers file verifies the tag" 0 "$R/install" --source "$O" --target "$T/s1" --signers "$K/signers" v3.0.0; out_has "verified: tag v3.0.0"
 check "the pin says verified, and the signers file is now the repository's own" bash -c "grep -q '^signature=verified\$' '$T/s1/$LAND_PIN' && cmp -s '$K/signers' '$T/s1/$LAND_SIGNERS_FILE'"
 # bad releases, each refused with nothing written
