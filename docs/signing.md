@@ -1,6 +1,6 @@
 # Signing vbm-land releases
 
-A release is an annotated tag `vX.Y.Z` signed with an ssh key (no gpg), whose message records `manifest_sha256=<hash of MANIFEST.sha256>`. `bin/land-release` makes it.
+A release is an annotated tag `vX.Y.Z` signed with an ssh key (no gpg), whose message records `tree_sha256=<tree hash of the exported tree>` (docs/pin.md) and, for a repository that ships a manifest, `manifest_sha256=<hash of MANIFEST.sha256>`. `bin/land-release` makes it, for any repository.
 Consumers verify the signature against their own `.land/land.signers` before anything of the release runs or is written (README, "Signed releases").
 
 ## The release key

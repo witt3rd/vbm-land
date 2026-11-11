@@ -4,6 +4,12 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.10.0 (minor: additive)
+
+- `bin/land-pin` (`tree`, `vendor`, `verify`, `online`, `list`) and `lib/treehash.sh`: one tree hash, one lock (`.land/pins.lock`), one vendoring command, one fast-gate check, from the contract `docs/pin.md`. New consumer paths: `.land/pins.lock`, `vendor/`.
+- `bin/land-release` works for ANY repository: the signed tag records `tree_sha256=`; a repository with no `MANIFEST.sha256` is not asked for one. It is now part of the payload.
+- New skills `vendor-a-library` and `release-a-library`.
+
 ## 0.9.0 (MAJOR: dead machinery removed; a land.conf naming a retired key is now refused)
 
 A consumer updates with `.land/tool/bin/land-update v0.9.0` after removing any retired key (the list is in the entry) from its `.land/land.conf`.
