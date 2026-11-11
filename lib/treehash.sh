@@ -13,3 +13,6 @@ tree_hash() (
   if [ ${#files[@]} = 0 ]; then printf '' | sha256sum | cut -d' ' -f1; exit 0; fi
   printf '%s\0' "${files[@]}" | xargs -0 sha256sum -- | sed -E 's/^([0-9a-f]{64})  \.\//\1 /' | sort | sha256sum | cut -d' ' -f1
 )
+
+# export_commit REPO REV DEST: the exported tree of REV in REPO (git archive) into the existing directory DEST. The tree hash of a commit is tree_hash of this export (docs/pin.md section 1).
+export_commit() { git -C "$1" archive --format=tar "$2" | tar -x -C "$3"; }
