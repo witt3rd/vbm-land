@@ -12,7 +12,7 @@ make_source() {   # make_source VERSION: a scratch source repository (this tree'
   mkdir -p "$S"; ( cd "$ROOT" && cp -r bin lib docs templates skills install VERSION "$S/" )
   ( cd "$S" && { [ -d .git ] || git init -q -b main; } && git config commit.gpgsign false && git config gpg.format ssh && git config user.signingkey "$K/maint" \
     && echo "$1" > VERSION && bin/land-manifest >/dev/null && git add -A && git commit -qm "chore: release $1" \
-    && git tag -s "v$1" -m "release $1" -m "manifest_sha256=$(sha256sum < MANIFEST.sha256 | cut -d' ' -f1)" )
+    && git tag -s "v$1" -m "release $1" -m "manifest_sha256=$(sha256sum < MANIFEST.sha256 | cut -d' ' -f1)" -m "tree_sha256=$(tree_of .)" )
 }
 make_source 1.0.0
 consumer() { git clone -q "$T/remote.git" "$T/$1"; git -C "$T/$1" config commit.gpgsign false; }
@@ -136,7 +136,7 @@ check "its entry script is the repository's own: not rewritten" grep -q '/land/b
 check "and no old tool folder came back" bash -c "cd '$T/n2' && test ! -e '$LAND_LEGACY_DIR'"
 
 echo "## after the migration: the migrated layout is what the next update works from"
-( cd "$S" && echo 1.1.0 > VERSION && bin/land-manifest >/dev/null && git add -A && git commit -qm "feat: 1.1.0" && git tag -s v1.1.0 -m "release 1.1.0" -m "manifest_sha256=$(sha256sum < MANIFEST.sha256 | cut -d' ' -f1)" )
+( cd "$S" && echo 1.1.0 > VERSION && bin/land-manifest >/dev/null && git add -A && git commit -qm "feat: 1.1.0" && git tag -s v1.1.0 -m "release 1.1.0" -m "manifest_sha256=$(sha256sum < MANIFEST.sha256 | cut -d' ' -f1)" -m "tree_sha256=$(tree_of .)" )
 consumer lu1; old_layout "$T/lu1"
 git -C "$T/lu1" push -q origin main   # main carries the old layout, as a real pre-0.8.0 consumer's does
 git -C "$T/lu1" fetch -q origin; git -C "$T/lu1" checkout -q -B main origin/main

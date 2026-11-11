@@ -36,9 +36,9 @@ git -C "$R" commit -q --allow-empty -m "chore: for tag tests"
 git -C "$R" tag -a v3.0.1 -m "unsigned annotated" -m "manifest_sha256=x"
 git -C "$R" tag v3.0.2
 git -C "$R" -c gpg.format=ssh -c user.signingkey="$K/rogue" tag -s v3.0.3 -m "signed by someone not allowed" -m "manifest_sha256=$(sha256sum < "$R/MANIFEST.sha256" | cut -d' ' -f1)"
-git -C "$R" -c gpg.format=ssh -c user.signingkey="$K/maint" tag -s v3.0.4 -m "signed, wrong manifest hash" -m "manifest_sha256=0000000000000000000000000000000000000000000000000000000000000000"
+git -C "$R" -c gpg.format=ssh -c user.signingkey="$K/maint" tag -s v3.0.4 -m "signed, wrong tree hash" -m "tree_sha256=0000000000000000000000000000000000000000000000000000000000000000"
 O2=$T/origin2.git; git clone -q --bare "$R" "$O2"
-for spec in "v3.0.1:does not verify" "v3.0.2:lightweight" "v3.0.3:does not verify" "v3.0.4:records manifest_sha256" "$(git -C "$R" rev-parse HEAD):not a release tag"; do
+for spec in "v3.0.1:does not verify" "v3.0.2:lightweight" "v3.0.3:does not verify" "v3.0.4:records tree_sha256" "$(git -C "$R" rev-parse HEAD):not a release tag"; do
   t=${spec%%:*}; why=${spec#*:}; bad "b-${t:0:6}"
   expect_exit "install refuses $why (${t:0:8})" 1 "$R/install" --source "$O2" --target "$T/b-${t:0:6}" "$t"; out_has "$why"
   check "and wrote nothing (no $LAND_DIR)" test ! -e "$T/b-${t:0:6}/$LAND_DIR"

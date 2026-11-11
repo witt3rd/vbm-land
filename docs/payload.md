@@ -76,7 +76,7 @@ it is introduced as a refusal only for a repository that has taken the release t
 
 Two verifiers exist today: `land-update` checks a manifest hash, `land-pin vendor` a tree hash; both rest on a signed
 tag and the signers file. There is to be one: `land-update` verifies a release with the same code and the same tree
-hash as `land-pin vendor` (`lib/source.sh` and `lib/treehash.sh` become one path). Releases keep recording
+hash as `land-pin vendor` (one file, `lib/verify.sh`: `land-update`, `land-pin` and `land-release` use it, and `install`, which must run without a checkout, embeds it verbatim; `tests/test_verifier_one.sh` fails when the copy differs or a second verifier appears). Releases keep recording
 `manifest_sha256=` beside `tree_sha256=` until every consumer has taken the release that verifies by the tree hash;
 then the manifest line is retired in a major release.
 

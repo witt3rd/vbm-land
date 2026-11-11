@@ -21,13 +21,13 @@ expect_exit "land-update --check reaches it too (current)" 0 anon "$T/c/$LAND_DI
 expect_exit "land-update --check sees the new release, anonymously (behind: exit 1)" 1 anon "$T/c/$LAND_DIR/bin/land-update" --check --root "$T/c"; out_has "v1.1.0"
 # THE SIGNATURE STAYS MANDATORY on the anonymous path: with a signers file, an unsigned, lightweight, wrongly-signed or manifest-tampered tag served over the same anonymous https is REFUSED and writes nothing; a good one passes (control)
 K=$T/keys; mkdir -p "$K"; ssh-keygen -q -t ed25519 -N '' -f "$K/maint" -C maint; ssh-keygen -q -t ed25519 -N '' -f "$K/rogue" -C rogue; echo "maint $(cut -d' ' -f1,2 "$K/maint.pub")" > "$K/signers"
-( cd "$S" && echo 2.0.0 > VERSION && bin/land-manifest >/dev/null && git add -A && git commit -qm "chore: release 2.0.0" && m=$(sha256sum < MANIFEST.sha256 | cut -d' ' -f1) \
-  && git -c gpg.format=ssh -c user.signingkey="$K/maint" tag -s v2.0.0 -m "tool v2.0.0" -m "manifest_sha256=$m" \
-  && git -c gpg.format=ssh -c user.signingkey="$K/rogue" tag -s v2.1.0 -m "tool v2.1.0" -m "manifest_sha256=$m" \
+( cd "$S" && echo 2.0.0 > VERSION && bin/land-manifest >/dev/null && git add -A && git commit -qm "chore: release 2.0.0" && m=$(sha256sum < MANIFEST.sha256 | cut -d' ' -f1) && th=$(tree_of .) \
+  && git -c gpg.format=ssh -c user.signingkey="$K/maint" tag -s v2.0.0 -m "tool v2.0.0" -m "manifest_sha256=$m" -m "tree_sha256=$th" \
+  && git -c gpg.format=ssh -c user.signingkey="$K/rogue" tag -s v2.1.0 -m "tool v2.1.0" -m "manifest_sha256=$m" -m "tree_sha256=$th" \
   && git tag v2.2.0 \
-  && git -c gpg.format=ssh -c user.signingkey="$K/maint" tag -s v2.3.0 -m "tool v2.3.0" -m "manifest_sha256=$(printf x | sha256sum | cut -d' ' -f1)" \
+  && git -c gpg.format=ssh -c user.signingkey="$K/maint" tag -s v2.3.0 -m "tool v2.3.0" -m "manifest_sha256=$m" -m "tree_sha256=$(printf x | sha256sum | cut -d' ' -f1)" \
   && git tag -a v2.4.0 -m "tool v2.4.0 unsigned" && git push -q "$T/www/acme/tool.git" main --tags ); git -C "$T/www/acme/tool.git" update-server-info
-for t in v2.1.0:"signed by an unknown signer" v2.2.0:"a lightweight tag" v2.3.0:"a signed tag recording the wrong manifest" v2.4.0:"an unsigned annotated tag"; do
+for t in v2.1.0:"signed by an unknown signer" v2.2.0:"a lightweight tag" v2.3.0:"a signed tag recording the wrong tree hash" v2.4.0:"an unsigned annotated tag"; do
   git init -q -b main "$T/n${t%%:*}"; expect_exit "anonymous install REFUSES ${t#*:}" 1 anon "$S/install" --source acme/tool --target "$T/n${t%%:*}" --signers "$K/signers" "${t%%:*}"; out_has "REFUSED"
   check "(and wrote nothing: no $LAND_DIR)" test ! -e "$T/n${t%%:*}/$LAND_DIR"
 done

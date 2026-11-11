@@ -8,7 +8,7 @@ K=$T/keys; mkdir -p "$K"; ssh-keygen -q -t ed25519 -N '' -f "$K/maint" -C maint
 echo "maint $(cut -d' ' -f1,2 "$K/maint.pub")" > "$K/signers"
 O=$T/lib.git; L=$T/lib
 git init -q --bare -b main "$O"; mkdir -p "$L/$LAND_DIR/bin" "$L/$LAND_DIR/lib" "$L/src"
-( cd "$ROOT" && cp bin/land-release bin/land-pin "$L/$LAND_DIR/bin/" && cp lib/treehash.sh lib/paths.sh "$L/$LAND_DIR/lib/" )   # the tool as a library vendors it
+( cd "$ROOT" && cp bin/land-release bin/land-pin "$L/$LAND_DIR/bin/" && cp lib/verify.sh lib/paths.sh "$L/$LAND_DIR/lib/" )   # the tool as a library vendors it
 echo 0.1.0 > "$L/VERSION"; printf 'hello\n' > "$L/src/a.txt"
 ( cd "$L" && git init -q -b main && git config commit.gpgsign false && git remote add origin "$O" && git add -A && git commit -qm "libx" && git push -q origin main )
 rel() { ( cd "$L" && LAND_SIGNING_KEY=$K/maint "./$LAND_DIR/bin/land-release" "$@" ); }

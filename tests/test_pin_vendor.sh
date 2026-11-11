@@ -42,14 +42,14 @@ check "the lock has one line for libx, at the new tag" test "$(grep -c '^libx ' 
 echo "## refusals leave the repository exactly as it was"
 fresh; pin vendor libx "$O" v1.0.0 >/dev/null 2>&1; S=$(state)
 refused() { expect_exit "$1" 1 pin vendor libx "$O" "$2"; out_has "$3"; check "  and nothing changed" test "$(state)" = "$S"; }
-refused "an annotated tag that is not signed is refused" v1.0.1 "not signed by a key"
-refused "a tag signed by a key that is not in the signers file is refused" v1.0.2 "not signed by a key"
+refused "an annotated tag that is not signed is refused" v1.0.1 "does not verify"
+refused "a tag signed by a key that is not in the signers file is refused" v1.0.2 "does not verify"
 refused "a signed tag whose message records no tree_sha256= is refused" v1.0.3 "exactly one tree_sha256="
 refused "a signed tag whose recorded hash disagrees with the exported tree is refused" v1.0.4 "hashes to"
 refused "a message recording two tree_sha256= lines is refused" v1.0.5 "exactly one tree_sha256="
-refused "a lightweight tag is refused" v1.0.6 "not an annotated tag"
+refused "a lightweight tag is refused" v1.0.6 "lightweight tag"
 refused "a tag that does not exist is refused" v9.9.9 "cannot fetch"
-rm "$C/$LAND_SIGNERS_FILE"; S=$(state); expect_exit "no signers file: refused (a signature cannot be checked)" 1 pin vendor libx "$O" v1.0.0; out_has "no signers file"; check "  and nothing changed" test "$(state)" = "$S"
+rm "$C/$LAND_SIGNERS_FILE"; S=$(state); expect_exit "no signers file: refused (a signature cannot be checked)" 1 pin vendor libx "$O" v1.0.0; out_has "no readable signers file"; check "  and nothing changed" test "$(state)" = "$S"
 fresh
 expect_exit "a bad library name is a usage error" 2 pin vendor Libx "$O" v1.0.0
 expect_exit "a tag that is not vX.Y.Z is a usage error" 2 pin vendor libx "$O" 1.0.0
