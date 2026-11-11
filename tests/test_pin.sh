@@ -17,6 +17,8 @@ fresh
 check "the golden vector (computed independently): $GOLD" test "$(pin tree "$C/vendor/libx")" = "$GOLD"
 echo more > "$C/vendor/libx/.lake/build/y.o"; mkdir -p "$C/vendor/libx/.git"; echo x > "$C/vendor/libx/.git/HEAD"
 check "files under .lake and .git do not change it" test "$(pin tree "$C/vendor/libx")" = "$GOLD"
+mkdir -p "$C/vendor/libx/d/vendor/libz/.lake/build" "$C/vendor/libx/d/.git"; echo junk > "$C/vendor/libx/d/vendor/libz/.lake/build/z.o"; echo x > "$C/vendor/libx/d/.git/HEAD"
+check "build products and git metadata at ANY depth do not change it (Lake builds a nested vendored library in place)" test "$(pin tree "$C/vendor/libx")" = "$GOLD"
 echo x >> "$C/vendor/libx/a.txt"; check "an edited file changes it" test "$(pin tree "$C/vendor/libx")" != "$GOLD"
 fresh; echo x > "$C/vendor/libx/new.txt"; check "an added file changes it" test "$(pin tree "$C/vendor/libx")" != "$GOLD"
 fresh; rm "$C/vendor/libx/a.txt"; check "a deleted file changes it" test "$(pin tree "$C/vendor/libx")" != "$GOLD"

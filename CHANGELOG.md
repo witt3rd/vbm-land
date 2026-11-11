@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.11.3 (patch)
+
+- The tree hash ignores a `.lake` or `.git` directory at ANY depth, not only at the top of the hashed directory. Building a repository that vendors a library which itself vendors another (vbm-llm, vbm-json, vbm-simd) makes Lake write build products inside the nested copy, and `land-pin verify` then reported the outer library as edited. `tests/test_pin.sh` has the case; hashes of trees with no nested build products are unchanged.
+
 ## 0.11.2 (patch)
 
 - The tree hash no longer refuses harmless file names. It refused any path outside `[A-Za-z0-9._+/-]`, which stopped `land-release` on a real repository (a test vector named `n_structure_trailing_#.json`); only a NEWLINE or a BACKSLASH (which `sha256sum` escapes) is an error now, and every other name (a space, `#`, `<`, non-ASCII) is hashed as it is, sorted by bytes. `tests/test_pin.sh` checks a tree of awkward names against a value computed independently with Python. Hashes of trees with ordinary names are unchanged.
