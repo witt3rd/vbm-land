@@ -21,6 +21,7 @@ echo "# stale" >> "$R/bin/run-probe"; git -C "$R" commit -qam "chore: payload ed
 ( cd "$R" && bin/land-manifest >/dev/null && git add -A && git commit -qm "chore: manifest" && git push -q origin main )
 expect_exit "the release is made: a signed tag v3.0.0 recording the manifest hash" 0 rel --push
 check "the tag is annotated and its message carries the manifest hash" bash -c "git -C '$O' cat-file -t refs/tags/v3.0.0 | grep -qx tag && git -C '$O' tag -l --format='%(contents)' v3.0.0 | grep -q '^manifest_sha256=[0-9a-f]\\{64\\}\$'"
+check "and the tree hash (tree_sha256=) too, for land-pin vendor" bash -c "git -C '$O' tag -l --format='%(contents)' v3.0.0 | grep -qE '^tree_sha256=[0-9a-f]{64}\$'"
 check "the signature verifies for the maintainer" git -C "$O" -c gpg.format=ssh -c gpg.ssh.allowedSignersFile="$K/signers" verify-tag v3.0.0
 expect_exit "a tag is never moved: releasing the same version again is refused" 1 rel; out_has "already exists"
 
