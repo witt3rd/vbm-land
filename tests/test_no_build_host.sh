@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# The heavy-host guard (lib/no-build-host.sh, bin/no-build-guard, scripts/run-scoped.sh, bin/run-probe): a host that carries a no-build marker (/etc/vbm/no-build-host or <config dir>/vbm/no-build-host) REFUSES (exit 2) and starts NOTHING;
+# The heavy-host guard (lib/no-build-host.sh, bin/no-build-guard, bin/run-scoped.sh, bin/run-probe): a host that carries a no-build marker (/etc/vbm/no-build-host or <config dir>/vbm/no-build-host) REFUSES (exit 2) and starts NOTHING;
 # without a marker the same call runs. No variable overrides it. Negative tests: marker present => refused, no process started (a sentinel file the command would create stays absent); marker absent => runs and its status passes through;
 # the attacks of docs/no-build-host.md that the code can stop (an override variable, a moved XDG_CONFIG_HOME or HOME, a dangling-symlink marker, calling the scoped side directly, a missing guard) and the lint that finds a runner started without it.
 # The test needs a host WITHOUT a marker (it runs real commands in the marker-absent cases): on a marked host it fails, which is the guard working.
 . "$(dirname "$0")/lib.sh"
-G=$ROOT/bin/no-build-guard; RS=$ROOT/scripts/run-scoped.sh; RP=$ROOT/bin/run-probe; tmp=$(mktemp -d); T=$tmp; trap 'rm -rf "$tmp"' EXIT
+G=$ROOT/bin/no-build-guard; RS=$ROOT/bin/run-scoped.sh; RP=$ROOT/bin/run-probe; tmp=$(mktemp -d); T=$tmp; trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/hm" "$tmp/cfg/vbm" "$tmp/other"
 env_clean() { env -u VBM_ALLOW_BUILD_HERE HOME="$tmp/hm" XDG_CONFIG_HOME="$tmp/cfg" "$@"; }
 marker_on() { : > "$tmp/cfg/vbm/no-build-host"; }; marker_off() { rm -f "$tmp/cfg/vbm/no-build-host" "$tmp/hm/.config/vbm/no-build-host"; }
@@ -49,7 +49,7 @@ refused "run-scoped --exec-argfile (the inner side) re-checks the marker" env_cl
 # a helper with no guard next to it refuses (fail closed); the same copy WITH the guard line removed would run: the guard line is what refuses, and the lint insists on it
 mkdir -p "$tmp/lone"; cp "$RS" "$tmp/lone/run-scoped.sh"; marker_off
 refused "run-scoped copied away from its guard" env_clean "$tmp/lone/run-scoped.sh" g 10 touch "$tmp/ran"
-mkdir -p "$tmp/noguard" "$tmp/.land/tool/bin"; cp "$RS" "$tmp/noguard/run-scoped.sh"; printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/.land/tool/bin/no-build-guard"; chmod +x "$tmp/.land/tool/bin/no-build-guard"; marker_on
+mkdir -p "$tmp/noguard"; cp "$RS" "$tmp/noguard/run-scoped.sh"; printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/noguard/no-build-guard"; chmod +x "$tmp/noguard/no-build-guard"; marker_on
 runs "self-test: a helper whose guard does nothing starts the command (the check can fail)" env_clean "$tmp/noguard/run-scoped.sh" g 10 touch "$tmp/ran"
 # 3. run-probe
 if command -v cc >/dev/null; then
@@ -58,25 +58,25 @@ if command -v cc >/dev/null; then
 else fail "run-probe: no C compiler (the preload needs one): the case cannot run"; fi
 # 4. the lint: a repository fixture
 marker_off; fx=$tmp/fx; mkdir -p "$fx/scripts" "$fx/$LAND_DIR/bin" "$fx/$LAND_DIR/lib"; git -C "$fx" init -q
-cp "$G" "$fx/$LAND_DIR/bin/"; cp "$ROOT/lib/no-build-host.sh" "$fx/$LAND_DIR/lib/"; cp "$RS" "$fx/scripts/run-scoped.sh"
+cp "$G" "$fx/$LAND_DIR/bin/"; cp "$ROOT/lib/no-build-host.sh" "$fx/$LAND_DIR/lib/"; cp "$RS" "$fx/$LAND_DIR/bin/run-scoped.sh"
 printf 'mutants.py\nself abi.sh\n' > "$fx/scripts/long-runners.txt"
 printf '#!/usr/bin/env bash\n%s/bin/no-build-guard || exit 2\nexit 0\n' "$LAND_DIR" > "$fx/scripts/abi.sh"; chmod +x "$fx/scripts/abi.sh"
-printf '#!/usr/bin/env bash\nscripts/run-scoped.sh mutants 3600 python3 scripts/mutants.py --jobs 4\nscripts/abi.sh\n' > "$fx/scripts/tier1.sh"
+printf '#!/usr/bin/env bash\n%s/bin/run-scoped.sh mutants 3600 python3 scripts/mutants.py --jobs 4\nscripts/abi.sh\n' "$LAND_DIR" > "$fx/scripts/tier1.sh"
 lintfx() { git -C "$fx" add -A >/dev/null; env_clean "$fx/$LAND_DIR/bin/no-build-guard" --lint "$fx"; }
 expect_exit "lint: a repository that runs everything through the helper passes" 0 lintfx
 printf '#!/usr/bin/env bash\npython3 scripts/mutants.py --jobs 4\n' > "$fx/scripts/tier1.sh"
 expect_exit "lint: a direct call of a declared runner fails" 1 lintfx; out_has "runs mutants.py outside run-scoped.sh"
 printf '#!/usr/bin/env bash\nmise exec -- scripts/mutants.py\n' > "$fx/scripts/tier1.sh"; expect_exit "lint: a mise-prefixed call fails" 1 lintfx
-printf '#!/usr/bin/env bash\nscripts/run-scoped.sh mutants 3600 python3 scripts/mutants.py\n' > "$fx/scripts/tier1.sh"
+printf '#!/usr/bin/env bash\n%s/bin/run-scoped.sh mutants 3600 python3 scripts/mutants.py\n' "$LAND_DIR" > "$fx/scripts/tier1.sh"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$fx/scripts/abi.sh"; expect_exit "lint: a self runner with no guard call fails" 1 lintfx
 printf '#!/usr/bin/env bash\n# %s/bin/no-build-guard\nexit 0\n' "$LAND_DIR" > "$fx/scripts/abi.sh"; expect_exit "lint: a guard call that is only a comment fails" 1 lintfx
 printf '#!/usr/bin/env bash\n%s/bin/no-build-guard || exit 2\n' "$LAND_DIR" > "$fx/scripts/abi.sh"; expect_exit "lint: restored, passes again" 0 lintfx
-cp "$RS" "$fx/scripts/run-scoped.sh"; grep -v 'no-build-guard' "$RS" > "$fx/scripts/run-scoped.sh"; chmod +x "$fx/scripts/run-scoped.sh"
+cp "$RS" "$fx/$LAND_DIR/bin/run-scoped.sh"; grep -v 'no-build-guard' "$RS" > "$fx/$LAND_DIR/bin/run-scoped.sh"; chmod +x "$fx/$LAND_DIR/bin/run-scoped.sh"
 expect_exit "lint: a helper without the guard fails" 1 lintfx; out_has "does not call no-build-guard"
 # a helper that mentions the guard in a comment only, or calls it after it started something
-sed 's|^"\$nbg" .*|# no-build-guard skipped|' "$RS" > "$fx/scripts/run-scoped.sh"; expect_exit "lint: a helper that finds the guard but never calls it fails (the marker probe starts the command)" 1 lintfx
-cp "$RS" "$fx/scripts/run-scoped.sh"; rm "$fx/scripts/long-runners.txt"; printf 'mutants.py\n' > "$fx/scripts/heavy-runners.txt"; printf 'mutants.py\n' > "$fx/scripts/x.sh"
+sed 's|^"\$nbg" .*|# no-build-guard skipped|' "$RS" > "$fx/$LAND_DIR/bin/run-scoped.sh"; expect_exit "lint: a helper that finds the guard but never calls it fails (the marker probe starts the command)" 1 lintfx
+cp "$RS" "$fx/$LAND_DIR/bin/run-scoped.sh"; rm "$fx/scripts/long-runners.txt"; printf 'mutants.py\n' > "$fx/scripts/heavy-runners.txt"; printf 'mutants.py\n' > "$fx/scripts/x.sh"
 expect_exit "lint: scripts/heavy-runners.txt is read too" 1 lintfx
-rm "$fx/scripts/run-scoped.sh" "$fx/scripts/x.sh"; expect_exit "lint: declared runners and no helper fails" 1 lintfx
+rm "$fx/$LAND_DIR/bin/run-scoped.sh" "$fx/scripts/x.sh"; expect_exit "lint: declared runners and no helper fails" 1 lintfx
 expect_exit "lint: --selftest" 0 "$G" --selftest
 finish

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# scripts/run-scoped.sh (a bounded transient scope; setsid + timeout fallback without a systemd user manager) and the abort reaper of tests/run.sh: the exit status passes through, the bound
+# bin/run-scoped.sh (a bounded transient scope; setsid + timeout fallback without a systemd user manager) and the abort reaper of tests/run.sh: the exit status passes through, the bound
 # holds, a dollar in an argument arrives as written, and an ABORTED run (SIGTERM to the pid started here) leaves neither its child nor its grandchild. Both paths always run (the fallback by
 # RUN_SCOPED_NO_SYSTEMD=1; the systemd path where a user manager works): never a skip.
 . "$(dirname "$0")/lib.sh"
-rs=$ROOT/scripts/run-scoped.sh; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+rs=$ROOT/bin/run-scoped.sh; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 modes="fallback"; if systemctl --user is-system-running >/dev/null 2>&1 || [ "$(systemctl --user is-system-running 2>/dev/null)" = degraded ]; then modes="scope fallback"; fi
 for mode in $modes; do
   if [ $mode = fallback ]; then export RUN_SCOPED_NO_SYSTEMD=1; else unset RUN_SCOPED_NO_SYSTEMD; fi
@@ -21,7 +21,7 @@ for mode in $modes; do
   else fail "$mode: the scoped child never started"; fi
 done
 # tests/run.sh: aborted, it stops the test jobs it started (a copy of run.sh with a fake lint and one fake test that has a grandchild)
-mkdir -p "$tmp/t/tests" "$tmp/t/scripts"; cp "$ROOT/tests/run.sh" "$tmp/t/tests/"
+mkdir -p "$tmp/t/tests" "$tmp/t/scripts" "$tmp/t/lib" "$tmp/t/bin"; cp "$ROOT/tests/run.sh" "$tmp/t/tests/"; cp "$ROOT/lib/reap.sh" "$tmp/t/lib/"; cp "$ROOT/bin/ran-evidence" "$tmp/t/bin/"   # the runner sources the reaper and reads evidence with the reader beside it
 printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/t/tests/lint.sh"
 printf '#!/usr/bin/env bash\nsleep 300 & echo $! > "$1/g"\nwait\n' > "$tmp/t/tests/test_x.sh"; sed -i 's|"\$1/g"|'"$tmp"'/rg|' "$tmp/t/tests/test_x.sh"; chmod +x "$tmp/t/tests/"*.sh
 unset RUN_SCOPED_NO_SYSTEMD; rm -f "$tmp/rg"

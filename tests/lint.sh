@@ -36,5 +36,4 @@ hits=$(grep -nE '(ls|find|rm|cat|grep)[^|;&]*(\$\{?TMPDIR:-/tmp\}?|[ "'"'"'=]/tm
 [ -z "$hits" ] || fail "a test reads the shared tmp dir (use its own sandbox, \$T): $(echo "$hits" | head -2 | tr '\n' ' ' | cut -c1-200)"
 # the heavy-host guard: this repository's own helper carries it, refuses with a marker present, and the vendored template is that helper
 bin/no-build-guard --selftest >/dev/null && bin/no-build-guard --lint . >/dev/null || fail "the heavy-host guard lint (bin/no-build-guard --lint .) fails"
-cmp -s scripts/run-scoped.sh templates/run-scoped.sh || fail "templates/run-scoped.sh differs from scripts/run-scoped.sh (the template is the helper a consumer copies)"
 exit "$bad"

@@ -3,7 +3,7 @@
 # The class fix of a vacuous pass: a check that never ran (a refused tool, a skip, an early exit) must not count as a pass.
 . "$(dirname "$0")/lib.sh"
 sandbox
-mkdir -p "$T/r/tests" "$T/r/bin"; cp "$ROOT/tests/run.sh" "$T/r/tests/run.sh"; cp "$ROOT/bin/ran-evidence" "$T/r/bin/ran-evidence";   # the runner reads evidence with the payload reader beside it
+mkdir -p "$T/r/tests" "$T/r/bin"; cp "$ROOT/tests/run.sh" "$T/r/tests/run.sh"; cp "$ROOT/bin/ran-evidence" "$T/r/bin/ran-evidence"; mkdir -p "$T/r/lib"; cp "$ROOT/lib/reap.sh" "$T/r/lib/reap.sh";   # the runner reads evidence with the payload reader beside it
    printf '#!/usr/bin/env bash\nexit 0\n' > "$T/r/tests/lint.sh"; chmod +x "$T/r/tests/"*.sh
 mk() { printf '#!/usr/bin/env bash\n%s\n' "$2" > "$T/r/tests/test_$1.sh"; chmod +x "$T/r/tests/test_$1.sh"; }
 run() { rm -f "$T/r/tests/test_"*.sh; for n in "$@"; do mk "$n" "${BODY[$n]}"; done; rc=0; "$T/r/tests/run.sh" >"$T/out" 2>&1 || rc=$?; }
