@@ -12,4 +12,7 @@ only=$(cd "$ROOT" && grep -l -E 'verify-tag|allowedSignersFile' bin/* lib/*.sh i
 check "no verifier outside lib/verify.sh and its embedded copy in install (found: $only)" test "$only" = "install lib/verify.sh "
 only=$(cd "$ROOT" && grep -l -E '^tree_hash\(\)' bin/* lib/*.sh install 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')
 check "no tree hash outside lib/verify.sh and its embedded copy (found: $only)" test "$only" = "install lib/verify.sh "
+want=$(. "$ROOT/lib/paths.sh"; printf 'LAND_SIGNERS_FILE=%s; LAND_LEGACY_SIGNERS_FILE=%s' "$LAND_SIGNERS_FILE" "$LAND_LEGACY_SIGNERS_FILE")
+check "install's trust anchor (where the signers file lives) equals lib/paths.sh: $want" grep -qxF "$want" "$ROOT/install"
+check "install reads the release's lib/paths.sh only AFTER it verifies" bash -c "[ \$(grep -n 'src_verify \"\$tmp/src\"' '$ROOT/install' | head -n1 | cut -d: -f1) -lt \$(grep -n 'show \"\$commit:lib/paths.sh\"' '$ROOT/install' | head -n1 | cut -d: -f1) ]"
 finish

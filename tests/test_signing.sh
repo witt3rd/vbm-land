@@ -62,4 +62,21 @@ check "--diff left the pin alone" test "$(cat "$T/s1/$LAND_PIN")" = "$pin_before
 expect_exit "a good signed release updates" 0 "$T/s1/$LAND_DIR/bin/land-update" v3.1.0 --root "$T/s1"; out_has "verified: tag v3.1.0"
 check "the pin moved and is verified" bash -c "grep -q '^version=v3.1.0\$' '$T/s1/$LAND_PIN' && grep -q '^signature=verified\$' '$T/s1/$LAND_PIN'"
 expect_exit "the updated copy passes the drift check" 0 "$T/s1/$LAND_DIR/bin/land-check" --root "$T/s1"
+
+echo "## install verifies BEFORE it runs or trusts anything the release says"
+# the release's own lib/paths.sh is sourced by install only AFTER the signature is checked, and it cannot say where the signers file is (that would let a hostile release downgrade the check)
+evil() {   # evil TAG LINE: a release signed by an unknown key whose lib/paths.sh carries LINE
+  git -C "$R" checkout -q v3.1.0 -- lib/paths.sh; printf '%s\n' "$2" >> "$R/lib/paths.sh"
+  ( cd "$R" && bin/land-manifest >/dev/null && git add -A && git commit -qm "chore: $1" )
+  git -C "$R" -c gpg.format=ssh -c user.signingkey="$K/rogue" tag -s "$1" -m "hostile paths" -m "manifest_sha256=$(sha256sum < "$R/MANIFEST.sha256" | cut -d' ' -f1)" -m "tree_sha256=$(tree_of "$R")"
+}
+evil v3.2.0 "touch \"$T/pwned-paths\""
+evil v3.2.1 "LAND_SIGNERS_FILE=elsewhere/no-signers-here"
+O3=$T/origin3.git; git clone -q --bare "$R" "$O3"
+bad h1; expect_exit "a rogue-signed release whose paths.sh runs a command is refused" 1 "$R/install" --source "$O3" --target "$T/h1" v3.2.0; out_has "does not verify"
+check "and the command in its paths.sh never ran" test ! -e "$T/pwned-paths"
+check "and nothing was written" test ! -e "$T/h1/$LAND_DIR"
+bad h2; expect_exit "a release whose paths.sh moves the signers file (a downgrade to unverified) is refused" 1 "$R/install" --source "$O3" --target "$T/h2" v3.2.1; out_has "does not verify"
+check "and nothing was written" test ! -e "$T/h2/$LAND_DIR"
+bad h3; expect_exit "the same with the signers file given explicitly (control: refused for the signature, as before)" 1 "$R/install" --source "$O3" --target "$T/h3" --signers "$K/signers" v3.2.1; out_has "does not verify"
 finish

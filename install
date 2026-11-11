@@ -41,8 +41,9 @@ if [[ "$src" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] && [ ! -e "$src" ]; then
 else git clone -q --bare -- "$src" "$tmp/src" >/dev/null 2>&1 || { echo "install: cannot clone $src" >&2; exit 1; }; fi
 commit=$(git -C "$tmp/src" rev-parse --verify -q "$ref^{commit}") || { echo "install: $src has no tag or commit '$ref'" >&2; exit 1; }
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "install: unexpected commit id for $ref" >&2; exit 1; }
-git -C "$tmp/src" show "$commit:lib/paths.sh" > "$tmp/paths.sh" || { echo "install: $ref has no lib/paths.sh: not a release of this tool" >&2; exit 1; }   # the release defines the paths it writes: read them from it, before anything is written
-. "$tmp/paths.sh"
+# THE TRUST ANCHOR is the installer's own knowledge, never the release's: where a repository keeps its signers file (now, and before 0.8.0). A release cannot move it (that would let a hostile release downgrade the check), and nothing
+# it says is read or run until its signature is checked. tests/test_verifier_one.sh checks these two against lib/paths.sh.
+LAND_SIGNERS_FILE=.land/land.signers; LAND_LEGACY_SIGNERS_FILE=scripts/land.signers
 signers=; if [ -n "$signers_arg" ]; then signers=$signers_arg; elif [ -r "$target/$LAND_SIGNERS_FILE" ]; then signers=$target/$LAND_SIGNERS_FILE; elif [ -r "$target/$LAND_LEGACY_SIGNERS_FILE" ]; then signers=$target/$LAND_LEGACY_SIGNERS_FILE; fi   # a consumer still in the old layout keeps its signers file at the old path: it makes the signature mandatory all the same (the migration moves it)
 # VERIFIER BEGIN (lib/verify.sh, verbatim: the installer of a first install is self-contained; tests/test_verifier_one.sh checks the copy)
 # lib/verify.sh: the ONE verifier of this tool (docs/pin.md, docs/payload.md 6a): the tree hash and the check of a signed release tag. Sourced, never run.
@@ -93,6 +94,8 @@ src_verify() {
 # VERIFIER END
 vrc=0; vmsg=$(src_verify "$tmp/src" "$ref" "$signers") || vrc=$?
 [ "$vrc" != 1 ] || exit 1
+git -C "$tmp/src" show "$commit:lib/paths.sh" > "$tmp/paths.sh" || { echo "install: $ref has no lib/paths.sh: not a release of this tool" >&2; exit 1; }   # the release defines the paths it writes: read them from it, now that its signature is checked (or the repository chose to go unverified), before anything is written
+. "$tmp/paths.sh"
 git -C "$tmp/src" show "$commit:MANIFEST.sha256" > "$tmp/MANIFEST.sha256" 2>/dev/null || { echo "install: $ref has no MANIFEST.sha256: not a release of this tool" >&2; exit 1; }
 mkdir -p "$tmp/tree"; git -C "$tmp/src" archive "$commit" | tar -x -C "$tmp/tree"
 # verify what was fetched against the manifest at that same commit before touching the target
