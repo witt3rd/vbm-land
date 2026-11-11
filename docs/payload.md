@@ -27,7 +27,7 @@ path, an old directory layout, a word in a comment, a few lines of local comment
 
 | group | files | owner | state |
 |---|---|---|---|
-| the test-running runtime | `lib-ran.sh`, `ran-evidence.sh`, `run-tests-parallel.sh`, `run-scoped.sh`, `lib-reap.sh`, `lib-no-crash-record.sh`, and the tests of these | the vbm-land PAYLOAD (`lib/`, `bin/`): the evidence pair is built; run-scoped, lib-reap (4b) and the runner (4c) next; `lib-no-crash-record.sh` is already here (`lib/no-crash-record.sh`), so a repository only deletes its copy | in progress |
+| the test-running runtime | `lib-ran.sh`, `ran-evidence.sh`, `run-tests-parallel.sh`, `run-scoped.sh`, `lib-reap.sh`, `lib-no-crash-record.sh`, and the tests of these | the vbm-land PAYLOAD (`lib/`, `bin/`): BUILT: the evidence pair, run-scoped and lib-reap (4b), the parallel runner (4c); `lib-no-crash-record.sh` is already here (`lib/no-crash-record.sh`), so a repository only deletes its copy | built; the retired-path check (section 5) is next |
 | the pin tool | `pinned-lib.py`, `pinned-libs.lock` | replaced by `land-pin` and `.land/pins.lock` | built (v0.10.0); each repository deletes its copy |
 | other process scripts | `git-hermetic.sh`, `check-zero-warning.sh`, `lint-pipefail.sh`, `lint-public`, `public-banned-hashes.txt`, `ran-gates.txt` | decided after the same inventory (each is read, its variants diffed) | to inventory |
 | the Lean gates | `AxiomGate.lean`, `LedgerGate.lean`, `ClosureGate.lean`, `trust_ledger.py`, `trust-ledger-check.sh` | the vbm-land PAYLOAD, as an opt-in `lean/` set (section 4a) | to inventory and merge |

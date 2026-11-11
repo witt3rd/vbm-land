@@ -21,7 +21,7 @@ for mode in $modes; do
   else fail "$mode: the scoped child never started"; fi
 done
 # tests/run.sh: aborted, it stops the test jobs it started (a copy of run.sh with a fake lint and one fake test that has a grandchild)
-mkdir -p "$tmp/t/tests" "$tmp/t/scripts" "$tmp/t/lib" "$tmp/t/bin"; cp "$ROOT/tests/run.sh" "$tmp/t/tests/"; cp "$ROOT/lib/reap.sh" "$tmp/t/lib/"; cp "$ROOT/bin/ran-evidence" "$tmp/t/bin/"   # the runner sources the reaper and reads evidence with the reader beside it
+mkdir -p "$tmp/t/tests" "$tmp/t/scripts" "$tmp/t/lib" "$tmp/t/bin"; cp "$ROOT/tests/run.sh" "$tmp/t/tests/"; cp "$ROOT/lib/reap.sh" "$tmp/t/lib/"; cp "$ROOT/bin/ran-evidence" "$ROOT/bin/run-tests-parallel" "$tmp/t/bin/"   # the runner sources the reaper and reads evidence with the reader beside it
 printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/t/tests/lint.sh"
 printf '#!/usr/bin/env bash\nsleep 300 & echo $! > "$1/g"\nwait\n' > "$tmp/t/tests/test_x.sh"; sed -i 's|"\$1/g"|'"$tmp"'/rg|' "$tmp/t/tests/test_x.sh"; chmod +x "$tmp/t/tests/"*.sh
 unset RUN_SCOPED_NO_SYSTEMD; rm -f "$tmp/rg"
@@ -30,8 +30,8 @@ for _ in $(seq 50); do [ -s "$tmp/rg" ] && break; sleep 0.1; done
 if [ -s "$tmp/rg" ]; then g=$(cat "$tmp/rg"); kill -TERM "$w"; wait "$w" || true; for _ in $(seq 50); do kill -0 "$g" 2>/dev/null || break; sleep 0.1; done
   if kill -0 "$g" 2>/dev/null; then fail "tests/run.sh: an aborted run left a test's child alive"; kill "$g"; else pass "tests/run.sh: an aborted run leaves no test child"; fi
 else fail "tests/run.sh: the fake test never started"; fi
-# the check can fail: the same run without the reaper leaves the child (it is then stopped here by its recorded pid)
-sed -i 's|reap_pids "${pids\[@\]}"; ||' "$tmp/t/tests/run.sh"; grep -q "trap 'reap_pids" "$tmp/t/tests/run.sh" && fail "self-test: the reaper was not removed from the copy"
+# the check can fail: the same run without the reaper (in the runner, which holds the pids) leaves the child (it is then stopped here by its recorded pid)
+sed -i 's|reap_pids [^;]*; ||' "$tmp/t/bin/run-tests-parallel"; grep -q "trap 'reap_pids" "$tmp/t/bin/run-tests-parallel" && fail "self-test: the reaper was not removed from the copy of the runner"
 rm -f "$tmp/rg"; bash "$tmp/t/tests/run.sh" >/dev/null 2>&1 & w=$!
 for _ in $(seq 50); do [ -s "$tmp/rg" ] && break; sleep 0.1; done
 g=$(cat "$tmp/rg"); kill -TERM "$w"; wait "$w" || true; sleep 0.5
