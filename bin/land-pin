@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# land-pin tree DIR | vendor NAME URL TAG | verify        (docs/pin.md). Run from the repository root, or set LAND_PIN_ROOT.
+# land-pin tree DIR | vendor NAME URL TAG | verify | online | list        (docs/pin.md). Run from the repository root, or set LAND_PIN_ROOT.
 #   tree DIR  print the tree hash of DIR.
 #   vendor    the ONLY way to add or move a pin: fetch the tag, REFUSE unless it is annotated and signed by a key in the signers file, its message records exactly one tree_sha256= and the exported tree
 #             hashes to it; then replace vendor/NAME and the lock line, and run verify. A refusal changes nothing.
+#   online    the slow tier: each locked tag must still point at the locked commit on its remote (a moved, deleted or unreachable one is refused); a newer tag is reported, never applied.
+#   list      the locked names, one per line.
 #   verify    offline: every locked library is vendored and unchanged, no vendored library is unlocked, and every copy of a library in the closure (any depth) is the same.
 #             Exit 0 ok; 1 refused (every reason printed); 2 usage or a malformed lock. A missing lock is an empty lock.
 set -euo pipefail
@@ -87,9 +89,27 @@ vendor() {
   verify
 }
 
+online() {
+  local bad=0 i name url tag rev out peeled last
+  read_lock
+  for ((i = 0; i < ${#L_NAME[@]}; i++)); do
+    name=${L_NAME[$i]}; url=${L_URL[$i]}; tag=${L_TAG[$i]}; rev=${L_REV[$i]}
+    out=$(git ls-remote "$url" "refs/tags/$tag" "refs/tags/$tag^{}" 2>/dev/null) || { echo "land-pin: BAD $name: cannot reach $url" >&2; bad=1; continue; }
+    [ -n "$out" ] || { echo "land-pin: BAD $name: the tag $tag does not exist at $url" >&2; bad=1; continue; }
+    peeled=$(awk '$2 ~ /\^\{\}$/ {print $1}' <<<"$out"); [ -n "$peeled" ] || peeled=$(awk 'NR == 1 {print $1}' <<<"$out")
+    if [ "$peeled" = "$rev" ]; then echo "pin $name $tag: ok (the tag still points at ${rev:0:12})"
+    else echo "land-pin: BAD $name: $tag points at $peeled, the lock says $rev" >&2; bad=1; fi
+    last=$(git ls-remote --tags --refs "$url" 'refs/tags/v*' 2>/dev/null | sed -E 's#.*refs/tags/##' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | awk 'END {print}' || true)
+    if [ -n "$last" ] && [ "$last" != "$tag" ] && [ "$(printf '%s\n%s\n' "$tag" "$last" | sort -V | awk 'END {print}')" = "$last" ]; then echo "pin $name: newer: $last (not applied: land-pin vendor $name $url $last)"; fi
+  done
+  return "$bad"
+}
+
 case ${1:-} in
   tree) [ $# = 2 ] || die "usage: land-pin tree DIR"; tree_hash "$2";;
   vendor) shift; vendor "$@";;
   verify) [ $# = 1 ] || die "usage: land-pin verify"; verify;;
-  *) die "usage: land-pin tree DIR | vendor NAME URL TAG | verify";;
+  online) [ $# = 1 ] || die "usage: land-pin online"; online;;
+  list) [ $# = 1 ] || die "usage: land-pin list"; read_lock; for n in ${L_NAME[@]+"${L_NAME[@]}"}; do echo "$n"; done;;
+  *) die "usage: land-pin tree DIR | vendor NAME URL TAG | verify | online | list";;
 esac
