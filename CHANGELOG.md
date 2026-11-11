@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.11.2 (patch)
+
+- The tree hash no longer refuses harmless file names. It refused any path outside `[A-Za-z0-9._+/-]`, which stopped `land-release` on a real repository (a test vector named `n_structure_trailing_#.json`); only a NEWLINE or a BACKSLASH (which `sha256sum` escapes) is an error now, and every other name (a space, `#`, `<`, non-ASCII) is hashed as it is, sorted by bytes. `tests/test_pin.sh` checks a tree of awkward names against a value computed independently with Python. Hashes of trees with ordinary names are unchanged.
+
 ## 0.11.1 (patch)
 
 - A RELATIVE `--signers` path now works: the verifier runs `git` inside its scratch clone, so a relative path was looked up there and a good signature was reported as "unsigned, or an unknown signer". `lib/verify.sh` makes the path absolute (and so does the embedded copy in `install`); `tests/test_signing.sh` has the case.

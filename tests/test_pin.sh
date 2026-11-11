@@ -22,7 +22,11 @@ fresh; echo x > "$C/vendor/libx/new.txt"; check "an added file changes it" test 
 fresh; rm "$C/vendor/libx/a.txt"; check "a deleted file changes it" test "$(pin tree "$C/vendor/libx")" != "$GOLD"
 fresh; mv "$C/vendor/libx/a.txt" "$C/vendor/libx/c.txt"; check "a renamed file changes it" test "$(pin tree "$C/vendor/libx")" != "$GOLD"
 fresh; ln -s a.txt "$C/vendor/libx/link"; expect_exit "a symlink is refused" 1 pin tree "$C/vendor/libx"; out_has "not a regular file"
-fresh; echo x > "$C/vendor/libx/has space.txt"; expect_exit "a path outside the safe set is refused (never a silently different hash)" 1 pin tree "$C/vendor/libx"; out_has "unsafe path"
+fresh; echo x > "$C/vendor/libx/a\\b.txt"; expect_exit "a path with a backslash is refused (sha256sum escapes it: never a silently different hash)" 1 pin tree "$C/vendor/libx"; out_has "unsafe path"
+fresh; echo x > "$C/vendor/libx/$(printf 'a\nb.txt')"; expect_exit "a path with a newline is refused" 1 pin tree "$C/vendor/libx"; out_has "unsafe path"
+GOLD2=ebad6abee300d1f575db30b0ac5d0bfbce7acc54ab394b2d743e1ab2f301e007   # five files with awkward names (a space, a #, non-ASCII, <angle brackets>, an uppercase name), computed independently with Python: lines sorted by BYTES
+rm -rf "$T/odd"; mkdir -p "$T/odd/d"; printf 'hello\n' > "$T/odd/a b.txt"; printf 'world\n' > "$T/odd/n_structure_trailing_#.json"; printf 'x\n' > "$T/odd/é.txt"; printf 'y\n' > "$T/odd/d/<angle>.txt"; printf 'z\n' > "$T/odd/Z.txt"
+check "awkward but legal names (a space, #, non-ASCII, <>) hash to the independently computed vector: $GOLD2" test "$(pin tree "$T/odd")" = "$GOLD2"
 expect_exit "a missing directory is refused" 1 pin tree "$C/nothing"
 expect_exit "tree without a directory is a usage error" 2 pin tree
 
@@ -38,7 +42,7 @@ fresh; ln -s a.txt "$C/vendor/libx/link"; expect_exit "a symlink in a vendored l
 fresh; mkdir -p "$C/vendor/liby"; echo y > "$C/vendor/liby/f"; expect_exit "a vendored library with no lock line is refused" 1 pin verify; out_has "liby: vendor/liby is vendored but not in the lock"
 fresh; rm -rf "$C/vendor/libx"; expect_exit "a lock line with no vendored directory is refused" 1 pin verify; out_has "libx: vendor/libx is missing"
 fresh; lock "$(printf 'b%.0s' $(seq 64))"; expect_exit "a flipped lock hash is refused" 1 pin verify
-fresh; echo x > "$C/vendor/libx/has space.txt"; expect_exit "an unsafe path in a vendored library is refused" 1 pin verify
+fresh; echo x > "$C/vendor/libx/a\\b.txt"; expect_exit "an unsafe path in a vendored library is refused" 1 pin verify
 
 echo "## verify: one version of each library in the closure"
 fresh; mkdir -p "$C/vendor/libx/vendor/libz"; echo z > "$C/vendor/libx/vendor/libz/f"; mkdir -p "$C/vendor/liby/vendor/libz"; echo z > "$C/vendor/liby/vendor/libz/f"
