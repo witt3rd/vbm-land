@@ -4,6 +4,14 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.11.0 (minor: additive; a repository takes it by deleting its own copies of what moved into the tool)
+
+- **One verifier.** `lib/verify.sh` is the only code that verifies a release tag and hashes a tree (`land-update`, `land-pin`, `land-release`); a release is verified by the tree hash its signed tag records, which covers the manifest and every file (tags keep recording `manifest_sha256=` until every consumer has taken this release). `install` embeds the file verbatim, and `tests/test_verifier_one.sh` fails if the copy differs or a second verifier appears. `lib/treehash.sh` is merged into it.
+- **SECURITY: `install` verifies before it reads or runs anything the release says.** Before this release `install` sourced the release's `lib/paths.sh` before checking the signature, so a hostile release's code ran even when the install was then refused, and the release could move the signers file and turn a required signature into "unverified, allowed". Both are fixed and tested. Install new repositories from the newest tag; an installer taken from an older tag still has the problem. `land-update` was not affected.
+- **The test-running runtime moved into the payload**, one canonical version of what was seven hand-edited copies: `lib/ran.sh` and `bin/ran-evidence` (ran-evidence), `bin/run-tests-parallel` (with optional `TEST_TIMEOUT` and `TEST_JOBS`, abort-safe), `bin/run-scoped.sh` and `lib/reap.sh`. The copy-me `templates/run-scoped.sh` is gone. The heavy-host guard's lint checks the vendored `run-scoped.sh` beside the guard (still executed with a marker present; it must refuse). This repository's own `tests/run.sh` uses the same runner.
+- **Retired paths.** `lib/retired-paths.txt` lists the files that moved; `land-check` fails a repository that holds one (a file or a link). On update: delete those copies, point their callers at `.land/tool/...`, and delete the tests of the copies, in the same commit (skill `update-vbm-land`).
+- New docs: `docs/payload.md` (what the tool ships and what a repository may not copy), `docs/ran-evidence.md` (where the code lives).
+
 ## 0.10.0 (minor: additive)
 
 - `bin/land-pin` (`tree`, `vendor`, `verify`, `online`, `list`) and `lib/treehash.sh`: one tree hash, one lock (`.land/pins.lock`), one vendoring command, one fast-gate check, from the contract `docs/pin.md`. New consumer paths: `.land/pins.lock`, `vendor/`.
