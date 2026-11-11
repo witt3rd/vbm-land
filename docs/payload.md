@@ -27,7 +27,7 @@ path, an old directory layout, a word in a comment, a few lines of local comment
 
 | group | files | owner | state |
 |---|---|---|---|
-| the test-running runtime | `lib-ran.sh`, `ran-evidence.sh`, `run-tests-parallel.sh`, `run-scoped.sh`, `lib-reap.sh`, `lib-no-crash-record.sh`, and the tests of these | the vbm-land PAYLOAD (`lib/`, `bin/`) | build next |
+| the test-running runtime | `lib-ran.sh`, `ran-evidence.sh`, `run-tests-parallel.sh`, `run-scoped.sh`, `lib-reap.sh`, `lib-no-crash-record.sh`, and the tests of these | the vbm-land PAYLOAD (`lib/`, `bin/`): the evidence pair is built; run-scoped, lib-reap (4b) and the runner (4c) next; `lib-no-crash-record.sh` is already here (`lib/no-crash-record.sh`), so a repository only deletes its copy | in progress |
 | the pin tool | `pinned-lib.py`, `pinned-libs.lock` | replaced by `land-pin` and `.land/pins.lock` | built (v0.10.0); each repository deletes its copy |
 | other process scripts | `git-hermetic.sh`, `check-zero-warning.sh`, `lint-pipefail.sh`, `lint-public`, `public-banned-hashes.txt`, `ran-gates.txt` | decided after the same inventory (each is read, its variants diffed) | to inventory |
 | the Lean gates | `AxiomGate.lean`, `LedgerGate.lean`, `ClosureGate.lean`, `trust_ledger.py`, `trust-ledger-check.sh` | the vbm-land PAYLOAD, as an opt-in `lean/` set (section 4a) | to inventory and merge |
@@ -43,6 +43,31 @@ repository's `tests/`. A repository then:
 2. points its call sites at the payload paths (a sourced library `.land/tool/lib/NAME.sh`; an executable
    `.land/tool/bin/NAME`);
 3. deletes its own copies and the tests of them.
+
+## 4b. run-scoped, lib-reap, and the heavy-host guard
+
+- `bin/run-scoped.sh` joins the payload and replaces `scripts/run-scoped.sh` (every repository's copy) and
+  `templates/run-scoped.sh` (the copy-me template that produced the drift: it is deleted). It finds the guard BESIDE
+  it (`bin/no-build-guard`), so it works in this repository and in a consumer's `.land/tool/bin/`. The name keeps its
+  extension: the guard's lint and its documentation name `run-scoped.sh`.
+- `lib/reap.sh` joins the payload and replaces `scripts/lib-reap.sh` (identical in every repository) and the inline
+  copy of the same function in `tests/run.sh`.
+- `no-build-guard --lint` checks the VENDORED helper (`$LAND_DIR/bin/run-scoped.sh` in a consumer, `bin/run-scoped.sh`
+  here) as it checked the repository's copy: it must call the guard before it starts anything, and run with a marker
+  present it must refuse and start nothing (the lint executes it). A repository that declares runners and has no
+  vendored helper fails. Because the helper is now a tool file, `land-check` also refuses an edited one.
+- `scripts/long-runners.txt` and `scripts/heavy-runners.txt` stay repository-owned (they say WHICH runners need
+  scoping); callers use `.land/tool/bin/run-scoped.sh NAME MAXSEC CMD...`.
+
+## 4c. The parallel test runner
+
+- `bin/run-tests-parallel` joins the payload: the richest variant of the six copies plus the temporary-space check
+  only one of them had; it reads evidence with the reader beside it (`bin/ran-evidence`), takes the repository root
+  from git, and has an OPTIONAL per-script bound, `TEST_TIMEOUT` (unset means none, as in the copies: no new limit is
+  introduced for a repository).
+- This repository's `tests/run.sh` becomes the lint followed by `TEST_TIMEOUT=300 bin/run-tests-parallel
+  tests/test_*.sh`: the tool eats its own runner, and its bound stays exactly what it was.
+- One failure text for "exit 0 without evidence", the runner's: `FAIL SCRIPT: exit 0 but no ran-evidence (REASON)`.
 
 ## 4a. The Lean gates: in the payload, not a separate package
 
