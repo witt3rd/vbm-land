@@ -30,6 +30,6 @@ expect_exit "with no TEST_TIMEOUT there is no limit (a slow script passes)" 0 "$
 printf '#!/usr/bin/env bash\necho start >> "$SER"; sleep 1; echo end >> "$SER"; echo "ran: %s: 1 cases"\n' s1 > s1.sh; sed 's/s1/s2/g' s1.sh > s2.sh
 : > "$T/ser"; expect_exit "TEST_JOBS=1 runs one at a time (start end start end)" 0 env SER="$T/ser" TEST_JOBS=1 "$P" s1.sh s2.sh; check "  in that order" test "$(tr '\n' ' ' < "$T/ser")" = "start end start end "
 : > "$T/ser"; expect_exit "the default runs them together (start start end end)" 0 env SER="$T/ser" TEST_JOBS=2 "$P" s1.sh s2.sh; check "  in that order" test "$(tr '\n' ' ' < "$T/ser")" = "start start end end "
-expect_exit "a nearly full temp directory is refused, and says it is the environment" 1 env MIN_TMP_KIB=999999999999 "$P" a.sh; out_has "the ENVIRONMENT is the problem"
+expect_exit "a nearly full temp directory is refused, and says it is the environment" 1 env MIN_TMP_KIB=999999999999 "$P" a.sh; out_has "the ENVIRONMENT is the failure"
 expect_exit "the batch prints its own evidence line" 0 "$P" a.sh b.sh; out_has "ran: tests: 2 cases"
 finish

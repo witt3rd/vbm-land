@@ -4,6 +4,11 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.11.4 (patch)
+
+- `bin/run-tests-parallel` says again, as the copies it replaced did, "the ENVIRONMENT is the failure, not a test; free it or set TMPDIR elsewhere" when the temp directory is nearly full (the merge had reworded it, dropping the advice); `tests/test_runner.sh` checks the wording.
+- `lib/retired-paths.txt` also names `scripts/test_reap.sh`, `scripts/test_run_scoped.sh`, `scripts/test_tmp_preflight.sh` (tests of the retired copies, now this tool's own) and `scripts/lint-scoped-runners.sh` (`no-build-guard --lint` is the one lint).
+
 ## 0.11.3 (patch)
 
 - The tree hash ignores a `.lake` or `.git` directory at ANY depth, not only at the top of the hashed directory. Building a repository that vendors a library which itself vendors another (vbm-llm, vbm-json, vbm-simd) makes Lake write build products inside the nested copy, and `land-pin verify` then reported the outer library as edited. `tests/test_pin.sh` has the case; hashes of trees with no nested build products are unchanged.
