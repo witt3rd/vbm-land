@@ -12,3 +12,10 @@ The format every test script prints on success, and the one line `tests/run.sh` 
 `tests/test_runner.sh` (the runner fails a script with no, zero or skipped evidence and names it).
 
 Honest weakness: a count proves a count was printed, not that every case was meaningful; and the number is the checks evaluated, not coverage.
+
+## Where the code lives
+
+The pair is part of the payload every repository vendors: `lib/ran.sh` (sourced by a test script: `ran_case` counts an executed case, `ran_done NAME` prints the evidence line and fails when no case ran, `must_fail` is a negative
+self-test that a refusal, a missing tool or a timeout cannot satisfy) and `bin/ran-evidence` (the reader: `check NAME LOG`, `gate NAME REGEX CMD...`, `check-dir DIR MAP`). A repository carries no copy of either. Both are tested
+in `tests/test_ran.sh` against every shape of "it did not run", each with a control that passes; `tests/run.sh` of this repository uses the same reader.
+
