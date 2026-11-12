@@ -10,6 +10,7 @@ git -C "$P" init -q -b main
 echo "leanprover/lean4:v4.35.0" > "$P/lean-toolchain"; echo '[tools]' > "$P/mise.toml"; echo "import Lake" > "$P/lakefile.lean"
 printf '@[extern "my_ext"]\nopaque myExt : Nat → Nat\n' > "$P/Toy/Ffi.lean"; echo "int my_ext(int x){return x;}" > "$P/native/x.c"
 echo "int x(void);" > "$P/vendor/libx/include/x.h"; printf '@[extern "libx_fn"]\nopaque libxFn : Nat → Nat\n' > "$P/vendor/libx/Libx.lean"
+mkdir -p "$P/vendor/libx/vendor/liby/include"; echo "int y(void);" > "$P/vendor/libx/vendor/liby/include/y.h"; printf '@[extern "liby_fn"]\nopaque libyFn : Nat → Nat\n' > "$P/vendor/libx/vendor/liby/Liby.lean"   # vendored INSIDE libx: its code runs in our artifacts all the same
 echo "libx https://example.invalid/libx v1.0.0 $(printf 'a%.0s' $(seq 40)) $(printf 'b%.0s' $(seq 64))" > "$P/.land/pins.lock"
 printf '#!/usr/bin/env bash\ngit status\n' > "$P/scripts/tier1.sh"
 git -C "$P" add -A
@@ -50,7 +51,7 @@ cat > "$T/ledger.base" <<'LEDGER'
 - **Test:** `.land/pins.lock` is checked by land-pin verify, which fails on an edited copy.
 - **Owner:** the owner
 - **Plan:** verify at the source repository; accept here because we claim no better than it does.
-- **Covers:** `pin:libx` `dep:libx/include/x.h` `extern:libx_fn`
+- **Covers:** `pin:libx` `dep:libx/include/x.h` `extern:libx_fn` `dep:liby/include/y.h` `extern:liby_fn`
 LEDGER
 conf() { printf '%s\n' "$@" > "$P/.land/lean.conf"; }
 ledger() { cp "$T/ledger.base" "$P/docs/trust-ledger.md"; }
@@ -66,6 +67,8 @@ sed -i 's/ `extern:my_ext`//' "$P/docs/trust-ledger.md"; expect_exit "an extern 
 sed -i 's/ `pin:libx`//' "$P/docs/trust-ledger.md"; expect_exit "a vendored library with no pin: entry fails (a vendored library is a ledger line)" 1 lg trust; out_has "not in the trust ledger: pin:libx"; ledger
 sed -i 's/ `dep:libx\/include\/x.h`//' "$P/docs/trust-ledger.md"; expect_exit "a header a vendored library carries fails" 1 lg trust; out_has "not in the trust ledger: dep:libx/include/x.h"; ledger
 sed -i 's/ `extern:libx_fn`//' "$P/docs/trust-ledger.md"; expect_exit "an extern a vendored library declares fails" 1 lg trust; out_has "not in the trust ledger: extern:libx_fn"; ledger
+sed -i 's/ `dep:liby\/include\/y.h`//' "$P/docs/trust-ledger.md"; expect_exit "a header of a library vendored INSIDE a vendored library fails (transitive trusted code)" 1 lg trust; out_has "not in the trust ledger: dep:liby/include/y.h"; ledger
+sed -i 's/ `extern:liby_fn`//' "$P/docs/trust-ledger.md"; expect_exit "an extern of a library vendored INSIDE a vendored library fails" 1 lg trust; out_has "not in the trust ledger: extern:liby_fn"; ledger
 sed -i 's/ `clang-lld`//' "$P/docs/trust-ledger.md"; expect_exit "the Lean toolchain pieces are required whenever there is a lean-toolchain" 1 lg trust; out_has "not in the trust ledger: clang-lld"; ledger
 sed -i 's/ `tool:git`//' "$P/docs/trust-ledger.md"; expect_exit "a tool the scripts run fails when unnamed" 1 lg trust; out_has "not in the trust ledger: tool:git"; ledger
 sed -i 's/ `tool:python3`//' "$P/docs/trust-ledger.md"; expect_exit "python3 runs the checker, so it is always a trusted tool" 1 lg trust; out_has "not in the trust ledger: tool:python3"; ledger

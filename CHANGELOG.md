@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.13.1 (patch)
+
+- `land-lean trust` derives the C headers and `@[extern]` symbols of EVERY vendored library, at any depth: a library vendored inside a vendored library (`vendor/vbm-json/vendor/vbm-simd`) runs in the consumer's artifacts all the same, and the derivation had skipped it (so its trusted shim header and externs could be left out of a ledger unseen). `tests/test_lean_trust.sh` has the nested cases (red first). A ledger that already names them is unaffected; one that did not must now.
+
 ## 0.13.0 (minor: additive; a repository with `scripts/trust_ledger.py` or `scripts/trust-ledger-check.sh` deletes them and calls the tool, in the same commit that takes this release)
 
 - **The trust ledger joins the Lean gates: `land-lean trust [--count]`** (`lean/trust_ledger.py`, `lean/trust-keys.sh`, docs/lean-gates.md). The discipline: what cannot be proven is marked as trusted, and what must appear in `docs/trust-ledger.md` is DERIVED from the tree and `.land/lean.conf`, never from the ledger. It derives the build pins, the Lean toolchain pieces, the configured trusted files and externs, `pin:NAME` for every vendored library (and the headers and externs it carries), the tools the scripts run, and whatever `LAND_LEAN_TRUST_KEYS_CMD` prints; the checker requires every key covered, no stale cover, complete entries, cited files that exist, and negative-tests itself on every run.
