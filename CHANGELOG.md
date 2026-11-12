@@ -4,6 +4,12 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.13.0 (minor: additive; a repository with `scripts/trust_ledger.py` or `scripts/trust-ledger-check.sh` deletes them and calls the tool, in the same commit that takes this release)
+
+- **The trust ledger joins the Lean gates: `land-lean trust [--count]`** (`lean/trust_ledger.py`, `lean/trust-keys.sh`, docs/lean-gates.md). The discipline: what cannot be proven is marked as trusted, and what must appear in `docs/trust-ledger.md` is DERIVED from the tree and `.land/lean.conf`, never from the ledger. It derives the build pins, the Lean toolchain pieces, the configured trusted files and externs, `pin:NAME` for every vendored library (and the headers and externs it carries), the tools the scripts run, and whatever `LAND_LEAN_TRUST_KEYS_CMD` prints; the checker requires every key covered, no stale cover, complete entries, cited files that exist, and negative-tests itself on every run.
+- New keys of `.land/lean.conf`: `LAND_LEAN_TRUST_FILES`, `LAND_LEAN_TRUST_EXTERN_DIRS`, `LAND_LEAN_TRUST_TOOLS`, `LAND_LEAN_TRUST_KEYS_CMD`.
+- `scripts/trust_ledger.py` and `scripts/trust-ledger-check.sh` are retired paths (three drifting copies each).
+
 ## 0.12.0 (minor: additive; a repository that has `scripts/AxiomGate.lean` deletes it and calls the tool, in the same commit that takes this release)
 
 - **The Lean gates join the payload (docs/payload.md 4a, docs/lean-gates.md): `bin/land-lean axiom [--selftest]` and `lean/AxiomGate.lean`.** One axiom gate with the richer algorithm (one shared walk, differential-tested against Lean's own `collectAxioms`), replacing eight copies in two algorithms. It is configured by the new `.land/lean.conf` (`LAND_LEAN_AXIOM_IMPORTS`, `LAND_LEAN_AXIOM_ROOTS`): the file's PRESENCE is the opt-in, it has `land.conf`'s grammar and parser, `land-check` validates it, and a root that matches no constant fails (a gate that audited nothing proves nothing).
