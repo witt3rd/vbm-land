@@ -4,6 +4,11 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.14.0 (minor: a new command)
+
+- `land-lean recheck [--selftest]`: replays every proof of the modules in `LAND_LEAN_RECHECK_MODULES` (new key in `.land/lean.conf`), and of everything they import, with Lean's independent kernel checker (`leanchecker --fresh`). `--selftest` proves the gate can reject: it plants a false theorem added with the kernel check skipped, and a checker that accepts everything fails it. `tests/test_lean_recheck.sh` has 17 cases on a real toy project, mutation-checked (a no-op replay and a self-test that stops checking rejection are both caught). New payload file `lean/recheck-selftest.sh`.
+- `docs/lean-gates.md`: a trust ledger belongs to a formally verified repository only ("every repository has one" was wrong: a repository that proves nothing has no claims to qualify).
+
 ## 0.13.2 (patch)
 
 - `land-lean trust` requires each vendored library's OWN `include/*.h` (named by the library, at any depth of vendoring), not every `include/` directory inside it: 0.13.1's pattern also matched a library's freestanding `runtime/include/` copies and named them `dep:runtime/include/...`, which a consumer neither compiles against nor can sensibly cover (it would also have broken repositories that passed on 0.13.0). `tests/test_lean_trust.sh` has the case (red first).

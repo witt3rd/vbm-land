@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# land-lean axiom [--selftest] | trust [--count]   (docs/lean-gates.md, docs/payload.md 4a)
+# land-lean axiom [--selftest] | recheck [--selftest] | trust [--count]   (docs/lean-gates.md, docs/payload.md 4a)
 # The Lean gates this tool ships, for a repository that has .land/lean.conf (its presence is the opt-in). The file says WHICH modules to audit, in land.conf's grammar and read by the same parser (lib/conf.sh);
 # the tool owns HOW (lean/AxiomGate.lean). Run from the repository root, or set LAND_LEAN_ROOT.
 #   axiom   every constant of the audited roots depends only on the three standard axioms; --selftest also runs the differential test. Needs LAND_LEAN_AXIOM_IMPORTS and LAND_LEAN_AXIOM_ROOTS.
+#   recheck every proof of the modules in LAND_LEAN_RECHECK_MODULES, and of everything they import, replayed by Lean's independent kernel checker (leanchecker --fresh); --selftest first proves the checker rejects a planted false theorem. LEANCHECKER names another checker (a test seam).
 #   trust   the trust ledger (docs/trust-ledger.md): what cannot be proven is marked as trusted, and what must appear is DERIVED from the tree and the configuration; --count prints the number of entries.
 # Exit: 0 ok | 1 the gate failed | 2 usage or a refused configuration.
 set -euo pipefail
@@ -19,6 +20,12 @@ case $cmd in
     [ -n "$LAND_LEAN_AXIOM_IMPORTS" ] || { echo "land-lean: axiom needs LAND_LEAN_AXIOM_IMPORTS in $LAND_LEAN_CONF_FILE (the modules to import)" >&2; exit 2; }
     [ -n "$LAND_LEAN_AXIOM_ROOTS" ] || { echo "land-lean: axiom needs LAND_LEAN_AXIOM_ROOTS in $LAND_LEAN_CONF_FILE (the module roots to audit)" >&2; exit 2; }
     cd "$root"; exec lake env lean --run "$here/../lean/AxiomGate.lean" --imports "${LAND_LEAN_AXIOM_IMPORTS// /,}" --roots "${LAND_LEAN_AXIOM_ROOTS// /,}" "$@";;
+  recheck)
+    [ -n "$LAND_LEAN_RECHECK_MODULES" ] || { echo "land-lean: recheck needs LAND_LEAN_RECHECK_MODULES in $LAND_LEAN_CONF_FILE (the modules to replay; each replays its whole import closure)" >&2; exit 2; }
+    checker=${LEANCHECKER:-leanchecker}; cd "$root"
+    if [ "${1:-}" = --selftest ]; then lake env bash "$here/../lean/recheck-selftest.sh" "$checker" || exit 1; fi
+    echo "recheck: replaying $LAND_LEAN_RECHECK_MODULES (and what they import) with the independent kernel checker"
+    lake env "$checker" --fresh $LAND_LEAN_RECHECK_MODULES && echo "recheck: ok";;
   trust)
     cd "$root"
     if [ "${1:-}" = --count ]; then grep -c '^### T[0-9]' docs/trust-ledger.md 2>/dev/null || echo 0; exit 0; fi
@@ -26,5 +33,5 @@ case $cmd in
     req=$(mktemp "${TMPDIR:-/tmp}/trust-keys.XXXXXX"); trap 'rm -f "$req"' EXIT
     bash "$here/../lean/trust-keys.sh" > "$req"
     exec python3 "$here/../lean/trust_ledger.py" docs/trust-ledger.md "$req";;
-  *) echo "usage: land-lean axiom [--selftest] | trust [--count]" >&2; exit 2;;
+  *) echo "usage: land-lean axiom [--selftest] | recheck [--selftest] | trust [--count]" >&2; exit 2;;
 esac

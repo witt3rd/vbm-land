@@ -278,7 +278,7 @@ A repository that depends on another library vendors it at `vendor/NAME/` and li
 
 ## The Lean gates
 
-A Lean repository gets the axiom gate from the tool: `.land/tool/bin/land-lean axiom [--selftest]` audits every constant of the modules listed in its `.land/lean.conf` (the file's presence turns the gates on; the same grammar and parser as `land.conf`). It replaces the hand-edited `scripts/AxiomGate.lean` that eight repositories carried in two algorithms. `land-lean trust` checks the trust ledger: what cannot be proven is marked as trusted, and what must appear in `docs/trust-ledger.md` is derived from the tree. See [docs/lean-gates.md](docs/lean-gates.md).
+A Lean repository gets the axiom gate from the tool: `.land/tool/bin/land-lean axiom [--selftest]` audits every constant of the modules listed in its `.land/lean.conf` (the file's presence turns the gates on; the same grammar and parser as `land.conf`). It replaces the hand-edited `scripts/AxiomGate.lean` that eight repositories carried in two algorithms. `.land/tool/bin/land-lean recheck [--selftest]` replays every proof of the listed modules (and what they import) with Lean's independent kernel checker, `leanchecker --fresh`, with a negative self-test of its own. `land-lean trust` checks the trust ledger: what cannot be proven is marked as trusted, and what must appear in `docs/trust-ledger.md` is derived from the tree. See [docs/lean-gates.md](docs/lean-gates.md).
 
 ## Versions and signed tags
 
