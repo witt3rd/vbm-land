@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.14.1 (patch: wording)
+
+- `land-lean recheck` said it was an INDEPENDENT kernel checker. It is not: `leanchecker --fresh` replays every declaration through Lean's own kernel code in a fresh process. It catches a declaration that reached the environment without passing the kernel (the check skipped, an option or tactic that bypasses it) and an `.olean` an honest build did not produce; it does not catch a bug in the kernel, which it shares with the build (that needs a different implementation: nanoda, not wired). The command's comment and message, `docs/lean-gates.md`, the README and the test header now say exactly that. No behaviour changes.
+
 ## 0.14.0 (minor: a new command)
 
 - `land-lean recheck [--selftest]`: replays every proof of the modules in `LAND_LEAN_RECHECK_MODULES` (new key in `.land/lean.conf`), and of everything they import, with Lean's independent kernel checker (`leanchecker --fresh`). `--selftest` proves the gate can reject: it plants a false theorem added with the kernel check skipped, and a checker that accepts everything fails it. `tests/test_lean_recheck.sh` has 17 cases on a real toy project, mutation-checked (a no-op replay and a self-test that stops checking rejection are both caught). New payload file `lean/recheck-selftest.sh`.

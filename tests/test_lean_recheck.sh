@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# land-lean recheck (docs/lean-gates.md): replay every proof of the listed modules, and of everything they import, with Lean's independent kernel checker (leanchecker --fresh). The build's own kernel
-# accepted these proofs once; a second checker that shares none of its state is what catches a bug in the first, or an olean that was not produced by an honest build. Run on a REAL toy Lean project: a clean
+# land-lean recheck (docs/lean-gates.md): replay every proof of the listed modules, and of everything they import, with Lean's own checker in a fresh process (leanchecker --fresh: the same kernel code, so it catches what BYPASSED the kernel, not a bug in it). The build's own kernel
+# accepted these proofs once; a fresh replay is what catches a declaration that never went through it (the check skipped), or an olean that was not produced by an honest build. Run on a REAL toy Lean project: a clean
 # module, and a module that builds but holds a FALSE theorem (added with the kernel check skipped, which is exactly what a bug in the build's kernel would let through). --selftest is the negative test of the
 # gate itself; handed a checker that accepts everything, it must FAIL.
 . "$(dirname "$0")/lib.sh"

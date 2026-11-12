@@ -10,7 +10,7 @@ Same grammar as `land.conf` and the same parser (`lib/conf.sh`): `LAND_KEY=value
 |---|---|
 | `LAND_LEAN_AXIOM_IMPORTS` | the modules to import, space separated (dotted names allowed) |
 | `LAND_LEAN_AXIOM_ROOTS` | the module roots whose constants are audited, space separated |
-| `LAND_LEAN_RECHECK_MODULES` | the modules whose proofs the independent checker replays, space separated (each replays its whole import closure: usually the top module of each library) |
+| `LAND_LEAN_RECHECK_MODULES` | the modules whose proofs the checker replays, space separated (each replays its whole import closure: usually the top module of each library) |
 | `LAND_LEAN_TRUST_FILES` | path patterns of the trusted files beyond the build pins (C files, binding loaders, CI workflows), e.g. `native/*.c` |
 | `LAND_LEAN_TRUST_EXTERN_DIRS` | the directories scanned for `@[extern]` declarations |
 | `LAND_LEAN_TRUST_TOOLS` | the tools whose use by the scripts the ledger must name (default `git gh mise lake leanc`) |
@@ -34,9 +34,9 @@ Exit codes: 0 ok, 1 the gate failed, 2 usage or a refused configuration.
 
 ## `land-lean recheck [--selftest]`
 
-Replays every proof of the modules in `LAND_LEAN_RECHECK_MODULES`, and of everything they import (the vendored libraries and Lean's own core included), with Lean's independent kernel checker, `leanchecker --fresh`. The build's kernel accepted each proof once; a second checker that shares none of its state catches a bug in the first, or an `.olean` that an honest build did not produce. It reads no source: it replays the compiled proofs. Measured on the largest consumer (a 22,000-constant closure): about 2 minutes for one run on the top module, which covers the whole closure; run it in the background beside the tests.
+Replays every proof of the modules in `LAND_LEAN_RECHECK_MODULES`, and of everything they import (the vendored libraries and Lean's own core included), with Lean's own checker, `leanchecker --fresh`: every declaration goes through the kernel again, in a fresh process, from the compiled files. What it catches: a declaration that reached the environment without passing the kernel (the check skipped, an option or tactic that bypasses it) and an `.olean` that an honest build did not produce. What it does NOT catch: a bug in the kernel itself, which it shares with the build; that needs a different implementation (nanoda). It reads no source: it replays the compiled proofs. Measured on the largest consumer (a 22,000-constant closure): about 2 minutes for one run on the top module, which covers the whole closure; run it in the background beside the tests.
 
-`--selftest` is the gate's own negative test: it compiles a true theorem and a FALSE one added straight to the environment with the kernel check skipped (what an unsound kernel would accept), and requires the checker to accept the first and reject the second. A checker that accepts everything fails it. `LEANCHECKER` names another checker (a test seam). Exit 0 ok, 1 a proof was rejected or a module is missing, 2 refused configuration. The nanoda checker (a second, independent implementation) is not wired here: it needs an export step and its own pin, and is its own issue.
+`--selftest` is the gate's own negative test: it compiles a true theorem and a FALSE one added straight to the environment with the kernel check skipped (a declaration that bypassed the kernel), and requires the checker to accept the first and reject the second. A checker that accepts everything fails it. `LEANCHECKER` names another checker (a test seam). Exit 0 ok, 1 a proof was rejected or a module is missing, 2 refused configuration. The nanoda checker (a second, independent implementation, the one that would catch a kernel bug) is not wired here: it needs an export step and its own pin, and is its own issue.
 
 ## The trust ledger: `land-lean trust [--count]`
 
