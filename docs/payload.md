@@ -15,6 +15,37 @@ no other copy:
   `.agents/skills/`, pinned by `.land/PIN` (`land-update`).
 A file is one or the other, decided here. Its version is the version of the package that ships it.
 
+## 1a. Where things live (the layout convention)
+
+One rule, borrowed from how other ecosystems do it: a tool keeps what belongs to it in ONE hidden folder (`.github/`,
+`.cargo/`, `.vscode/`, `.husky/`), pins what it depends on in a lock file (`Cargo.lock`, `go.sum`), vendors third-party
+source in `vendor/` (Go, Ruby, PHP), turns itself on by the PRESENCE of its configuration file (`.eslintrc`,
+`vite.config.ts`, `rustfmt.toml`) and versions with `vX.Y.Z` tags, a version file and a `CHANGELOG.md`.
+
+| what | where | the habit it follows |
+|---|---|---|
+| the tool, vendored, read-only | `.land/tool/`, its skills in `.agents/skills/` | a vendored toolchain |
+| which release of it | `.land/PIN` | `rust-toolchain.toml` |
+| the repository's settings for the lander | `.land/land.conf` | `.cargo/config.toml` |
+| the repository's settings for a language's gates | `.land/<language>.conf` (`.land/lean.conf`) | `rustfmt.toml`, `clippy.toml`: one file per tool |
+| hooks | `.land/land.d/` | `.husky/` |
+| who may sign releases | `.land/land.signers` | `allowed_signers`, `cosign.pub` |
+| the libraries the repository vendors | `.land/pins.lock`, and the source in `vendor/NAME/` | `Cargo.lock` + `vendor/`, `go.sum` + `vendor/` |
+| the repository's own gate and its own tests | `scripts/tier1.sh`, `scripts/test_*.sh` | a `Makefile` or `justfile` |
+| the version | `VERSION`, tag `vX.Y.Z`, `CHANGELOG.md` | |
+
+Rules:
+1. A file the TOOL reads lives in `.land/`, its name defined once in `lib/paths.sh`. A new tool or check never invents a
+   location (no new dotfile or top-level folder, no data file dropped in `scripts/` for the tool to find).
+2. A configuration file's presence turns its feature on. There is no separate switch to keep in step with it.
+3. The format of a configuration file is the format `land.conf` already has (`lib/conf.sh`: strict, known keys only,
+   one parser). Not a second format.
+4. A repository's OWN scripts and the data only they read stay where they are: nothing moves for tidiness.
+   Disturbing a repository needs a reason that a tool or a check requires.
+5. Where an existing file the tool reads sits elsewhere (`scripts/long-runners.txt` for the guard lint,
+   `scripts/pin-roots.txt` in two repositories), it moves to `.land/` when that tool or check next changes, in the same
+   commit that changes its reader.
+
 ## 2. Why (the inventory of 2026-11-11, ten repositories)
 
 The same files appear in several repositories as hand-edited copies. Of the files present in three or more
@@ -75,9 +106,10 @@ A separate package for them existed (`vbm-gates`, retired 2026-11-09). It was ne
 own copies (six variants of the axiom gate remain), and the lander it plugged into later dropped the judge, the
 approvals and the protected lists it served. Shared machinery that each repository must opt into separately does not
 get adopted; machinery that arrives with the tool every repository already vendors cannot be skipped. So:
-- The Lean gates live in this repository under `lean/`, are listed in the payload, and are vendored only by a
-  repository that opts in (a `LAND_PROFILES` entry in its `land.conf`); a repository in another language never gets
-  them, so the tool stays language-neutral.
+- The Lean gates live in this repository under `lean/`, ship to a consumer in `.land/tool/lean/`, and are on for a
+  repository that has `.land/lean.conf` (section 1a: the file's presence is the opt-in; a repository in another language
+  has none, so the tool stays language-neutral). `.land/lean.conf` says WHICH modules to audit (the axiom gate's imports
+  and roots, the Lean module root of each vendored library); the tool owns HOW.
 - The base of the merge is the retired package's `lean/` (its own tests were green), reconciled with the variants now
   in use; the differences are resolved the way section 4 resolves them.
 - NOT revived: the gate-diff judge, the protected set, the relabel-attack runner and the lander hooks. The lander
