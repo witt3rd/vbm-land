@@ -15,7 +15,9 @@ files() { git ls-files --cached --others --exclude-standard -- "$@"; }
   # trusted code: its C headers (dep:NAME/include/F.h) and the @[extern] symbols its Lean sources declare
   [ ! -f .land/pins.lock ] || awk '!/^#/ && NF {print "pin:" $1}' .land/pins.lock
   if [ -d vendor ]; then
-    find vendor \( -name .lake -o -name .git \) -prune -o -type f -path '*/include/*.h' ! -path '*/include/*/*' -print | while IFS= read -r h; do d=${h%/include/*}; echo "dep:$(basename "$d")/include/${h##*/}"; done
+    # each library's own include/*.h (its published surface, what a consumer compiles against), named by the library: a library is any directory directly under a directory named vendor, at any depth
+    find vendor \( -name .lake -o -name .git \) -prune -o -type d -name vendor -print | while IFS= read -r v; do
+      for d in "$v"/*/; do [ -d "$d" ] || continue; n=$(basename "$d"); for h in "$d"include/*.h; do [ -f "$h" ] && echo "dep:$n/include/$(basename "$h")" || true; done; done; done
     grep -rhE '^[[:space:]]*@\[extern' vendor --include='*.lean' --exclude-dir=.lake --exclude-dir=tests 2>/dev/null | sed -E 's/.*@\[extern[^"]*"([^"]+)".*/extern:\1/; t; s/.*/extern:UNNAMED/' || true
   fi
   # the checker runs in Python, so python3 is always a trusted tool; the others are a watch-list found in the scripts and the build file

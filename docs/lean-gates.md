@@ -45,7 +45,7 @@ Each entry is `### T<n>. <title>` with the fields `What`, `Enters` (where it ent
 | `lean-compiler`, `lean-runtime`, `clang-lld` | a `lean-toolchain` exists |
 | `extern:SYMBOL` | every `@[extern]` in `LAND_LEAN_TRUST_EXTERN_DIRS` (`extern:UNNAMED` for one with no symbol) |
 | `pin:NAME` | every line of `.land/pins.lock`: a vendored library is a ledger line, and a repository claims no better than it does |
-| `dep:NAME/include/F.h`, `extern:SYMBOL` | the C headers and externs of every vendored library, at any depth (a library vendored inside a vendored library runs in our artifacts too) |
+| `dep:NAME/include/F.h`, `extern:SYMBOL` | each vendored library's own `include/*.h` (its published surface) and its `@[extern]` symbols, at any depth (a library vendored inside a vendored library runs in our artifacts too); a header elsewhere in a library (a `runtime/include/` of its own) is not required |
 | `tool:NAME` | `python3` always (the checker runs in it), and each tool in `LAND_LEAN_TRUST_TOOLS` the scripts or the build file mention |
 | anything else | the output of `LAND_LEAN_TRUST_KEYS_CMD` |
 

@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.13.2 (patch)
+
+- `land-lean trust` requires each vendored library's OWN `include/*.h` (named by the library, at any depth of vendoring), not every `include/` directory inside it: 0.13.1's pattern also matched a library's freestanding `runtime/include/` copies and named them `dep:runtime/include/...`, which a consumer neither compiles against nor can sensibly cover (it would also have broken repositories that passed on 0.13.0). `tests/test_lean_trust.sh` has the case (red first).
+
 ## 0.13.1 (patch)
 
 - `land-lean trust` derives the C headers and `@[extern]` symbols of EVERY vendored library, at any depth: a library vendored inside a vendored library (`vendor/vbm-json/vendor/vbm-simd`) runs in the consumer's artifacts all the same, and the derivation had skipped it (so its trusted shim header and externs could be left out of a ledger unseen). `tests/test_lean_trust.sh` has the nested cases (red first). A ledger that already names them is unaffected; one that did not must now.

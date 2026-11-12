@@ -11,6 +11,7 @@ echo "leanprover/lean4:v4.35.0" > "$P/lean-toolchain"; echo '[tools]' > "$P/mise
 printf '@[extern "my_ext"]\nopaque myExt : Nat → Nat\n' > "$P/Toy/Ffi.lean"; echo "int my_ext(int x){return x;}" > "$P/native/x.c"
 echo "int x(void);" > "$P/vendor/libx/include/x.h"; printf '@[extern "libx_fn"]\nopaque libxFn : Nat → Nat\n' > "$P/vendor/libx/Libx.lean"
 mkdir -p "$P/vendor/libx/vendor/liby/include"; echo "int y(void);" > "$P/vendor/libx/vendor/liby/include/y.h"; printf '@[extern "liby_fn"]\nopaque libyFn : Nat → Nat\n' > "$P/vendor/libx/vendor/liby/Liby.lean"   # vendored INSIDE libx: its code runs in our artifacts all the same
+mkdir -p "$P/vendor/libx/runtime/include"; echo "int z(void);" > "$P/vendor/libx/runtime/include/z.h"   # a header outside the library's own include/ is not its published surface: never required
 echo "libx https://example.invalid/libx v1.0.0 $(printf 'a%.0s' $(seq 40)) $(printf 'b%.0s' $(seq 64))" > "$P/.land/pins.lock"
 printf '#!/usr/bin/env bash\ngit status\n' > "$P/scripts/tier1.sh"
 git -C "$P" add -A
@@ -73,6 +74,7 @@ sed -i 's/ `clang-lld`//' "$P/docs/trust-ledger.md"; expect_exit "the Lean toolc
 sed -i 's/ `tool:git`//' "$P/docs/trust-ledger.md"; expect_exit "a tool the scripts run fails when unnamed" 1 lg trust; out_has "not in the trust ledger: tool:git"; ledger
 sed -i 's/ `tool:python3`//' "$P/docs/trust-ledger.md"; expect_exit "python3 runs the checker, so it is always a trusted tool" 1 lg trust; out_has "not in the trust ledger: tool:python3"; ledger
 
+expect_exit "a header under a vendored library's runtime/include (not its own include/) is not required" 0 lg trust
 echo "## the ledger itself is held to account"
 sed -i 's/`tool:git`/`tool:git` `tool:nothing`/' "$P/docs/trust-ledger.md"; expect_exit "a Covers token that names nothing required is stale and fails" 1 lg trust; out_has "Covers \`tool:nothing\` names nothing"; ledger
 sed -i '/^- \*\*Owner:\*\*/d' "$P/docs/trust-ledger.md"; expect_exit "an entry missing a field fails" 1 lg trust; out_has "field Owner is missing"; ledger
