@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.14.2 (patch: a bug in 0.14.0 and 0.14.1)
+
+- `land-lean recheck` passed all the modules of `LAND_LEAN_RECHECK_MODULES` to ONE `leanchecker --fresh` run, which accepts only a single module ("--fresh flag is only valid when specifying a single module"): with two or more listed it failed every time, on a good tree too. It now runs one replay per module, side by side (each replays its whole import closure), prints one verdict per module (`recheck: M ok` / `recheck: M REJECTED` and the checker's words) and exits 1 if any was rejected. The test that was meant to prove every listed module is replayed passed for the wrong reason (the failing invocation looked like a rejection); it now also requires two clean modules to PASS and names which module was rejected, in either order.
+
 ## 0.14.1 (patch: wording)
 
 - `land-lean recheck` said it was an INDEPENDENT kernel checker. It is not: `leanchecker --fresh` replays every declaration through Lean's own kernel code in a fresh process. It catches a declaration that reached the environment without passing the kernel (the check skipped, an option or tactic that bypasses it) and an `.olean` an honest build did not produce; it does not catch a bug in the kernel, which it shares with the build (that needs a different implementation: nanoda, not wired). The command's comment and message, `docs/lean-gates.md`, the README and the test header now say exactly that. No behaviour changes.

@@ -5,4 +5,5 @@ export LC_ALL=C
 here=$(cd "$(dirname "$0")" && pwd)
 "$here/lint.sh"
 cd "$here/.."
-TEST_JOBS=1000 TEST_TIMEOUT=300 exec bin/run-tests-parallel tests/test_*.sh
+# 600 s: the limit catches a hang; tests/test_lean_recheck.sh really replays proofs (about 5 minutes under this load)
+TEST_JOBS=1000 TEST_TIMEOUT=600 exec bin/run-tests-parallel tests/test_*.sh

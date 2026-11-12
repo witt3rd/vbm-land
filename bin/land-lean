@@ -25,7 +25,12 @@ case $cmd in
     checker=${LEANCHECKER:-leanchecker}; cd "$root"
     if [ "${1:-}" = --selftest ]; then lake env bash "$here/../lean/recheck-selftest.sh" "$checker" || exit 1; fi
     echo "recheck: replaying $LAND_LEAN_RECHECK_MODULES (and what they import) with Lean's own checker in a fresh process"
-    lake env "$checker" --fresh $LAND_LEAN_RECHECK_MODULES && echo "recheck: ok";;
+    # leanchecker --fresh takes ONE module per run, and each run replays that module's whole import closure: one run per module, side by side, one verdict per module
+    logs=$(mktemp -d "${TMPDIR:-/tmp}/recheck.XXXXXX"); trap 'rm -rf "$logs"' EXIT; pids=(); mods=($LAND_LEAN_RECHECK_MODULES)
+    for m in "${mods[@]}"; do ( lake env "$checker" --fresh "$m" > "$logs/$m.log" 2>&1 ) & pids+=($!); done
+    rc=0; for i in "${!mods[@]}"; do
+      if wait "${pids[$i]}"; then echo "recheck: ${mods[$i]} ok"; else echo "recheck: ${mods[$i]} REJECTED"; sed 's/^/  /' "$logs/${mods[$i]}.log"; rc=1; fi; done
+    [ "$rc" -ne 0 ] || echo "recheck: ok"; exit "$rc";;
   trust)
     cd "$root"
     if [ "${1:-}" = --count ]; then grep -c '^### T[0-9]' docs/trust-ledger.md 2>/dev/null || echo 0; exit 0; fi

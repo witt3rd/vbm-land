@@ -12,6 +12,7 @@ import Lake
 open Lake DSL
 package toy
 lean_lib Good
+lean_lib Good2
 lean_lib Lie
 lean_lib Uses
 LAKE
@@ -23,22 +24,21 @@ open Lean Elab Command
 set_option debug.skipKernelTC true in
 run_cmd liftCoreM <| addDecl (.thmDecl { name := `lie, levelParams := [], type := mkApp3 (mkConst ``Eq [1]) (mkConst ``Nat) (mkRawNatLit 1) (mkRawNatLit 2), value := mkApp2 (mkConst ``Eq.refl [1]) (mkConst ``Nat) (mkRawNatLit 1) })
 LIE
+printf 'theorem good2_thm : 2 + 2 = 4 := rfl\n' > "$P/Good2.lean"
 printf 'import Lie\ntheorem fine : 2 = 2 := rfl\n' > "$P/Uses.lean"
 eval "$(mise env -C "$ROOT" -s bash)"
 ml() { "$@"; }
-( cd "$P" && ml lake build Good Lie Uses >"$T/build.out" 2>&1 ) && pass "the toy project builds (the false theorem builds too: the build's kernel check was skipped)" || { fail "the toy project does not build: $(tail -3 "$T/build.out")"; finish; exit; }
+( cd "$P" && ml lake build Good Good2 Lie Uses >"$T/build.out" 2>&1 ) && pass "the toy project builds (the false theorem builds too: the build's kernel check was skipped)" || { fail "the toy project does not build: $(tail -3 "$T/build.out")"; finish; exit; }
 lg() { LAND_LEAN_ROOT=$P ml "$ROOT/bin/land-lean" "$@"; }
 conf() { printf '%s\n' "$@" > "$P/.land/lean.conf"; }
 
 echo "## the replay on real modules"
-conf 'LAND_LEAN_RECHECK_MODULES="Good"'
-expect_exit "a clean module passes" 0 lg recheck; out_has "recheck: ok"
-conf 'LAND_LEAN_RECHECK_MODULES="Lie"'
-expect_exit "a module holding a false theorem fails" 1 lg recheck
 conf 'LAND_LEAN_RECHECK_MODULES="Uses"'
 expect_exit "a module that only IMPORTS the false one fails (the closure is replayed, not just the root)" 1 lg recheck
+conf 'LAND_LEAN_RECHECK_MODULES="Good Good2"'
+expect_exit "clean modules pass, and two at once do (leanchecker --fresh takes ONE module per run: each is replayed on its own)" 0 lg recheck; out_has "recheck: Good ok"; out_has "recheck: Good2 ok"; out_has "recheck: ok"
 conf 'LAND_LEAN_RECHECK_MODULES="Good Lie"'
-expect_exit "every listed module is replayed (the clean one first does not hide the false one)" 1 lg recheck
+expect_exit "a module holding a false theorem fails, and every listed module still gets its own verdict (the clean one does not hide it)" 1 lg recheck; out_has "recheck: Good ok"; out_has "recheck: Lie REJECTED"
 conf 'LAND_LEAN_RECHECK_MODULES="Nope"'
 expect_exit "a module that cannot be found is a failure, never a pass" 1 lg recheck
 
