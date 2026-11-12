@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.15.2 (patch: a rule that was too strict)
+
+- `land-lean ledger` required every proved or partial claim to cite a clause whenever a clause index was configured. That is one repository's rule (every claim is about the standard, and a library's own policy is tagged `vbm:`), not everyone's: another has proved claims about the library itself that cite no clause. The requirement is now the key `LAND_LEAN_LEDGER_TAGGED=1` (default `0`); an unknown tag fails either way. Found migrating the second repository to the shared gate: each keeps its own guarantee.
+
 ## 0.15.1 (patch: a bug in 0.15.0)
 
 - `land-lean ledger` imports two of the tool's modules (`LandLedger`, `LandWalk`), but a repository whose build names its targets (`lake build A B C`) never built the second, so the gate could not find it. The command now builds the `LandLedger` library itself first (a cached no-op when current), so no repository's build line has to name it; a repository without the `lean_lib` gets a message saying to declare it. The test no longer builds the library, so it exercises exactly this. Found migrating the first repository.

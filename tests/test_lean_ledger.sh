@@ -85,10 +85,13 @@ grep -q '^# a documented re-base' "$P/scripts/ledger-baseline.txt" && pass "--wr
 echo "## clauses: the tags a claim cites, and their coverage"
 printf 'c:one read first clause\nc:two policy second clause\nc:three ignored third\n' > "$P/docs/clauses.txt"
 conf 'LAND_LEAN_LEDGER_MODULE="LedgerGood"' 'LAND_LEAN_LEDGER_CLAUSES="docs/clauses.txt"'
-expect_exit "a tag in the index, and a proved claim that cites one, pass for tagged claims; an untagged proved claim fails" 1 lg ledger; out_has "claim runs cites no clause"
+expect_exit "a proved claim with no clause tag passes by default (a library-level claim need not be about a clause)" 0 lg ledger
+conf 'LAND_LEAN_LEDGER_MODULE="LedgerGood"' 'LAND_LEAN_LEDGER_CLAUSES="docs/clauses.txt"' 'LAND_LEAN_LEDGER_TAGGED="1"'
+expect_exit "with TAGGED, a proved claim that cites no clause fails" 1 lg ledger; out_has "claim runs cites no clause"
 ledger LedgerGood 'OC "runs" ["c:one"] (.proved [``run_ok])' 'OC "a-clause" ["c:two"] (.proved [``unrelated])' 'O "later" (.open_ "not yet")'
 ( cd "$P" && ml lake build LedgerGood >/dev/null 2>&1 )
-expect_exit "every proved claim tagged with a listed clause passes" 0 lg ledger
+conf 'LAND_LEAN_LEDGER_MODULE="LedgerGood"' 'LAND_LEAN_LEDGER_CLAUSES="docs/clauses.txt"' 'LAND_LEAN_LEDGER_TAGGED="1"'
+expect_exit "every proved claim tagged with a listed clause passes, with TAGGED" 0 lg ledger
 ledger LedgerGood 'OC "runs" ["c:nope"] (.proved [``run_ok])'
 ( cd "$P" && ml lake build LedgerGood >/dev/null 2>&1 )
 expect_exit "a tag the index does not list fails" 1 lg ledger; out_has "cites the clause c:nope, which the clause index does not list"
@@ -99,7 +102,7 @@ expect_exit "coverage counts the clauses of the named dispositions that a proved
 grep -q 'c:two' "$P/docs/proof-ledger.md" && pass "the clause with no covering claim is listed" || fail "uncovered clause not listed"
 
 echo "## the gate's own negative test"
-conf 'LAND_LEAN_LEDGER_MODULE="LedgerGood"' 'LAND_LEAN_LEDGER_BASELINE="scripts/ledger-baseline.txt"' 'LAND_LEAN_LEDGER_CLAUSES="docs/clauses.txt"'
+conf 'LAND_LEAN_LEDGER_MODULE="LedgerGood"' 'LAND_LEAN_LEDGER_BASELINE="scripts/ledger-baseline.txt"' 'LAND_LEAN_LEDGER_CLAUSES="docs/clauses.txt"' 'LAND_LEAN_LEDGER_TAGGED="1"'
 lg ledger --write >/dev/null 2>&1
 expect_exit "--selftest: a non-theorem, a missing theorem, a falling baseline, a rising open, an unknown tag and an untagged proved claim are all rejected" 0 lg ledger --selftest; out_has "negative self-tests ok"
 
@@ -112,6 +115,8 @@ conf 'LAND_LEAN_LEDGER_MODULE="LedgerGood; rm -rf x"'
 expect_exit "a module that is not a module name is refused" 2 lg ledger; out_has "holds module names only"
 conf 'LAND_LEAN_LEDGER_MODULE="LedgerGood"' 'LAND_LEAN_LEDGER_BASELINE="a b"'
 expect_exit "a path value that is not one file path is refused" 2 lg ledger; out_has "holds one file path"
+conf 'LAND_LEAN_LEDGER_MODULE="LedgerGood"' 'LAND_LEAN_LEDGER_TAGGED="yes"'
+expect_exit "TAGGED holds 0 or 1 only" 2 lg ledger; out_has "LAND_LEAN_LEDGER_TAGGED holds 0 or 1"
 conf 'LAND_LEAN_LEDGER_MODULE="LedgerGood"' 'LAND_LEAN_LEDGER_BASELIN="x"'
 expect_exit "a misspelled key is refused, never ignored" 2 lg ledger
 finish
