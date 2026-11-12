@@ -12,9 +12,7 @@ cat > "$P/lakefile.lean" <<LAKE
 import Lake
 open Lake DSL
 package toy
-lean_lib LandLedger where
-  srcDir := "$ROOT/lean"
-  roots := #[\`LandLedger, \`LandWalk]
+require «land-ledger» from "$ROOT/lean"
 lean_lib Toy
 lean_lib ToyProofs
 lean_lib LedgerGood
@@ -43,6 +41,21 @@ lg() { LAND_LEAN_ROOT=$P ml "$ROOT/bin/land-lean" "$@"; }
 conf() { printf '%s\n' "$@" > "$P/.land/lean.conf"; }
 doc() { cat "$P/docs/proof-ledger.md"; }
 printf 'Toy.run\n' > "$P/scripts/closure-entries.txt"
+
+echo "## two copies of the tool's package in one workspace: one is used (a vendored library that requires it too must not make the import ambiguous)"
+mkdir -p "$P/vendor/dep/tool"; cp -r "$ROOT/lean/." "$P/vendor/dep/tool/"; rm -rf "$P/vendor/dep/tool/.lake"
+cat > "$P/vendor/dep/lakefile.toml" <<TOML
+name = "dep"
+[[require]]
+name = "land-ledger"
+path = "tool"
+[[lean_lib]]
+name = "Dep"
+TOML
+printf 'import LandLedger\ndef depUses : Nat := 1\n' > "$P/vendor/dep/Dep.lean"
+printf '\nrequire dep from "vendor/dep"\nlean_lib UsesDep\n' >> "$P/lakefile.lean"
+printf 'import Dep\nimport LandLedger\ndef both : Nat := depUses\n' > "$P/UsesDep.lean"
+( cd "$P" && ml lake update dep >"$T/dep.out" 2>&1 && ml lake build UsesDep >>"$T/dep.out" 2>&1 ) && pass "a vendored library that requires the same package builds beside the root's (one copy, no ambiguity)" || fail "two requirers of the package conflict: $(tail -3 "$T/dep.out")"
 
 echo "## the plain gate: render, and every named theorem must exist and be a theorem"
 conf 'LAND_LEAN_LEDGER_MODULE="LedgerGood"'

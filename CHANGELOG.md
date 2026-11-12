@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.16.0 (minor: how a repository adopts the ledger gate)
+
+- The tool's Lean modules (`LandLedger`, `LandWalk`) are a small Lake PACKAGE, `land-ledger` (`lean/lakefile.toml`, with a fixed `lean/lake-manifest.json`), which a repository REQUIRES (`require «land-ledger» from ".land/tool/lean"`) instead of declaring a `lean_lib` of its own. Found the first time two adopters met: a library that declared the tool's library, vendored by a repository that declared it too, made `import LandLedger` ambiguous ("multiple packages provide distinct definitions"; Lake refuses to guess). Lake resolves a package by NAME, so the repository and every vendored library that require it get one copy. `tests/test_lean_ledger.sh` has the case (a vendored library requiring its own copy builds beside the root's). `land-check` no longer reports Lake's `.lake` build directory inside the vendored tool as drift (`tests/test_vendor.sh`: a build product passes, a stray source file still fails); `.gitignore` gets `.lake/`. A repository that declared the library itself changes that one declaration; the gate command and its keys are unchanged.
+
 ## 0.15.2 (patch: a rule that was too strict)
 
 - `land-lean ledger` required every proved or partial claim to cite a clause whenever a clause index was configured. That is one repository's rule (every claim is about the standard, and a library's own policy is tagged `vbm:`), not everyone's: another has proved claims about the library itself that cite no clause. The requirement is now the key `LAND_LEAN_LEDGER_TAGGED=1` (default `0`); an unknown tag fails either way. Found migrating the second repository to the shared gate: each keeps its own guarantee.

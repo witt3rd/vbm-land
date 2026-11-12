@@ -32,6 +32,11 @@ expect_exit "install needs a git repository as target" 2 "$S/install" --source "
 
 echo "## drift check, offline"
 expect_exit "an untouched copy passes" 0 chk "$T/c1"; out_has "is intact"
+rm -rf "$T/d"; cp -a "$T/c1" "$T/d"; mkdir -p "$T/d/$LAND_DIR/lean/.lake/build/lib/lean"; echo x > "$T/d/$LAND_DIR/lean/.lake/build/lib/lean/LandLedger.olean"
+expect_exit "a Lake build product inside the vendored tool is not drift (the tool's package builds in place)" 0 chk "$T/d"; out_has "is intact"
+rm -rf "$T/d"; cp -a "$T/c1" "$T/d"; mkdir -p "$T/d/$LAND_DIR/lean/.lake"; echo x > "$T/d/$LAND_DIR/lean/Local.lean"
+expect_exit "a stray source file beside a .lake directory is still drift" 1 chk "$T/d"; out_has "not part of the pinned release"
+rm -rf "$T/d"
 for case_ in "edit:echo '# local patch' >> $LAND_DIR/bin/run-probe:differs from the pinned release" \
              "delete:rm $LAND_DIR/lib/freeze.sh:is missing" \
              "extra file:echo x > $LAND_DIR/lib/local.sh:not part of the pinned release" \
