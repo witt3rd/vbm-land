@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.15.1 (patch: a bug in 0.15.0)
+
+- `land-lean ledger` imports two of the tool's modules (`LandLedger`, `LandWalk`), but a repository whose build names its targets (`lake build A B C`) never built the second, so the gate could not find it. The command now builds the `LandLedger` library itself first (a cached no-op when current), so no repository's build line has to name it; a repository without the `lean_lib` gets a message saying to declare it. The test no longer builds the library, so it exercises exactly this. Found migrating the first repository.
+
 ## 0.15.0 (minor: a new command)
 
 - `land-lean ledger [--write|--selftest]`: the obligation-ledger gate every Lean repository shares, replacing four hand-edited copies that had drifted (142, 157, 76 and 172 lines). The tool ships the vocabulary (`lean/LandLedger.lean`: `Status`, `Obligation` with optional clause tags and a caveat that lives with the claim, `O`, `OC`) and the gate (`lean/LedgerGate.lean`); a repository keeps only its data and a `lean_lib` line. Reach, the ratchet, the clause tags and their coverage are each turned on by a key in `.land/lean.conf` (`LAND_LEAN_LEDGER_*`). `lean/LandWalk.lean` is the reach walk, written once; it uses the CLOSED set of skipped kinds (a name-based filter let a definition leave the count by being renamed), so a repository that carried the older filter may see its counts move. `tests/test_lean_ledger.sh` has 48 cases on a real toy project, mutation-checked (theorem check, reach, ratchet and clause check each switched off are all caught). New payload: `lean/LandLedger.lean`, `lean/LandWalk.lean`, `lean/LedgerGate.lean`.

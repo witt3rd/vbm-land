@@ -38,7 +38,7 @@ ledger LedgerNonThm 'O "notathm" (.proved [`Nat.add])'
 ledger LedgerModelOnly 'O "model-claim" (.proved [``model_ok])' 'O "runs" (.proved [``run_ok])'
 eval "$(mise env -C "$ROOT" -s bash)"
 ml() { "$@"; }
-( cd "$P" && ml lake build LandLedger Toy ToyProofs LedgerGood LedgerMissing LedgerNonThm LedgerModelOnly >"$T/build.out" 2>&1 ) && pass "the toy project builds (the tool's vocabulary is a lean_lib of it)" || { fail "the toy project does not build: $(tail -4 "$T/build.out")"; finish; exit; }
+( cd "$P" && ml lake build Toy ToyProofs LedgerGood LedgerMissing LedgerNonThm LedgerModelOnly >"$T/build.out" 2>&1 ) && pass "the toy project builds (the tool's vocabulary is a lean_lib of it, NOT built here: the gate builds it itself)" || { fail "the toy project does not build: $(tail -4 "$T/build.out")"; finish; exit; }
 lg() { LAND_LEAN_ROOT=$P ml "$ROOT/bin/land-lean" "$@"; }
 conf() { printf '%s\n' "$@" > "$P/.land/lean.conf"; }
 doc() { cat "$P/docs/proof-ledger.md"; }
