@@ -3,7 +3,7 @@
 # fails (a hosted runner without a login: the failure that made the upstream check red in a consumer's manual Tier 2). A private source still works through gh, and an unreachable one says what it needs.
 . "$(dirname "$0")/lib.sh"
 sandbox
-S=$T/srcwork; mkdir -p "$S"; ( cd "$ROOT" && cp -r bin lib docs templates skills install VERSION "$S/" )
+S=$T/srcwork; mkdir -p "$S"; ( cd "$ROOT" && cp -r bin lib lean docs templates skills install VERSION "$S/" )
 ( cd "$S" && git init -q -b main && git config commit.gpgsign false && echo 1.0.0 > VERSION && bin/land-manifest >/dev/null && git add -A && git commit -qm "chore: release 1.0.0" && git tag -a v1.0.0 -m v1.0.0 )
 mkdir -p "$T/www/acme"; git clone -q --bare "$S" "$T/www/acme/tool.git"; git -C "$T/www/acme/tool.git" update-server-info
 ( cd "$T/www" && exec python3 -u -m http.server 0 --bind 127.0.0.1 >"$T/www.log" 2>&1 ) & srv=$!; trap 'kill $srv 2>/dev/null; rm -rf "${SANDBOXES[@]}" "$RESULTS"' EXIT

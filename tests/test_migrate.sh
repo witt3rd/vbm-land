@@ -9,7 +9,7 @@ S=$T/src
 K=$T/keys; mkdir -p "$K"; ssh-keygen -q -t ed25519 -N '' -f "$K/maint" -C maint; ssh-keygen -q -t ed25519 -N '' -f "$K/rogue" -C rogue
 echo "maint $(cut -d' ' -f1,2 "$K/maint.pub")" > "$K/signers"; echo "rogue $(cut -d' ' -f1,2 "$K/rogue.pub")" > "$K/rogue-signers"
 make_source() {   # make_source VERSION: a scratch source repository (this tree's files, VERSION set, manifest regenerated) with a SIGNED release tag v<VERSION> (a signers file makes signatures mandatory)
-  mkdir -p "$S"; ( cd "$ROOT" && cp -r bin lib docs templates skills install VERSION "$S/" )
+  mkdir -p "$S"; ( cd "$ROOT" && cp -r bin lib lean docs templates skills install VERSION "$S/" )
   ( cd "$S" && { [ -d .git ] || git init -q -b main; } && git config commit.gpgsign false && git config gpg.format ssh && git config user.signingkey "$K/maint" \
     && echo "$1" > VERSION && bin/land-manifest >/dev/null && git add -A && git commit -qm "chore: release $1" \
     && git tag -s "v$1" -m "release $1" -m "manifest_sha256=$(sha256sum < MANIFEST.sha256 | cut -d' ' -f1)" -m "tree_sha256=$(tree_of .)" )

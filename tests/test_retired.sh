@@ -4,7 +4,7 @@
 . "$(dirname "$0")/lib.sh"
 sandbox
 S=$T/src
-mkdir -p "$S"; ( cd "$ROOT" && cp -r bin lib docs templates skills install VERSION "$S/" )
+mkdir -p "$S"; ( cd "$ROOT" && cp -r bin lib lean docs templates skills install VERSION "$S/" )
 ( cd "$S" && git init -q -b main && git config commit.gpgsign false && echo 1.0.0 > VERSION && bin/land-manifest >/dev/null && git add -A && git commit -qm "chore: release 1.0.0" && git tag v1.0.0 )
 git clone -q "$T/remote.git" "$T/c"; git -C "$T/c" config commit.gpgsign false
 "$S/install" --source "$S" --target "$T/c" v1.0.0 >/dev/null 2>&1 || { fail "install into the scratch consumer"; finish; exit; }
@@ -15,7 +15,7 @@ paths=$(sed -E 's/#.*//' "$LIST" | awk 'NF {print $1}')
 echo "## the list"
 check "it ships with the tool, inside the manifest" grep -q " $LAND_DIR/lib/retired-paths.txt\$\|  lib/retired-paths.txt\$" "$T/c/$LAND_MANIFEST_FILE"
 check "it names the files that moved (at least the evidence pair, the runners and the pin script)" bash -c "for p in scripts/lib-ran.sh scripts/ran-evidence.sh scripts/run-tests-parallel.sh scripts/run-scoped.sh scripts/lib-reap.sh scripts/pinned-lib.py scripts/pinned-libs.lock; do echo '$paths' | grep -qx \$p || exit 1; done"
-bad=0; for r in $(sed -E 's/#.*//' "$LIST" | awk 'NF {for (i = 2; i <= NF; i++) if ($i ~ /^(bin|lib)\//) print $i}'); do [ -f "$S/$r" ] || { echo "no payload file $r" >&2; bad=1; }; done
+bad=0; for r in $(sed -E 's/#.*//' "$LIST" | awk 'NF {for (i = 2; i <= NF; i++) if ($i ~ /^(bin|lib|lean)\//) print $i}'); do [ -f "$S/$r" ] || { echo "no payload file $r" >&2; bad=1; }; done
 check "every replacement a retired path names is a real payload file" test "$bad" = 0
 
 echo "## land-check"
@@ -32,4 +32,10 @@ ln -s "../$LAND_DIR/lib/verify.sh" "$T/c/scripts/lib-ran.sh"; expect_exit "a lin
 ln -s /etc/hostname "$T/c/scripts/lib-ran.sh"; expect_exit "a link to anything else fails" 1 chk; out_has "scripts/lib-ran.sh is retired"; rm -f "$T/c/scripts/lib-ran.sh"
 expect_exit "removed again: passes" 0 chk
 sed -i 's#^scripts/lib-ran.sh .*##' "$LIST"; echo x > "$T/c/scripts/lib-ran.sh"; expect_exit "an edited list is drift (the list is hash-checked like the tool)" 1 chk; out_has "DRIFT"
+echo "## land-check validates .land/lean.conf like land.conf (docs/lean-gates.md)"
+rm -f "$T/c/scripts/lib-ran.sh" "$T/c/$LAND_LEAN_CONF_FILE"; cp "$S/lib/retired-paths.txt" "$LIST" 2>/dev/null || true
+printf 'LAND_LEAN_AXIOM_IMPORTS=Good\nLAND_LEAN_AXIOM_ROOTS="Good"\n' > "$T/c/$LAND_LEAN_CONF_FILE"; expect_exit "a well-formed lean.conf passes" 0 chk
+printf 'LAND_LEAN_AXIOM_TYPO=Good\n' > "$T/c/$LAND_LEAN_CONF_FILE"; expect_exit "an unknown key in lean.conf is drift" 1 chk; out_has "unknown key LAND_LEAN_AXIOM_TYPO"
+printf 'LAND_LEAN_AXIOM_IMPORTS="Good;x"\n' > "$T/c/$LAND_LEAN_CONF_FILE"; expect_exit "a module list with more than module names is drift" 1 chk; out_has "module names only"
+rm "$T/c/$LAND_LEAN_CONF_FILE"; expect_exit "no lean.conf is fine (the Lean gates are simply off)" 0 chk
 finish

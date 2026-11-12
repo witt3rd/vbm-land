@@ -4,6 +4,13 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.12.0 (minor: additive; a repository that has `scripts/AxiomGate.lean` deletes it and calls the tool, in the same commit that takes this release)
+
+- **The Lean gates join the payload (docs/payload.md 4a, docs/lean-gates.md): `bin/land-lean axiom [--selftest]` and `lean/AxiomGate.lean`.** One axiom gate with the richer algorithm (one shared walk, differential-tested against Lean's own `collectAxioms`), replacing eight copies in two algorithms. It is configured by the new `.land/lean.conf` (`LAND_LEAN_AXIOM_IMPORTS`, `LAND_LEAN_AXIOM_ROOTS`): the file's PRESENCE is the opt-in, it has `land.conf`'s grammar and parser, `land-check` validates it, and a root that matches no constant fails (a gate that audited nothing proves nothing).
+- `lib/conf.sh`: `conf_parse NAME [KEYS]` takes the key list of the file it parses (one parser, one key list per file); `lean_conf_keys`, `lean_conf_defaults`, `lean_conf_validate`. `lib/paths.sh`: `LAND_LEAN_CONF_FILE`.
+- `scripts/AxiomGate.lean` is a retired path.
+- This repository pins the Lean toolchain in `mise.toml` (its tests of the gates run on a real toy Lean project).
+
 ## 0.11.5 (patch)
 
 - `land-check` prints a retired path with its reason as written in `lib/retired-paths.txt` (`the tool ships lib/ran.sh`, or `tested by the tool itself (...)`); it used to say "the tool ships it" even for a test the tool does not ship.

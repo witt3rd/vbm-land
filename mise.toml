@@ -1,0 +1,3 @@
+# The Lean toolchain the tests of lean/ need (the release tarball is the toolchain; no elan). Every repository of the family pins the same one.
+[tools]
+"github:leanprover/lean4" = "4.35.0"

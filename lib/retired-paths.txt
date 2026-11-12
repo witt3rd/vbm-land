@@ -12,6 +12,7 @@ scripts/pinned-libs.lock        the tool ships bin/land-pin (the lock is .land/p
 scripts/test_ran_evidence.sh    tested by the tool itself (tests/test_ran.sh)
 scripts/test_run_parallel.sh    tested by the tool itself (tests/test_runner.sh)
 scripts/test_no_crash_record.sh tested by the tool itself (tests/test_no_crash_record.sh)
+scripts/AxiomGate.lean         the tool ships lean/AxiomGate.lean (run it with land-lean axiom)
 scripts/test_reap.sh            tested by the tool itself (tests/test_run_scoped.sh)
 scripts/test_run_scoped.sh      tested by the tool itself (tests/test_run_scoped.sh)
 scripts/test_tmp_preflight.sh   tested by the tool itself (tests/test_runner.sh)
