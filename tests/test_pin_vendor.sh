@@ -51,6 +51,8 @@ refused "a lightweight tag is refused" v1.0.6 "lightweight tag"
 refused "a tag that does not exist is refused" v9.9.9 "cannot fetch"
 rm "$C/$LAND_SIGNERS_FILE"; S=$(state); expect_exit "no signers file: refused (a signature cannot be checked)" 1 pin vendor libx "$O" v1.0.0; out_has "no readable signers file"; check "  and nothing changed" test "$(state)" = "$S"
 fresh
+expect_exit "an ssh-style URL is warned about (a lock is shared data: use the public https URL)" 1 pin vendor libx "git@example.invalid:o/libx.git" v1.0.0; out_has "public https URL"
+expect_exit "an https URL is not warned about" 1 pin vendor libx "https://example.invalid/o/libx.git" v1.0.0; check "  no warning" bash -c "! grep -q 'public https URL' '$T/out'"
 expect_exit "a bad library name is a usage error" 2 pin vendor Libx "$O" v1.0.0
 expect_exit "a tag that is not vX.Y.Z is a usage error" 2 pin vendor libx "$O" 1.0.0
 expect_exit "missing arguments are a usage error" 2 pin vendor libx

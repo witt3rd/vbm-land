@@ -4,6 +4,11 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.11.5 (patch)
+
+- `land-check` prints a retired path with its reason as written in `lib/retired-paths.txt` (`the tool ships lib/ran.sh`, or `tested by the tool itself (...)`); it used to say "the tool ships it" even for a test the tool does not ship.
+- `land-pin vendor` warns on an ssh-style URL (a lock is shared data: use the public https URL), and the `vendor-a-library` skill says so and why (a scorer accepts only allowlisted https GitHub repositories).
+
 ## 0.11.4 (patch)
 
 - `bin/run-tests-parallel` says again, as the copies it replaced did, "the ENVIRONMENT is the failure, not a test; free it or set TMPDIR elsewhere" when the temp directory is nearly full (the merge had reworded it, dropping the advice); `tests/test_runner.sh` checks the wording.

@@ -20,6 +20,8 @@ check "every replacement a retired path names is a real payload file" test "$bad
 
 echo "## land-check"
 expect_exit "a repository with none of them passes" 0 chk
+mkdir -p "$T/c/scripts"; echo x > "$T/c/scripts/lib-ran.sh"; expect_exit "a retired file the tool ships names the replacement" 1 chk; out_has "scripts/lib-ran.sh is retired: the tool ships lib/ran.sh; delete the repository's copy"; rm -f "$T/c/scripts/lib-ran.sh"
+echo x > "$T/c/scripts/test_reap.sh"; expect_exit "a retired TEST says the tool tests it, never that the tool ships it" 1 chk; out_has "scripts/test_reap.sh is retired: tested by the tool itself"; check "  and does not claim the tool ships a test" bash -c "! grep -q 'the tool ships it' '$T/out'"; rm -f "$T/c/scripts/test_reap.sh"
 for p in $paths; do
   mkdir -p "$T/c/$(dirname "$p")"; echo x > "$T/c/$p"
   expect_exit "a copy of $p fails" 1 chk; out_has "$p is retired"
