@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.15.0 (minor: a new command)
+
+- `land-lean ledger [--write|--selftest]`: the obligation-ledger gate every Lean repository shares, replacing four hand-edited copies that had drifted (142, 157, 76 and 172 lines). The tool ships the vocabulary (`lean/LandLedger.lean`: `Status`, `Obligation` with optional clause tags and a caveat that lives with the claim, `O`, `OC`) and the gate (`lean/LedgerGate.lean`); a repository keeps only its data and a `lean_lib` line. Reach, the ratchet, the clause tags and their coverage are each turned on by a key in `.land/lean.conf` (`LAND_LEAN_LEDGER_*`). `lean/LandWalk.lean` is the reach walk, written once; it uses the CLOSED set of skipped kinds (a name-based filter let a definition leave the count by being renamed), so a repository that carried the older filter may see its counts move. `tests/test_lean_ledger.sh` has 48 cases on a real toy project, mutation-checked (theorem check, reach, ratchet and clause check each switched off are all caught). New payload: `lean/LandLedger.lean`, `lean/LandWalk.lean`, `lean/LedgerGate.lean`.
+
 ## 0.14.2 (patch: a bug in 0.14.0 and 0.14.1)
 
 - `land-lean recheck` passed all the modules of `LAND_LEAN_RECHECK_MODULES` to ONE `leanchecker --fresh` run, which accepts only a single module ("--fresh flag is only valid when specifying a single module"): with two or more listed it failed every time, on a good tree too. It now runs one replay per module, side by side (each replays its whole import closure), prints one verdict per module (`recheck: M ok` / `recheck: M REJECTED` and the checker's words) and exits 1 if any was rejected. The test that was meant to prove every listed module is replayed passed for the wrong reason (the failing invocation looked like a rejection); it now also requires two clean modules to PASS and names which module was rejected, in either order.
