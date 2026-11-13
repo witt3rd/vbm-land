@@ -51,7 +51,7 @@ check "main has it" remote_has one.txt
 check "JSON last line names sha, commits, tier1_seconds, result, exit" bash -c "tail -n1 '$T/out' | grep -qE '^\\{\"sha\":\"[0-9a-f]{40}\",\"commits\":1,\"tier1_seconds\":[0-9]+,\"result\":\"landed\",\"exit\":0\\}$'"
 check "a metrics line is written" bash -c "grep -q '\"result\":\"landed\"' '$T/a/.git/vbm-land/metrics.jsonl'"
 worker a2; commit "$T/a2" two.txt 2; before=$(remote_head)
-( cd "$T/a2" && "$L" --dry-run >"$T/out" 2>&1 ) || true; out_has "would land"; check "--dry-run pushes nothing" nothing_landed
+( cd "$T/a2" && "$L" --validate >"$T/out" 2>&1 ) || true; out_has "validated"; check "--validate pushes nothing" nothing_landed
 ( cd "$T/a2" && "$L" --check >"$T/out" 2>&1 ) || true; out_has '"result":"checked"'; check "--check pushes nothing" nothing_landed
 worker a3; git -C "$T/a3" commit -q --allow-empty -m "chore: nothing" -m "Task-ID: t"; git -C "$T/a3" reset -q --hard origin/main
 refused "nothing to land refuses" 2 "$T/a3"
@@ -291,7 +291,7 @@ check "a failed run leaves its log and nothing else (no worktree), for diagnosis
 sleep 300 & alive=$!; true & gone=$!; wait "$gone"
 mkdir "$v/run.$gone.old" "$v/run.$gone.new" "$v/run.$alive.old" "$v/run.junk.old" "$T/precious"; echo keep > "$T/precious/f"; ln -s "$T/precious" "$v/run.$gone.link"
 touch -d '2 days ago' "$v/run.$gone.old" "$v/run.$alive.old" "$v/run.junk.old"; touch -h -d '2 days ago' "$v/run.$gone.link"
-( cd "$T/u3" && "$L" --dry-run >/dev/null 2>&1 ) || true
+( cd "$T/u3" && "$L" --validate >/dev/null 2>&1 ) || true
 kill "$alive" 2>/dev/null || true; wait "$alive" 2>/dev/null || true
 check "the next run sweeps a dead run's old directory" test ! -e "$v/run.$gone.old"
 check "it keeps a young directory, a live pid's and a name without a pid" bash -c "[ -d '$v/run.$gone.new' ] && [ -d '$v/run.$alive.old' ] && [ -d '$v/run.junk.old' ]"

@@ -24,7 +24,7 @@ git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=.land/land.signers verify-ta
 # 3. In your repository: review, commit, land
 cd /path/to/your/repo && git add -A && git commit -m "chore(land): vbm-land ${TAG#v}"
 .land/tool/bin/land-check              # the drift check: the vendored copy is exactly the release
-.land/land-direct --dry-run            # everything except the push
+.land/land-direct --validate           # everything except the push (pins the validated commit); .land/land-direct --push SHA then pushes exactly it
 ```
 
 Edit the starter `.land/land.conf` (at least `LAND_TEST_CMD`, your Tier 1 command) before the first landing. The whole sequence for an existing repository is in [Adopting it in an existing repository](#adopting-it-in-an-existing-repository).
@@ -151,7 +151,7 @@ A repository that lands with this tool has a `.land/land.conf` (below), lands wi
 
 ```
 .land/land-direct                       # land the local commits that are not on origin/main yet
-.land/land-direct --dry-run             # everything except the push
+.land/land-direct --validate            # everything except the push (pins the validated commit); .land/land-direct --push SHA then pushes exactly it
 .land/land-direct --check               # only the land-time checks (commit messages)
 .land/land-direct --group               # accepted and ignored (there is no size budget any more)
 .land/land-direct --hold "reason"       # stop every landing in this clone (even one in flight, right before its push) ...
@@ -163,6 +163,15 @@ A repository that lands with this tool has a `.land/land.conf` (below), lands wi
 Exit codes: `0` landed; `1` stopped with a message (base kept moving, push refused, a bad commit message); `2` bad input or bad configuration; `11` rebase conflict (the files are named; rebase in your worktree and run again); `12` refused by a hook, by the regeneration, or by the drift check; `13` Tier 1 failed (nothing landed); `14` held or frozen; `16` main moved faster than the lander could validate (nothing was pushed: run it again; after a crash that followed an accepted push, a rerun exits 0, "already landed"). The last line of standard output is JSON: `{"sha","commits","tier1_seconds","result","exit"}` plus any keys a `json-fields` hook adds.
 
 Hold and freeze markers, logs and the scratch worktree live in `<git common dir>/vbm-land/`, shared by every worktree of the clone. The lander never runs `git worktree prune` and never removes a worktree it did not create: other lanes' worktrees live in the same clone.
+
+#### Two steps, and a summary a program can read
+
+`land-direct` is one command for a person: validate, then push. A program that decides what to do between the two (an orchestrator that has reviewers look at the validated tree) uses the two steps apart:
+
+* `land-direct --validate` rebases onto the base, runs every check on the rebased tree and stops before the push. The commit it validated is **pinned** (`refs/vbm-land/validated/<sha>`, swept after a day) and named in the summary.
+* `land-direct --push SHA` pushes exactly that commit, a fast-forward of the base, and **runs no check again**: the commit is what was checked. A SHA that was not pinned is refused (`unvalidated`, exit 2); a base that moved since is `moved` (exit 16) and nothing is pushed: validate again, which rebases onto the new base. A hold or a freeze stops the push as it stops a landing. Pushing a commit that is already in the base is `landed`, not an error.
+
+The last line of stdout is JSON, and it is what a caller reads, never the text above it: `result` (`landed`, `validated`, `tier1`, `conflict`, `refused`, `moved`, `held`, `unvalidated`, `error`, `checked`), `exit`, `sha`, `commits`, `tier1_seconds`, and, when something stopped the run, `reason` (the words, to carry to a person or an agent: never to parse), `log` (the path of the failing stage's whole log, which stays), `files` (the conflicted paths, a list) and `base` (the base commit this run saw).
 
 ### 6.3 Configuration
 
