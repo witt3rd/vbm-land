@@ -4,6 +4,13 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.18.0 (minor; BREAKING: `LAND_FAIL_PATTERN` is retired)
+
+- The "inherited red" decision no longer matches a regular expression over Tier 1's output (vbm-land #6; the rule: a decision comes from typed data, never from a string match). The Tier 1 commands RECORD what failed, one name per line, in the file `$LAND_FAILED_FILE` that the lander names (a fresh file per stage, and one for the bare base's run); `bin/run-tests-parallel` records every script that failed, was missing, died, timed out or left no evidence, and a gate may append its own name. The lander compares two sets of names: every name this run recorded must also be recorded by the same stage on the base. Nothing recorded means no inheritance, as before. The words of the output decide nothing: a command that prints `FAIL x` and records nothing is not inherited (`tests/test_land_direct.sh`).
+- `LAND_FAIL_PATTERN` is retired: a `land.conf` that still names it is refused by name and line, like every retired key. A repository that set it drops the line and, if it has gates outside `run-tests-parallel` whose failures it wants inherited, makes them append their name to `$LAND_FAILED_FILE`.
+- `tests/test_runner.sh` has the cases (the file lists exactly the scripts that failed, a hang killed by `TEST_TIMEOUT` is listed, nothing is written without the variable); the mutation self-tests were moved to the new convention and a runner that records nothing is caught.
+- Found writing it: replacing the old `inherited_red` by a slice of the script also removed the `--push` block of 0.17.0 that sat inside the slice; `tests/test_land_two_step.sh` caught it (Tier 1 ran twice and the pin stayed) before it was released.
+
 ## 0.17.0 (minor: the lander in two steps; BREAKING: `--dry-run` is `--validate`)
 
 - `land-direct --validate` is `--dry-run`, renamed and finished: the same work (rebase, every check on the rebased tree, no push), and the commit it validated is PINNED (`refs/vbm-land/validated/<sha>`, swept after a day) and returned in the summary with the result `validated` (it was `would-land`). `--dry-run` is refused with a message naming its replacement (nothing in the family called it).

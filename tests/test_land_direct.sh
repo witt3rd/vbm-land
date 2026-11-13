@@ -26,7 +26,7 @@ worker c2; commit "$T/c2" x.txt 1
 refused "a config without any Tier 1 command refuses" 2 "$T/c2"; out_has "no Tier 1"
 # a key this tool has retired is not a key: an old config naming one is refused as unknown, by file and line, and nothing lands
 for key in LAND_LOCK_WAIT LAND_CI_WORKFLOW LAND_TIER1_JOB LAND_RED_MODE LAND_RED_WAIT LAND_KNOWN_FLAKY LAND_FLAKY_RERUN_WAIT LAND_TIER2_JOB LAND_APPROVALS \
-           LAND_APPROVAL_DAYS LAND_PROTECTED_LIST LAND_PROTECTED_APPROVALS LAND_GATE_APPEND_ONLY LAND_PROD_PATHS LAND_BUDGET_LINES; do
+           LAND_APPROVAL_DAYS LAND_FAIL_PATTERN LAND_PROTECTED_LIST LAND_PROTECTED_APPROVALS LAND_GATE_APPEND_ONLY LAND_PROD_PATHS LAND_BUDGET_LINES; do
   set_conf 'LAND_TEST_CMD=true' "$key=x"
   worker "c3-$key"; commit "$T/c3-$key" c3.txt 1
   refused "the retired key $key is refused as unknown (not read and ignored)" 2 "$T/c3-$key"; out_has "unknown key $key"
@@ -225,7 +225,8 @@ set_conf 'LAND_TEST_CMD=true'
 
 echo "## inherited red: a landing must not ADD a failure; one already on main is not its fault"
 sandbox
-set_conf 'LAND_GATES_CMD=[ ! -e OLDGATE ] || { echo "FAIL gate-old: broken on main"; exit 1; }' 'LAND_TEST_CMD=rc=0; [ ! -e OLD ] || { echo "FAIL old: broken on main"; rc=1; }; [ ! -e NEW ] || { echo "FAIL new: mine"; rc=1; }; [ ! -e SILENT ] || rc=1; exit $rc'
+# the Tier 1 commands RECORD what failed (one name per line in $LAND_FAILED_FILE): the lander compares two sets of names, it never matches a string in the output
+set_conf 'LAND_GATES_CMD=[ ! -e OLDGATE ] || { echo "FAIL gate-old: broken on main"; echo gate-old >> "$LAND_FAILED_FILE"; exit 1; }' 'LAND_TEST_CMD=rc=0; [ ! -e OLD ] || { echo "FAIL old: broken on main"; echo old >> "$LAND_FAILED_FILE"; rc=1; }; [ ! -e NEW ] || { echo "FAIL new: mine"; echo new >> "$LAND_FAILED_FILE"; rc=1; }; [ ! -e SILENT ] || rc=1; exit $rc'
 seed_push OLD 1; seed_push OLDGATE 1
 worker ih1; commit "$T/ih1" ih1.txt 1
 lands "main is red in tests and the change is unrelated: Tier 1 fails only with main's own failures: it lands" "$T/ih1"; out_has "inherited red"
@@ -234,11 +235,21 @@ both_stages() { [ "$(grep -c 'inherited red' "$T/out")" = 2 ]; }
 check "the metrics line flags it" flagged "$T/ih1" true
 check "the gates stage failed with main's failure and the tests stage still ran, also with main's failure" both_stages
 worker ih2; commit "$T/ih2" NEW 1
-refused "a change that adds its own failure to a red main is refused, and the new failure is named" 13 "$T/ih2"; out_has "a failure main does not have: FAIL new"
+refused "a change that adds its own failure to a red main is refused, and the new failure is named" 13 "$T/ih2"; out_has "a failure main does not have: new"
 worker ih4; git -C "$T/ih4" rm -q OLD OLDGATE; git -C "$T/ih4" commit -qm "fix: repair main" -m "Task-ID: t1"
 lands "the change that repairs main passes green, nothing inherited" "$T/ih4"; check "and did not flag inheritance" flagged "$T/ih4" false
 worker ih3; commit "$T/ih3" SILENT 1
-refused "a failure with no recognisable failure line (main is green here) is never inherited" 13 "$T/ih3"
+refused "a failure that records no name (main is green here) is never inherited" 13 "$T/ih3"
+sandbox
+echo "## inherited red is decided by recorded names, never by words in the output"
+set_conf 'LAND_TEST_CMD=[ ! -e OLD ] || { echo "FAIL old: broken on main"; exit 1; }'   # prints a FAIL line and records nothing
+seed_push OLD 1
+worker ih5; commit "$T/ih5" ih5.txt 1
+refused "main is red and prints FAIL, but nothing is recorded: the lander does not read the words, so it is not inherited and the change is refused" 13 "$T/ih5"
+sandbox
+set_conf 'LAND_FAIL_PATTERN=^FAIL' 'LAND_TEST_CMD=true'
+worker ih6; commit "$T/ih6" ih6.txt 1
+refused "LAND_FAIL_PATTERN is retired: a config that still names it is refused by name" 2 "$T/ih6"; out_has "unknown key LAND_FAIL_PATTERN"
 sandbox
 
 echo "## hooks (taken from main, so a change cannot rewrite the rules it is judged by)"

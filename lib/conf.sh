@@ -10,7 +10,7 @@
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/paths.sh"   # every consumer path, defined once (lib/paths.sh)
 
 land_conf_keys="LAND_BASE LAND_REMOTE LAND_GATES_CMD LAND_TEST_CMD LAND_REGEN_CMD LAND_GEN_CMD LAND_GENERATED_LIST LAND_REQUIRE_TRAILERS
- LAND_CONVENTIONAL LAND_COMMIT_TYPES LAND_PROTECTED LAND_HOOKS_DIR LAND_LOCALE LAND_FAIL_PATTERN LAND_ATTEMPTS LAND_DEADLINE LAND_TIER1_TIMEOUT
+ LAND_CONVENTIONAL LAND_COMMIT_TYPES LAND_PROTECTED LAND_HOOKS_DIR LAND_LOCALE LAND_ATTEMPTS LAND_DEADLINE LAND_TIER1_TIMEOUT
  LAND_STEP_TIMEOUT LAND_GIT_TIMEOUT"
 
 # The keys of .land/lean.conf (docs/lean-gates.md): the same grammar and the same parser as land.conf, its own keys (one file per tool, as rustfmt.toml and clippy.toml are).
@@ -37,7 +37,6 @@ conf_defaults() {
   LAND_HOOKS_DIR=$LAND_HOOKS_DEFAULT            # repository-owned hooks (README, "Hooks")
   LAND_LOCALE=C                                 # pinned for collation, glob and sort order
   LAND_TIER1_TIMEOUT=1800; LAND_STEP_TIMEOUT=600; LAND_GIT_TIMEOUT=180   # seconds
-  LAND_FAIL_PATTERN='^(FAIL|FAILED)([ :]|$)'      # an extended regular expression: the lines of Tier 1's output that name a failure. A landing may pass a Tier 1 that fails ONLY with failures the bare base already has (inherited red)
   LAND_ATTEMPTS=30; LAND_DEADLINE=900           # a landing re-validates when the base moves under it: at most this many attempts, none started after this many seconds (then exit 16)
 }
 

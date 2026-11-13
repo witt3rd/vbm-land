@@ -27,7 +27,7 @@ sc_drift()     { scn_prelude; S=$T/src; mkdir -p "$S"; ( cd "$ROOT" && cp -r bin
 sc_push_refused() { scn_prelude; set_conf 'LAND_TEST_CMD=true' 'LAND_ATTEMPTS=3'; printf '#!/bin/sh\necho refused >&2\nexit 1\n' > "$T/remote.git/hooks/pre-receive"; chmod +x "$T/remote.git/hooks/pre-receive"; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 sc_freeze()    { scn_prelude; set_conf 'LAND_TEST_CMD=true'; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && "$1" --freeze x --owner o --for 1h >/dev/null; "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 # a red main: main already fails OLD; the landing is unrelated (inherited: lands) or adds NEW (refused) or fails without a failure line (refused)
-ih_world() { scn_prelude; set_conf 'LAND_TEST_CMD=rc=0; [ ! -e OLD ] || { echo "FAIL old"; rc=1; }; [ ! -e NEW ] || { echo "FAIL new"; rc=1; }; [ ! -e SILENT ] || rc=1; exit $rc'; seed_push OLD 1; worker w; }
+ih_world() { scn_prelude; set_conf 'LAND_TEST_CMD=rc=0; [ ! -e OLD ] || { echo old >> "$LAND_FAILED_FILE"; rc=1; }; [ ! -e NEW ] || { echo new >> "$LAND_FAILED_FILE"; rc=1; }; [ ! -e SILENT ] || rc=1; exit $rc'; seed_push OLD 1; worker w; }
 sc_ih_new()    { ih_world; commit "$T/w" NEW 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 sc_ih_silent() { scn_prelude; set_conf 'LAND_TEST_CMD=[ ! -e SILENT ]'; worker w; commit "$T/w" SILENT 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }
 sc_moved_attempts() { scn_prelude; set_conf 'LAND_TEST_CMD=true' 'LAND_ATTEMPTS=3'; race_hook 5; worker w; commit "$T/w" a.txt 1; ( cd "$T/w" && "$1" >/dev/null 2>&1 ) && echo 0 || echo $?; }

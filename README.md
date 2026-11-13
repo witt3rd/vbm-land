@@ -95,7 +95,7 @@ Workers never push main by hand; the lander does, with no lock (each run has its
 
 ### 4.4 RED, exactly
 
-**Main is red when its Tier 1 fails on main's own tip.** Nothing runs after the push, so whoever runs Tier 1 there next finds it (a lander's run, a worker, a person) and reverts the commit that made it red with `git revert` (`triage-red`). Landing never reads CI and does not ask whether main is red. A landing's own Tier 1 may fail only with failures the bare base already has ("inherited red": every line of its output matching `LAND_FAIL_PATTERN` is also a failure of the same Tier 1 on the base, one extra run, only then); a failure it adds, or one that prints no failure line, refuses it (13).
+**Main is red when its Tier 1 fails on main's own tip.** Nothing runs after the push, so whoever runs Tier 1 there next finds it (a lander's run, a worker, a person) and reverts the commit that made it red with `git revert` (`triage-red`). Landing never reads CI and does not ask whether main is red. A landing's own Tier 1 may fail only with failures the bare base already has ("inherited red": the Tier 1 commands RECORD what failed, one name per line, in the file named by `$LAND_FAILED_FILE` (`bin/run-tests-parallel` does it for the scripts it runs, and a gate may append its own name), and every name this run recorded is also recorded by the same stage on the base: one extra run, only then; the lander compares two sets of names and never reads the words of the output); a failure it adds, or one that records no name, refuses it (13).
 
 ### 4.5 Freeze
 
@@ -187,7 +187,6 @@ The last line of stdout is JSON, and it is what a caller reads, never the text a
 | `LAND_REQUIRE_TRAILERS` | none | Trailer names every commit must carry (for example `Task-ID`). |
 | `LAND_CONVENTIONAL`, `LAND_COMMIT_TYPES` | `1`, the usual types | Require `type(scope): summary` subjects; git's own `Revert "..."` is accepted. |
 | `LAND_PROTECTED` | none | Shell patterns (`*` matches `/`): the gate-defining set. A change that touches it is judged by the `post-rebase` hook. |
-| `LAND_FAIL_PATTERN` | `^(FAIL\|FAILED)([ :]\|$)` | Extended regular expression: the lines of Tier 1's output that name a failure. A Tier 1 that fails ONLY with failures the bare base also has passes as inherited red (4.4). |
 | `LAND_HOOKS_DIR` | `.land/land.d` | Where the repository's hooks live. |
 | `LAND_LOCALE` | `C` | Pinned for collation and glob order. |
 | `LAND_ATTEMPTS`, `LAND_DEADLINE` | `30`, `900` s | When main moves under a landing it is rebased and validated again: at most this many attempts, none started after this many seconds (then exit 16). Hooks and Tier 1 see `LAND_ATTEMPT` and `LAND_PREV_BASE` (the base the previous attempt validated against; empty on the first) so a repository may re-run only what the new base can affect. |

@@ -32,4 +32,11 @@ printf '#!/usr/bin/env bash\necho start >> "$SER"; sleep 1; echo end >> "$SER"; 
 : > "$T/ser"; expect_exit "the default runs them together (start start end end)" 0 env SER="$T/ser" TEST_JOBS=2 "$P" s1.sh s2.sh; check "  in that order" test "$(tr '\n' ' ' < "$T/ser")" = "start start end end "
 expect_exit "a nearly full temp directory is refused, and says it is the environment" 1 env MIN_TMP_KIB=999999999999 "$P" a.sh; out_has "the ENVIRONMENT is the failure"
 expect_exit "the batch prints its own evidence line" 0 "$P" a.sh b.sh; out_has "ran: tests: 2 cases"
+# the typed list of what failed, for the lander's inherited-red decision (a set of names; the lander never reads the output): one failing script per line in $LAND_FAILED_FILE
+printf '#!/usr/bin/env bash\nexit 1\n' > bad.sh; printf '#!/usr/bin/env bash\necho fine\n' > noev.sh
+: > "$T/failed"; expect_exit "a failing script and one with no evidence are failures" 1 env LAND_FAILED_FILE="$T/failed" "$P" a.sh bad.sh noev.sh nothere.sh
+check "LAND_FAILED_FILE lists exactly the scripts that failed, one per line (a.sh passed and is not listed)" test "$(LC_ALL=C sort "$T/failed" | tr '\n' ' ')" = "bad.sh noev.sh nothere.sh "
+: > "$T/failed"; expect_exit "a hang killed by TEST_TIMEOUT is listed too" 1 env LAND_FAILED_FILE="$T/failed" TEST_TIMEOUT=1 "$P" a.sh hang.sh
+check "the hanging script is listed" test "$(cat "$T/failed")" = "hang.sh"
+expect_exit "without LAND_FAILED_FILE nothing is written (a plain run)" 1 "$P" bad.sh; check "and no stray file appears" test ! -e "$T/r/failed"
 finish

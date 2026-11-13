@@ -26,7 +26,7 @@
 # The LAST line of stdout is JSON: {"sha","commits","tier1_seconds","result","exit"} plus any keys a `json-fields` hook prints (null where not known; result: landed,
 #   would-land, checked, conflict, refused, tier1, held, moved, error). Every run also appends one line to the metrics log
 #   ($LAND_DIRECT_LOG, default <git common dir>/vbm-land/metrics.jsonl): ts, result, commits, commit (the tip handed over), attempts, inherited_red, tier1_s, total_s.
-#   Tier 1 that fails ONLY with failures the bare base already has (LAND_FAIL_PATTERN lines; one extra run, only then) passes as "inherited red": a landing must not ADD a failure.
+#   Tier 1 that fails ONLY with failures the bare base already has (the names the Tier 1 commands record in $LAND_FAILED_FILE; one extra run, only then) passes as "inherited red": a landing must not ADD a failure.
 # BOUNDED: every step runs under `timeout --kill-after=30`: LAND_TIER1_TIMEOUT (Tier 1, regeneration of generated files by Tier 1 is part of it), LAND_STEP_TIMEOUT
 #   (hooks, regeneration), LAND_GIT_TIMEOUT (fetch, push). A step that runs over is killed with one plain line and the run stops as that step's failure.
 # Operator environment (not policy): REMOTE-independent knobs LAND_CONF, LAND_FIX_FOR_RED=1 (treat this change as a fix, so it passes a freeze), LAND_DIRECT_LOG, and the
@@ -213,15 +213,16 @@ holdcheck; freezecheck
 
 # Tier 1 is two stages, the gates command then the test command. t1stage STAGE DIR LOG runs one of them in DIR (no command = nothing to run); 0 = green.
 t1cmd() { case $1 in gates) echo "$LAND_GATES_CMD";; *) echo "$LAND_TEST_CMD";; esac; }
-t1stage() { local c; c=$(t1cmd "$1"); [ -z "$c" ] || (cd "$2" && bounded "$lt" "Tier 1 $1" bash -c "$c") >"$3" 2>&1; }
-# inherited_red STAGE: a landing must not ADD a failure, and one already on the base is not its fault. Every failure of this stage (the log lines matching LAND_FAIL_PATTERN) must also
-# be a failure of the same stage on the bare base commit (one extra run, only here, in a scratch worktree of its own, prepared like the landing's). No recognisable failure line = no inheritance.
+t1stage() { local c; c=$(t1cmd "$1"); [ -z "$c" ] || { : > "$4"; (cd "$2" && LAND_FAILED_FILE=$4 bounded "$lt" "Tier 1 $1" bash -c "$c") >"$3" 2>&1; }; }   # $4: where the command may RECORD what failed (LAND_FAILED_FILE: one name per line)
+# inherited_red STAGE: a landing must not ADD a failure, and one already on the base is not its fault. The Tier 1 commands RECORD what failed, one name per line, in $LAND_FAILED_FILE (bin/run-tests-parallel does
+# it for the scripts it runs): every name this stage recorded must also be recorded by the same stage on the bare base commit (one extra run, only here, in a scratch worktree of its own, prepared like the landing's).
+# The lander compares two sets of names; it never reads the words of the output. Nothing recorded = no inheritance.
 inherited_red() {
-  local mine theirs; newfail=; mine=$(grep -E "$LAND_FAIL_PATTERN" "$run/tier1.$1.log" | LC_ALL=C sort -u || true); [ -n "$mine" ] || return 1
+  local mine theirs; newfail=; mine=$(LC_ALL=C sort -u "$run/failed.$1" 2>/dev/null || true); [ -n "$mine" ] || return 1
   rm -rf "$run/base"; git -C "$top" worktree add -q -f --detach "$run/base" "$bsha" || return 1
   hookcwd=$run/base run_hook prepare || return 1
-  t1stage "$1" "$run/base" "$run/base.log" || true
-  theirs=$(grep -E "$LAND_FAIL_PATTERN" "$run/base.log" | LC_ALL=C sort -u || true)
+  t1stage "$1" "$run/base" "$run/base.log" "$run/failed.base.$1" || true
+  theirs=$(LC_ALL=C sort -u "$run/failed.base.$1" 2>/dev/null || true)
   newfail=$(comm -23 <(printf '%s\n' "$mine") <(printf '%s\n' "$theirs") | sed -n 1p | cut -c1-200)
   git -C "$top" worktree remove -f "$run/base" >/dev/null 2>&1 || true
   [ -z "$newfail" ]; }
@@ -294,7 +295,7 @@ while :; do
   fi
   export LAND_ATTEMPT=$attempt LAND_PREV_BASE=$prev; ts=$(date +%s)
   for stage in gates tests; do
-    step=tier1-$stage; t1stage "$stage" "$wt" "$run/tier1.$stage.log" || {
+    step=tier1-$stage; t1stage "$stage" "$wt" "$run/tier1.$stage.log" "$run/failed.$stage" || {
       inherited_red "$stage" || { logfile=$run/tier1.$stage.log; tail -15 "$run/tier1.$stage.log" >&2; lastlines=$(tail -5 "$run/tier1.$stage.log"); stop 13 tier1 "Tier 1 ($stage) fails on the rebased commits${newfail:+ (a failure $base does not have: $newfail)} (log: $run/tier1.$stage.log); nothing lands."; }
       inherited=1; echo "land-direct: Tier 1 ($stage) fails, but only with failures $base already has (inherited red: not yours); landing"; }
   done
