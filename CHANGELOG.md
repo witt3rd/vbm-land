@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.18.1 (patch)
+
+- `run-tests-parallel`'s environment check no longer reads a filesystem with no inode table as "nearly full": it asks `df` for the inode total too and skips the inode test when there is none (btrfs reports 0 total and 0 available, so a `TMPDIR` on btrfs was refused with hundreds of GB free). `tests/test_runner.sh` has both sides, with a `df` shim.
+
 ## 0.18.0 (minor; BREAKING: `LAND_FAIL_PATTERN` is retired)
 
 - The "inherited red" decision no longer matches a regular expression over Tier 1's output (vbm-land #6; the rule: a decision comes from typed data, never from a string match). The Tier 1 commands RECORD what failed, one name per line, in the file `$LAND_FAILED_FILE` that the lander names (a fresh file per stage, and one for the bare base's run); `bin/run-tests-parallel` records every script that failed, was missing, died, timed out or left no evidence, and a gate may append its own name. The lander compares two sets of names: every name this run recorded must also be recorded by the same stage on the base. Nothing recorded means no inheritance, as before. The words of the output decide nothing: a command that prints `FAIL x` and records nothing is not inherited (`tests/test_land_direct.sh`).
