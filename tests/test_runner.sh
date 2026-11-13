@@ -31,6 +31,13 @@ printf '#!/usr/bin/env bash\necho start >> "$SER"; sleep 1; echo end >> "$SER"; 
 : > "$T/ser"; expect_exit "TEST_JOBS=1 runs one at a time (start end start end)" 0 env SER="$T/ser" TEST_JOBS=1 "$P" s1.sh s2.sh; check "  in that order" test "$(tr '\n' ' ' < "$T/ser")" = "start end start end "
 : > "$T/ser"; expect_exit "the default runs them together (start start end end)" 0 env SER="$T/ser" TEST_JOBS=2 "$P" s1.sh s2.sh; check "  in that order" test "$(tr '\n' ' ' < "$T/ser")" = "start start end end "
 expect_exit "a nearly full temp directory is refused, and says it is the environment" 1 env MIN_TMP_KIB=999999999999 "$P" a.sh; out_has "the ENVIRONMENT is the failure"
+mkdir -p shim; cat > shim/df <<'S'
+#!/usr/bin/env bash
+case "$*" in *itotal*) printf 'Inodes\n%s\n' "$FAKE_ITOTAL";; *iavail*) printf 'IAvail\n%s\n' "$FAKE_IAVAIL";; *) printf 'Avail\n99999999\n';; esac
+S
+chmod +x shim/df
+expect_exit "a filesystem with no inode table (btrfs: 0 total, 0 available) is not 'nearly full'" 0 env PATH="$T/r/shim:$PATH" FAKE_ITOTAL=0 FAKE_IAVAIL=0 "$P" a.sh
+expect_exit "a filesystem with an inode table nearly used up is still refused" 1 env PATH="$T/r/shim:$PATH" FAKE_ITOTAL=1000000 FAKE_IAVAIL=5 "$P" a.sh; out_has "the ENVIRONMENT is the failure"
 expect_exit "the batch prints its own evidence line" 0 "$P" a.sh b.sh; out_has "ran: tests: 2 cases"
 # the typed list of what failed, for the lander's inherited-red decision (a set of names; the lander never reads the output): one failing script per line in $LAND_FAILED_FILE
 printf '#!/usr/bin/env bash\nexit 1\n' > bad.sh; printf '#!/usr/bin/env bash\necho fine\n' > noev.sh
