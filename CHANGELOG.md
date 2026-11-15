@@ -4,6 +4,13 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.19.0 (minor; additive: three `land.conf` keys, one `land-release` flag, one optional summary key)
+
+- **`LAND_INERT`** (new, optional): shell patterns (`*` matches `/`) for paths that no Tier 1 command, hook or reviewer reads (a changelog, prose docs). A landing whose every changed path matches, with none in `LAND_PROTECTED`, skips Tier 1 and the `post-tier1` hook; the summary line then carries `"validation":"inert"` (the key is absent otherwise, so the usual line is unchanged). A rename names both paths, so a code file moved into an inert path is still seen leaving its old one. The declaration is the project's; the release candidate audits it. A repository that sets nothing is unchanged.
+- **The release candidate** (new, optional): `LAND_RC_CMD` and `LAND_RC_TIMEOUT` (default 7200 s). `land-release` runs the command, the project's FULL suite, on the exact `HEAD` with `LAND_RC=1` in its environment (nothing may be cached, selected or skipped; `LAND_INERT` does not apply) before anything is signed, and makes no tag unless it exits 0. `land-release --rc` runs it alone: no tag, no signing key. No `LAND_RC_CMD`: the release proceeds and says on stderr that the candidate was not verified by a full suite.
+- The documentation now states the model it always had: landing is fast and best-effort (Tier 1), nothing runs automatically after a push, and a release is verified in full on the release candidate, with fixes landing on main until it is green (README 4.8, including the escape metric). "main is always green" and "no second tier" are gone from the README, the AGENTS block adopting repositories copy, CONTRIBUTING and two skills.
+- This repository sets both: `LAND_INERT=CHANGELOG.md`, and `LAND_RC_CMD=tests/acceptance.sh --soak` (the real Tier 1 on a scratch clone with an approval committed, then 20 landers at once), which was "run by hand before a gate mechanism is rolled".
+
 ## 0.18.1 (patch)
 
 - `run-tests-parallel`'s environment check no longer reads a filesystem with no inode table as "nearly full": it asks `df` for the inode total too and skips the inode test when there is none (btrfs reports 0 total and 0 available, so a `TMPDIR` on btrfs was refused with hundreds of GB free). `tests/test_runner.sh` has both sides, with a `df` shim.
