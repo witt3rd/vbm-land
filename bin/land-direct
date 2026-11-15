@@ -56,6 +56,7 @@ rev=${args[0]:-HEAD}
 if [ "$pushmode" = 1 ]; then [ ${#args[@]} = 0 ] && [ "$dry$checkonly$group" = 000 ] || usage; [[ "$pushrev" =~ ^[0-9a-f]{40}$ ]] || { echo "land-direct: --push takes the full 40-hex sha that --validate returned" >&2; exit 2; }; fi
 
 hooks=; wt=; sha=; ncommits=; t1=; result=error; t0=$(date +%s); common=; state=; run=; extra_json=; tip0=; attempt=0; already=0; inherited=0; stage=; newfail=; hookcwd=
+validation=tier1; vjson=   # what judged this landing: tier1, or inert (every changed path is declared inert in LAND_INERT: nothing reads it); vjson is the summary key, present ONLY for inert so the usual line keeps its shape; set early, every exit prints the summary
 reason=; step=start; lastlines=; logfile=; cfiles=; bsha=
 jesc() { awk 'BEGIN{ORS=""} {gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); gsub(/\t/,"\\t"); gsub(/\r/,""); if (NR>1) print "\\n"; print}'; }
 json_num() { [[ "${1:-}" =~ ^[0-9]+(\.[0-9]+)?$ ]] && printf '%s' "$1" || printf null; }
@@ -74,7 +75,7 @@ onexit() {
     for f in $cfiles; do fl="$fl${fl:+,}\"$(printf '%s' "$f" | jesc)\""; done; [ -z "$fl" ] || typed="$typed,\"files\":[$fl]"
     [ -z "$bsha" ] || typed="$typed,\"base\":$(json_str "$bsha")"
   fi
-  printf '{"sha":%s,"commits":%s,"tier1_seconds":%s,"result":"%s","exit":%s%s%s}\n' "$(json_str "$sha")" "$(json_num "$ncommits")" "$(json_num "$t1")" "$result" "$c" "$extra_json" "$typed"
+  printf '{"sha":%s,"commits":%s,"tier1_seconds":%s,"result":"%s","exit":%s%s%s%s}\n' "$(json_str "$sha")" "$(json_num "$ncommits")" "$(json_num "$t1")" "$result" "$c" "$vjson" "$extra_json" "$typed"
   run_cleanup "$c"
 }
 # run_cleanup EXITCODE: this run's scratch worktree always goes (through git, never `worktree prune`); on success the whole run dir, on a failure only its *.log files stay (the next run's sweep removes them after a day)
@@ -155,6 +156,7 @@ export LC_ALL=$LAND_LOCALE
 lt=${o_t1:-$LAND_TIER1_TIMEOUT}; st=${o_st:-$LAND_STEP_TIMEOUT}; gt=${o_gt:-$LAND_GIT_TIMEOUT}
 export LAND_TOP=$top LAND_BASE_REF=$remote/$base LAND_STATE_DIR=$state
 read -ra prot_globs <<<"$LAND_PROTECTED"
+read -ra inert_globs <<<"$LAND_INERT"
 
 if [ "$pushmode" = 1 ]; then   # the second step: only a commit that --validate returned (pinned) can be pushed
   rev=$(git -C "$top" rev-parse --verify -q "refs/vbm-land/validated/$pushrev^{commit}" 2>/dev/null) || stop 2 unvalidated "no validated commit $pushrev: only a commit that land-direct --validate returned can be pushed (a pin is swept after a day: validate again)"
@@ -294,6 +296,16 @@ while :; do
     [ "$rc" = 0 ] || stop 12 refused "the vendored copy of this tool under $LAND_DIR/ differs from its pin (edit the source repository, not the copy); not landing."
   fi
   export LAND_ATTEMPT=$attempt LAND_PREV_BASE=$prev; ts=$(date +%s)
+  # inert paths (LAND_INERT): when EVERY path this landing changes is declared inert, and none is in the protected set, there is nothing for Tier 1 to judge (no command, hook or reviewer reads
+  # these paths: the project declares it and audits it): it is not run, and neither is the post-tier1 hook. One non-inert path, or a protected one, and the whole of Tier 1 runs as always.
+  inert=0
+  if [ ${#inert_globs[@]} -gt 0 ] && [ -z "$prot_hit" ] && [ -s "$run/touched.txt" ]; then
+    g diff --name-only --no-renames "$bsha" > "$run/touched.paths.txt"   # a rename names BOTH paths here (touched.txt, which the hooks and the signers rule read, is unchanged): a file moved INTO an inert path is still seen leaving its old one
+    inert=1; while IFS= read -r f; do matches_any "$f" "${inert_globs[@]}" || { inert=0; break; }; done < "$run/touched.paths.txt"
+  fi
+  if [ "$inert" = 1 ]; then
+    validation=inert; vjson=',"validation":"inert"'; echo "land-direct: every changed path is inert (LAND_INERT): Tier 1 and the post-tier1 hook are not run"
+  else validation=tier1; vjson=
   for stage in gates tests; do
     step=tier1-$stage; t1stage "$stage" "$wt" "$run/tier1.$stage.log" "$run/failed.$stage" || {
       inherited_red "$stage" || { logfile=$run/tier1.$stage.log; tail -15 "$run/tier1.$stage.log" >&2; lastlines=$(tail -5 "$run/tier1.$stage.log"); stop 13 tier1 "Tier 1 ($stage) fails on the rebased commits${newfail:+ (a failure $base does not have: $newfail)} (log: $run/tier1.$stage.log); nothing lands."; }
@@ -301,6 +313,8 @@ while :; do
   done
   t1=$(( $(date +%s) - ts )); prev=$bsha
   step=post-tier1-hook; run_hook post-tier1 || stop 12 refused "the post-tier1 hook refused this change (a gate that judges the tree after Tier 1, such as an attack suite; see above)"
+  fi
+  [ "$inert" = 0 ] || { t1=0; prev=$bsha; }
   # Tier 1 may render generated files: dirty only in generated paths = they were stale: commit them as a commit of the lander (carrying the tip's trailers)
   dirty=$(g status --porcelain | sed 's/^...//'); strays=$(grep -vxFf <(printf '%s\n' "$gen") <<<"$dirty" || true)
   [ -z "$strays" ] || stop 13 tier1 "Tier 1 left changes outside the generated paths: $(echo $strays); not landing."
@@ -329,7 +343,7 @@ done
 if [ -n "$hooks" ] && [ -x "$hooks/json-fields" ]; then
   jf=$(cd "$wt" && bounded "$st" "hook json-fields" "$hooks/json-fields" 2>/dev/null || true)
   while IFS='=' read -r k v; do [[ "$k" =~ ^[a-z_][a-z0-9_]*$ ]] || continue
-    case $k in sha|commits|tier1_seconds|result|exit|reason|log|files|base) continue;; esac
+    case $k in sha|commits|tier1_seconds|result|exit|validation|reason|log|files|base) continue;; esac
     if [[ "$v" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then extra_json="$extra_json,\"$k\":$v"; elif [[ "$v" =~ ^[A-Za-z0-9._-]+$ ]]; then extra_json="$extra_json,\"$k\":\"$v\""; else extra_json="$extra_json,\"$k\":null"; fi
   done <<<"$jf"
 fi

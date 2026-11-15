@@ -187,12 +187,23 @@ The last line of stdout is JSON, and it is what a caller reads, never the text a
 | `LAND_REQUIRE_TRAILERS` | none | Trailer names every commit must carry (for example `Task-ID`). |
 | `LAND_CONVENTIONAL`, `LAND_COMMIT_TYPES` | `1`, the usual types | Require `type(scope): summary` subjects; git's own `Revert "..."` is accepted. |
 | `LAND_PROTECTED` | none | Shell patterns (`*` matches `/`): the gate-defining set. A change that touches it is judged by the `post-rebase` hook. |
+| `LAND_INERT` | none | Shell patterns (`*` matches `/`): paths that no Tier 1 command, hook or reviewer reads (a changelog, prose docs). A change whose every touched path matches, with none of them in `LAND_PROTECTED`, skips Tier 1 and the `post-tier1` hook (where a reviewer runs), and its summary line then carries `"validation":"inert"`. See "Inert paths" below. |
 | `LAND_HOOKS_DIR` | `.land/land.d` | Where the repository's hooks live. |
 | `LAND_LOCALE` | `C` | Pinned for collation and glob order. |
 | `LAND_ATTEMPTS`, `LAND_DEADLINE` | `30`, `900` s | When main moves under a landing it is rebased and validated again: at most this many attempts, none started after this many seconds (then exit 16). Hooks and Tier 1 see `LAND_ATTEMPT` and `LAND_PREV_BASE` (the base the previous attempt validated against; empty on the first) so a repository may re-run only what the new base can affect. |
 | `LAND_TIER1_TIMEOUT`, `LAND_STEP_TIMEOUT`, `LAND_GIT_TIMEOUT` | `1800`, `600`, `180` s | The bound on every step. A step that runs over is killed with one plain line and the run stops as that step's failure. |
 
 Policy is never read from the environment. The operator may set `LAND_CONF` (another config file), `LAND_FIX_FOR_RED=1` (declare this change a fix, so it passes a freeze), `LAND_DIRECT_LOG` and the three timeouts. A key this tool has retired is not a key: a `land.conf` that names one is refused as unknown, by file and line. Commands the lander runs see `LAND_TOP`, `LAND_BASE_REF` (`origin/main`), `LAND_STATE_DIR` (shared by every run of the clone), `LAND_RUN_DIR` (this run's own), `LAND_ATTEMPT`, `LAND_PREV_BASE` and `LAND_TASK`.
+
+#### Inert paths
+
+A change that touches only a changelog or prose documentation has nothing for a build, a test or a reviewer to judge, and running them anyway is the largest avoidable cost of landing. `LAND_INERT` lets a repository say which paths those are. The rule is exact and small:
+
+- **Every** path the landing changes must match, **and none** may be in `LAND_PROTECTED`; one other path and the whole of Tier 1 runs as always.
+- The changed paths are listed with renames split into their old and new names, so a code file moved *into* an inert path is still seen leaving its old one, and a deletion counts.
+- The lander still checks holds and freezes, the commit rules, the signing-key rule, the vendored-copy drift check and the `post-rebase` hook; it still rebases onto the base and pushes a fast-forward. Only Tier 1 and the `post-tier1` hook are skipped, and the summary line says so (`"validation":"inert"`; the key is absent otherwise, so the usual line keeps its shape).
+
+**The set is a declaration, and a wrong declaration skips a check that should have judged the change.** Keep it small and specific (`CHANGELOG.md`, `docs/*.md` that nothing reads), and check it the way the rest of the discipline checks things: whatever verifies the release candidate (a full run that skips nothing, not cached, not selected, not shortened by `LAND_INERT`) is the audit of this list. A path that fails the release candidate only because it was declared inert is the signal to remove it from the list.
 
 ### 6.4 Hooks
 

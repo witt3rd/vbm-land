@@ -359,6 +359,27 @@ worker nf; commit "$T/nf" nf.txt 1
 git -C "$T/remote.git" config receive.denyNonFastForwards true
 check "the remote would refuse a non-fast-forward push (and the lander only ever pushes fast-forwards)" bash -c "cd '$T/nf' && git reset -q --hard HEAD~3 2>/dev/null; ! git push -q origin HEAD:main 2>/dev/null"
 
+echo "## inert paths (LAND_INERT): a change that touches only paths nothing reads is not validated"
+sandbox
+set_conf 'LAND_TEST_CMD=false' 'LAND_INERT=CHANGELOG.md docs/*'   # Tier 1 would FAIL if it ran
+worker i1; commit "$T/i1" CHANGELOG.md 1
+lands "a change touching only an inert path lands without Tier 1 (the test command would fail)" "$T/i1"; out_has '"validation":"inert"'; out_has "every changed path is inert"
+check "it is on the remote" remote_has CHANGELOG.md
+worker i2; commit "$T/i2" docs/a.md 1; commit "$T/i2" docs/deep/b.md 1
+lands "several inert paths, one under a subdirectory (* matches /), land without Tier 1" "$T/i2"; out_has '"validation":"inert"'
+worker i3; commit "$T/i3" CHANGELOG.md 2; commit "$T/i3" code.txt 1
+refused "one path that is not inert among inert ones runs Tier 1 (which fails)" 13 "$T/i3"; out_has "Tier 1"
+worker i4; mkdir -p "$T/i4/docs"; git -C "$T/i4" mv a.txt docs/moved.md; git -C "$T/i4" commit -qm "refactor: move a file into an inert path" -m "Task-ID: t1"
+refused "a file renamed INTO an inert path is still seen leaving its old one: Tier 1 runs" 13 "$T/i4"; out_has "Tier 1"
+worker i5; git -C "$T/i5" rm -q a.txt; git -C "$T/i5" commit -qm "chore: delete a file" -m "Task-ID: t1"
+refused "deleting a path that is not inert runs Tier 1" 13 "$T/i5"; out_has "Tier 1"
+set_conf 'LAND_TEST_CMD=false' 'LAND_INERT=docs/*' 'LAND_PROTECTED=docs/p.md'
+worker i6; commit "$T/i6" docs/p.md 1
+refused "an inert path that is ALSO protected is not skipped: Tier 1 runs" 13 "$T/i6"; out_has "Tier 1"
+set_conf 'LAND_TEST_CMD=false'
+worker i7; commit "$T/i7" CHANGELOG.md 3
+refused "with no LAND_INERT nothing is skipped: a changelog change runs Tier 1" 13 "$T/i7"; out_has "Tier 1"
+finish
 echo "## another base branch"
 sandbox master
 set_conf 'LAND_TEST_CMD=true' 'LAND_BASE=master'

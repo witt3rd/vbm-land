@@ -10,7 +10,7 @@
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/paths.sh"   # every consumer path, defined once (lib/paths.sh)
 
 land_conf_keys="LAND_BASE LAND_REMOTE LAND_GATES_CMD LAND_TEST_CMD LAND_REGEN_CMD LAND_GEN_CMD LAND_GENERATED_LIST LAND_REQUIRE_TRAILERS
- LAND_CONVENTIONAL LAND_COMMIT_TYPES LAND_PROTECTED LAND_HOOKS_DIR LAND_LOCALE LAND_ATTEMPTS LAND_DEADLINE LAND_TIER1_TIMEOUT
+ LAND_CONVENTIONAL LAND_COMMIT_TYPES LAND_PROTECTED LAND_INERT LAND_HOOKS_DIR LAND_LOCALE LAND_ATTEMPTS LAND_DEADLINE LAND_TIER1_TIMEOUT
  LAND_STEP_TIMEOUT LAND_GIT_TIMEOUT"
 
 # The keys of .land/lean.conf (docs/lean-gates.md): the same grammar and the same parser as land.conf, its own keys (one file per tool, as rustfmt.toml and clippy.toml are).
@@ -34,6 +34,7 @@ conf_defaults() {
   LAND_CONVENTIONAL=1                           # require `type(scope): summary` (or git's own `Revert "..."`)
   LAND_COMMIT_TYPES="feat fix docs chore refactor test perf build ci style revert"
   LAND_PROTECTED=                               # shell patterns (* matches /): the gate-defining set
+  LAND_INERT=                                   # shell patterns (* matches /): paths NO Tier 1 command, hook or reviewer reads; a change touching only these skips Tier 1 (README, "Inert paths")
   LAND_HOOKS_DIR=$LAND_HOOKS_DEFAULT            # repository-owned hooks (README, "Hooks")
   LAND_LOCALE=C                                 # pinned for collation, glob and sort order
   LAND_TIER1_TIMEOUT=1800; LAND_STEP_TIMEOUT=600; LAND_GIT_TIMEOUT=180   # seconds
