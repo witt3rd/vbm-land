@@ -373,6 +373,10 @@ worker i4; mkdir -p "$T/i4/docs"; git -C "$T/i4" mv a.txt docs/moved.md; git -C 
 refused "a file renamed INTO an inert path is still seen leaving its old one: Tier 1 runs" 13 "$T/i4"; out_has "Tier 1"
 worker i5; git -C "$T/i5" rm -q a.txt; git -C "$T/i5" commit -qm "chore: delete a file" -m "Task-ID: t1"
 refused "deleting a path that is not inert runs Tier 1" 13 "$T/i5"; out_has "Tier 1"
+worker i8; git -C "$T/i8" rm -q CHANGELOG.md; git -C "$T/i8" commit -qm "docs: delete the changelog" -m "Task-ID: t1"
+refused "deleting an inert path is NOT inert (a check can read that a file exists): Tier 1 runs" 13 "$T/i8"; out_has "Tier 1"
+worker i9; printf "edited\n" > "$T/i9/CHANGELOG.md"; git -C "$T/i9" add CHANGELOG.md; git -C "$T/i9" commit -qm "docs: edit the changelog" -m "Task-ID: t1"
+lands "editing an existing inert path is inert (a check reads a file's content only through a declaration the project audits)" "$T/i9"; out_has '"validation":"inert"'
 set_conf 'LAND_TEST_CMD=false' 'LAND_INERT=docs/*' 'LAND_PROTECTED=docs/p.md'
 worker i6; commit "$T/i6" docs/p.md 1
 refused "an inert path that is ALSO protected is not skipped: Tier 1 runs" 13 "$T/i6"; out_has "Tier 1"

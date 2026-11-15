@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.19.1 (patch)
+
+- `LAND_INERT`: a path that is DELETED or renamed away is never inert. A check can read a file's existence (a trust-ledger entry citing a document), which nothing can tell apart from its content; editing or adding an inert path is what the declaration covers. Found by deleting, and by overwriting, a consumer repository's candidate paths and running its Tier 1.
+
 ## 0.19.0 (minor; additive: three `land.conf` keys, one `land-release` flag, one optional summary key)
 
 - **`LAND_INERT`** (new, optional): shell patterns (`*` matches `/`) for paths that no Tier 1 command, hook or reviewer reads (a changelog, prose docs). A landing whose every changed path matches, with none in `LAND_PROTECTED`, skips Tier 1 and the `post-tier1` hook; the summary line then carries `"validation":"inert"` (the key is absent otherwise, so the usual line is unchanged). A rename names both paths, so a code file moved into an inert path is still seen leaving its old one. The declaration is the project's; the release candidate audits it. A repository that sets nothing is unchanged.
