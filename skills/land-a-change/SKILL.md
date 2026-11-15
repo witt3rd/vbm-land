@@ -37,7 +37,7 @@ A landing that touches a pattern of `LAND_PROTECTED` is allowed: the lander name
 
 ## What red means
 
-Nothing runs after the push: Tier 1 on the rebased combination is the only gate. If main is ever red, whoever sees it reverts the commit that made it red with `git revert` and lands the revert; its author reproduces in a new worktree and resubmits (`triage-red`). Your landing must not ADD a failure.
+Nothing runs after the push: Tier 1 on the rebased combination is the gate for landing (fast and best-effort; the full suite runs on the release candidate before a release, `land-release --rc`). If main is ever red, whoever sees it reverts the commit that made it red with `git revert` and lands the revert; its author reproduces in a new worktree and resubmits (`triage-red`). Your landing must not ADD a failure.
 
 ## Do NOT
 

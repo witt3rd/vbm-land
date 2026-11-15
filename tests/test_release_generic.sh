@@ -25,6 +25,23 @@ check "its message records exactly one tree_sha256=" bash -c "test \"\$(git -C '
 check "and no manifest_sha256= (this repository ships no manifest)" bash -c "! git -C '$O' tag -l --format='%(contents)' v0.1.0 | grep -q manifest_sha256"
 expect_exit "a tag is never moved: releasing the same version again is refused" 1 rel; out_has "already exists"
 
+echo "## the release candidate (LAND_RC_CMD): the full suite runs on the exact HEAD before any tag"
+echo 0.2.0 > "$L/VERSION"
+mkdir -p "$L/$LAND_DIR"; printf 'LAND_TEST_CMD=true\nLAND_RC_CMD=echo "$LAND_RC" > "$PWD/.rc-env"; git rev-parse HEAD > "$PWD/.rc-head"; exit 7\n' > "$L/$LAND_CONF_FILE"
+git -C "$L" add -A; git -C "$L" commit -qm "chore: a red release candidate"; git -C "$L" push -q origin main
+expect_exit "a red release candidate makes no tag (exit 1)" 1 rel --push; out_has "release candidate is RED"
+check "no tag was made for it" bash -c "! git -C '$O' rev-parse -q --verify refs/tags/v0.2.0 >/dev/null"
+check "the suite ran with LAND_RC=1 (nothing may be cached, selected or skipped)" test "$(cat "$L/.rc-env")" = 1
+check "and on the exact HEAD that would be released" test "$(cat "$L/.rc-head")" = "$(git -C "$L" rev-parse HEAD)"
+printf 'LAND_TEST_CMD=true\nLAND_RC_CMD=true\n' > "$L/$LAND_CONF_FILE"; git -C "$L" add -A; git -C "$L" commit -qm "chore: a green release candidate"; git -C "$L" push -q origin main
+expect_exit "--rc runs the suite alone and needs no signing key (green: exit 0)" 0 bash -c "cd '$L' && env -u LAND_SIGNING_KEY ./$LAND_DIR/bin/land-release --rc"; out_has "release candidate is green"
+check "--rc made no tag" bash -c "! git -C '$O' rev-parse -q --verify refs/tags/v0.2.0 >/dev/null"
+expect_exit "a green release candidate is released (exit 0)" 0 rel --push
+check "the tag exists" git -C "$O" rev-parse -q --verify refs/tags/v0.2.0
+echo 0.3.0 > "$L/VERSION"; printf 'LAND_TEST_CMD=true\n' > "$L/$LAND_CONF_FILE"; git -C "$L" add -A; git -C "$L" commit -qm "chore: no release candidate command"; git -C "$L" push -q origin main
+expect_exit "no LAND_RC_CMD: the release proceeds (exit 0)" 0 rel --push; out_has "NOT verified by a full suite"
+check "and its tag exists" git -C "$O" rev-parse -q --verify refs/tags/v0.3.0
+
 echo "## the end to end: land-pin vendor accepts exactly that tag"
 C=$T/c; mkdir -p "$C/$LAND_HOME"; cp "$K/signers" "$C/$LAND_SIGNERS_FILE"
 expect_exit "vendoring the released tag succeeds" 0 env LAND_PIN_ROOT=$C "$ROOT/bin/land-pin" vendor libx "$O" v0.1.0

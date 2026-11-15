@@ -10,7 +10,7 @@ Thank you for looking. A short, honest note about how this repository works.
 
 ## Pull requests and the gate
 
-- Nothing runs after the push: there is no CI, no Tier 2 and no watchdog. The one gate is Tier 1, run before the push by the lander on the rebased combination; a pull request is never built by a workflow of ours.
+- Nothing runs after the push: there is no CI and no watchdog. The gate for landing is Tier 1, run before the push by the lander on the rebased combination; the full suite runs on the release candidate (`LAND_RC_CMD`, `land-release --rc`) before a release, by a person's explicit act, never by a workflow of ours.
 - Run the checks yourself: `tests/run.sh` (the lints, then every `tests/test_*.sh`; about half a minute; needs bash 4+, git 2.30+, `flock`, `timeout`, `jq`, `python3`, `ps`, `ssh-keygen`). It is the same gate the lander runs.
 
 ## What a good change looks like

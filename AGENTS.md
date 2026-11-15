@@ -22,7 +22,7 @@ A consumer repository keeps everything the lander owns in **one folder, `.land/`
 - **Migration (built).** The first install or update of 0.8.0 moves a repository off the old layout (`scripts/land/`, `scripts/land.conf`, `scripts/land.signers`, `scripts/land.d/`, `scripts/land-direct`): `install` moves the repository's own files into `.land/` (their content kept; only the entry script's exec line is rewritten), removes `scripts/land/`, and prints (information only, it edits none of them) the references the repository's own files still carry; `land-update` stages the old paths' deletions in its update commit. A destination that already exists refuses the whole migration before anything is written. Tests: `tests/test_migrate.sh`.
 - **An upgrade removes what the old version left behind.** That is part of the upgrade, not a follow-up.
 - **Build order, each slice green on its own:** (0) delete the unused package mechanism (done); (1) one place, `lib/paths.sh`, defines every path (done); (2) the checksum is already one, so no slice; (3) the tests take their paths from `lib/paths.sh`, the `.land/` layout and the migration are one flip of those values (done), and the prose follows (this release).
-- Nothing runs after the push: no CI, no Tier 2, no watchdog. No revert tool and no package mechanism either; the wording that described them is out of the docs, the templates, the skills and the comments.
+- Nothing runs after the push: no CI, no watchdog. Tier 1 gates landing (fast, best-effort); the full suite runs on the release candidate (`LAND_RC_CMD`) before a release. No revert tool and no package mechanism either; the wording that described them is out of the docs, the templates, the skills and the comments.
 
 ## Landing here
 

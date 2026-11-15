@@ -1,6 +1,6 @@
 # vbm-land
 
-A small, language-neutral tool for landing changes **directly on the main branch** of a repository that only you and your own agents work in: one lander, one mechanical gate before the push (nothing runs after it), and a hold switch. Plain bash and git. Nothing in it knows what language your repository is written in.
+A small, language-neutral tool for landing changes **directly on the main branch** of a repository that only you and your own agents work in: one lander, one fast mechanical gate before the push (nothing runs after it), a full run of the release candidate before a release, and a hold switch. Plain bash and git. Nothing in it knows what language your repository is written in.
 
 It is a tool, not a verified library: it is not scored by the [VBM](https://github.com/witt3rd/vbm) scorecard (which measures proofs), and its own assurance is its test suite, including a negative test for every refusal and a mutation self-test that cuts each guard out in turn ([6.1](#61-what-is-here-today)).
 
@@ -32,10 +32,10 @@ Edit the starter `.land/land.conf` (at least `LAND_TEST_CMD`, your Tier 1 comman
 ## The discipline on one page
 
 1. **Land small changes directly on main**, within minutes, through one lander. No pull requests, no queue of reviewers: a mechanical gate decides.
-2. **Tier 1 gates landing** (target under 60 s) and runs once, on the exact combination that will land: your change rebased on current main. **Nothing runs after the push**: no CI, no second tier, no watchdog.
-3. **If main is ever red, whoever sees it reverts the offending commit with `git revert`** and lands the revert; the author reproduces in a new worktree and resubmits. A landing must not add a failure; a failure already on main does not refuse yours ("inherited red").
+2. **Tier 1 gates landing** (target under 60 s) and runs once, on the exact combination that will land: your change rebased on current main. It is **fast and best-effort**: built to catch most breaks in minutes, not to prove the whole system (it may skip paths nothing reads, `LAND_INERT`, and run only what is affected). **Nothing runs after the push**: no CI, no watchdog.
+3. **If main is ever red, whoever sees it reverts the offending commit with `git revert`** and lands the revert; the author reproduces in a new worktree and resubmits. A landing must not add a failure; a failure already on main does not refuse yours ("inherited red"). Main need not be green at every commit; it must be green at the release candidate.
 4. **Landing stops only by a person's explicit hold or freeze: a named owner and an expiry.** While frozen only a fix or a revert lands, recognised by its commit subject: `fix:`, `fix(<scope>):` or a subject that starts with `Revert`/`revert`.
-5. **New behaviour lands switched off.** Landing is not release.
+5. **New behaviour lands switched off.** Landing is not release: before a release, the **release candidate** (main at the release commit) runs the project's full suite (`LAND_RC_CMD`; nothing cached, selected or skipped), fixes land on main until it is green, and only then is it tagged. Changes are individually fast; the integration breaks are caught before release.
 6. **Small means small**: 150 lines of production code and 45 minutes without a passing build are the defaults. Over either, cut the work.
 7. **The lander never forces.** It pushes a plain fast-forward, with no lock (any number of landers run at once; git's refusal of a push that is not a fast-forward is the only arbiter), after up to `LAND_ATTEMPTS` rebase-and-retest attempts (default 30, within `LAND_DEADLINE` seconds). A hold marker stops landings at any moment.
 8. **The rules come from main, not from your change**: `land.conf` and the hooks are read from `origin/main`, so a commit cannot loosen the rules it is judged by. Gate-defining files are protected and a gate edit lands only when every gate passes.
@@ -46,13 +46,13 @@ Sections 1 to 5 below are this page in full; section 6 is the tool.
 
 ## 1. The one idea
 
-**A small change reaches `main` within minutes, `main` is always green, and a mechanical gate (never a person's mood or a queue of reviewers) decides.**
+**A small change reaches `main` within minutes, a fast mechanical gate (never a person's mood or a queue of reviewers) decides, and the release candidate is verified in full before anything ships.**
 
 Everything below serves that sentence. A person still decides what to build and what a gate checks. A person does not decide, change by change, whether a gate-passing change may land.
 
 ## 2. The three things trunk-based work needs
 
-1. **A fast gate.** Minutes, not an hour. The gate is the ceiling on how many changes can land: if it takes 5 minutes and changes land one at a time, the best case is 12 an hour. Slow checks run after the merge, not before.
+1. **A fast gate.** Minutes, not an hour. The gate is the ceiling on how many changes can land: if it takes 5 minutes and changes land one at a time, the best case is 12 an hour. Slow and complete checks belong to the release candidate (before a release), not to the landing gate and not to a CI that runs after the push.
 2. **Landing decoupled from release.** Landing means "on main". It does not mean "in production". Unfinished work lands switched off; a release is a separate, reversible act. Without this, every landing is a production event and has to be slow and careful.
 3. **Small changes.** Size and conflicts are strongly linked: in one measured, busy codebase, changes of at most 300 lines and 60 minutes conflicted 3.3% of the time, and everything else 25.4%. A sensible house limit is 150 lines of production code and 45 minutes without a passing build; over either, stop and cut the work into pieces that land in order.
 
@@ -86,8 +86,8 @@ Paste at the top of the repository's agent instructions (`AGENTS.md` or equivale
 
 ### 4.2 One gate, before the push
 
-- **Tier 1, before landing, target under 60 s.** Build with zero warnings, type check, lints, affected tests, the repository's own fast ratchets. It runs once, on the exact combination that will land (the change rebased on current main). It gates landing.
-- **Nothing runs after the push.** No CI, no second tier, no watchdog. A slow check is made fast or left out; it is never moved to after the push.
+- **Tier 1, before landing, target under 60 s.** Build with zero warnings, type check, lints, affected tests, the repository's own fast ratchets. It runs once, on the exact combination that will land (the change rebased on current main). It gates landing. It is best-effort by design: fast, free to skip what cannot matter (`LAND_INERT`), and a break it misses is caught by the release candidate (4.8).
+- **Nothing runs after the push.** No CI, no watchdog. A slow or complete check is not moved to after the push: it belongs to the **release candidate** (4.8), which runs before a release, by a person's explicit act.
 
 ### 4.3 The lander
 
@@ -95,7 +95,7 @@ Workers never push main by hand; the lander does, with no lock (each run has its
 
 ### 4.4 RED, exactly
 
-**Main is red when its Tier 1 fails on main's own tip.** Nothing runs after the push, so whoever runs Tier 1 there next finds it (a lander's run, a worker, a person) and reverts the commit that made it red with `git revert` (`triage-red`). Landing never reads CI and does not ask whether main is red. A landing's own Tier 1 may fail only with failures the bare base already has ("inherited red": the Tier 1 commands RECORD what failed, one name per line, in the file named by `$LAND_FAILED_FILE` (`bin/run-tests-parallel` does it for the scripts it runs, and a gate may append its own name), and every name this run recorded is also recorded by the same stage on the base: one extra run, only then; the lander compares two sets of names and never reads the words of the output); a failure it adds, or one that records no name, refuses it (13).
+**Main is red when its Tier 1 fails on main's own tip.** Tier 1 is best-effort, so a break can get past it and main can be red between releases; a red main does not stop landing, and the release candidate cannot be green until it is fixed. Nothing runs after the push, so whoever runs Tier 1 there next finds it (a lander's run, a worker, a person) and reverts the commit that made it red with `git revert` (`triage-red`). Landing never reads CI and does not ask whether main is red. A landing's own Tier 1 may fail only with failures the bare base already has ("inherited red": the Tier 1 commands RECORD what failed, one name per line, in the file named by `$LAND_FAILED_FILE` (`bin/run-tests-parallel` does it for the scripts it runs, and a gate may append its own name), and every name this run recorded is also recorded by the same stage on the base: one extra run, only then; the lander compares two sets of names and never reads the words of the output); a failure it adds, or one that records no name, refuses it (13).
 
 ### 4.5 Freeze
 
@@ -110,6 +110,16 @@ Before a worktree, branch or pull request is thrown away (time limit hit, work d
 ### 4.7 Escalation threshold
 
 Decide everything reversible yourself and log it. Escalate **only** for: money (spending past the caps), data loss (deleting data or history), secrets, publishing (anything leaving the repository or the organisation), and harm to a third party. Say it in one line and stop.
+
+### 4.8 The release candidate
+
+Landing is fast and best-effort; **a release is verified in full.** Tier 1 is built to catch most breaks in minutes, so that many small changes can land quickly. It is not a proof of the whole system, and it does not have to be: before anything is deployed, the **release candidate** (`main` at the commit to be released) runs the project's complete suite, and anything it finds is fixed on `main` until it is green. Integration breaks are caught before release, not on every change.
+
+- **`LAND_RC_CMD`** (`.land/land.conf`, read from `origin/main`) is the full suite: every test, the slow gates, the reviews a release needs. **`land-release` runs it on the exact `HEAD` before it signs anything**, with `LAND_RC=1` in its environment, and makes no tag unless it exits 0. `land-release --rc` runs it alone (no tag, no signing key), to see whether main is releasable now.
+- **`LAND_RC=1` means nothing may be skipped:** no cache, no test selection, no shortened path, and `LAND_INERT` does not apply (it belongs to landing). The project's command must honour that; the tool cannot enforce it.
+- **Red is work.** A failing candidate is fixed by ordinary landings (small, fast) and run again. Nothing deploys from a candidate that was not green.
+- **The candidate audits the fast gate.** A break that Tier 1 passed and the candidate caught is an **escape**: count them. Each one says which check the fast gate lacks (add a cheap version of it to Tier 1) or which `LAND_INERT` pattern was wrong (remove it). A repository that never sees an escape can make Tier 1 faster; one that sees many should not.
+- **No `LAND_RC_CMD`:** the release proceeds and says on stderr that the candidate was not verified by a full suite. A repository that deploys should set it.
 
 ## 5. The three metrics
 
@@ -189,6 +199,7 @@ The last line of stdout is JSON, and it is what a caller reads, never the text a
 | `LAND_PROTECTED` | none | Shell patterns (`*` matches `/`): the gate-defining set. A change that touches it is judged by the `post-rebase` hook. |
 | `LAND_INERT` | none | Shell patterns (`*` matches `/`): paths that no Tier 1 command, hook or reviewer reads (a changelog, prose docs). A change whose every touched path matches, with none of them in `LAND_PROTECTED`, skips Tier 1 and the `post-tier1` hook (where a reviewer runs), and its summary line then carries `"validation":"inert"`. See "Inert paths" below. |
 | `LAND_HOOKS_DIR` | `.land/land.d` | Where the repository's hooks live. |
+| `LAND_RC_CMD`, `LAND_RC_TIMEOUT` | none, `7200` s | The release candidate's full suite (4.8): `land-release` runs it with `LAND_RC=1` on the exact `HEAD` before any tag, and makes no tag unless it exits 0; `land-release --rc` runs it alone. |
 | `LAND_LOCALE` | `C` | Pinned for collation and glob order. |
 | `LAND_ATTEMPTS`, `LAND_DEADLINE` | `30`, `900` s | When main moves under a landing it is rebased and validated again: at most this many attempts, none started after this many seconds (then exit 16). Hooks and Tier 1 see `LAND_ATTEMPT` and `LAND_PREV_BASE` (the base the previous attempt validated against; empty on the first) so a repository may re-run only what the new base can affect. |
 | `LAND_TIER1_TIMEOUT`, `LAND_STEP_TIMEOUT`, `LAND_GIT_TIMEOUT` | `1800`, `600`, `180` s | The bound on every step. A step that runs over is killed with one plain line and the run stops as that step's failure. |
@@ -269,7 +280,7 @@ The lander **never force-pushes**: it pushes a plain fast-forward (`git push <re
 
 Preconditions (all three): only you and your agents write to it; main is not deployed; Tier 1 can be about a minute or less. If not, keep pull requests.
 
-1. **Define Tier 1**: one command that builds, lints and runs the fast tests. Time it. Over a minute: make the slow checks fast first (nothing runs after the push).
+1. **Define Tier 1**: one command that builds, lints and runs the fast tests. Time it. Over a minute: make the slow checks fast first, or move them to the release candidate (`LAND_RC_CMD`, 4.8). Nothing runs after the push.
 2. **No CI**: delete the repository's workflows (`.github/workflows/`) and any merge-queue or pull-request automation; nothing runs after the push.
 3. **Vendor a signed release** (Quick start, in a fresh worktree off `origin/main`).
 4. **Configure `.land/land.conf`**: `LAND_TEST_CMD` or `LAND_GATES_CMD`, `LAND_PROTECTED` (gate-defining files).
