@@ -56,6 +56,18 @@ Everything below serves that sentence. A person still decides what to build and 
 2. **Landing decoupled from release.** Landing means "on main". It does not mean "in production". Unfinished work lands switched off; a release is a separate, reversible act. Without this, every landing is a production event and has to be slow and careful.
 3. **Small changes.** Size and conflicts are strongly linked: in one measured, busy codebase, changes of at most 300 lines and 60 minutes conflicted 3.3% of the time, and everything else 25.4%. A sensible house limit is 150 lines of production code and 45 minutes without a passing build; over either, stop and cut the work into pieces that land in order.
 
+## 2b. Design for disjointness
+
+The lander can make landing fast; only the design can make most of it unnecessary. **Conflicts and wasted validation share one cause: two things that should be independent share a region.** So factor the code and the validation so that a change touches little and what it touches is read by little, before reaching for any tool:
+
+- **No file that every change must edit** (a registry, an import list, a manifest, a changelog, a generated index): register by adding a file, or generate it at build or release. A committed generated file is a conflict by construction.
+- **Narrow modules, cut by responsibility.** Code that most tests execute is a hub: one edit invalidates them all, and no coverage tool can fix that.
+- **Validation follows the factoring:** one stage per independent unit, with the inputs it really reads (`LAND_INERT`, the release candidate and the stage memo only reuse what the factoring made separable).
+- **Prefer many tests that exercise little** to a few that exercise everything.
+- **Measure the overlap** (the files each change writes, the files each stage reads) and let it fall and never rise.
+
+The order of resort: factor, then schedule (keys), then reuse (memoize), then batch (a train), then buy (bigger machines). The long form is the hub's guideline `factor-for-disjointness.md`.
+
 ## 3. Choosing a mechanism: is this tool for your repository?
 
 Ask three questions in this order:
