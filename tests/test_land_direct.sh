@@ -383,6 +383,13 @@ refused "an inert path that is ALSO protected is not skipped: Tier 1 runs" 13 "$
 set_conf 'LAND_TEST_CMD=false'
 worker i7; commit "$T/i7" CHANGELOG.md 3
 refused "with no LAND_INERT nothing is skipped: a changelog change runs Tier 1" 13 "$T/i7"; out_has "Tier 1"
+# the inert decision runs a loop over the changed paths: it must not clobber the lander's own variables (it once read the path status into `st`, the step timeout, so every hook after it ran as `timeout M`)
+seed_exec "$LAND_HOOKS_DEFAULT/post-tier1" '#!/usr/bin/env bash
+echo ran > "$HOOKMARK"'
+set_conf 'LAND_TEST_CMD=true' 'LAND_INERT=CHANGELOG.md docs/*'
+worker i10; commit "$T/i10" code10.txt 1
+lands "with LAND_INERT set, a change that is not inert still runs the post-tier1 hook" "$T/i10" HOOKMARK="$T/hookmark"
+check "the hook ran (the step timeout survived the inert check)" test -f "$T/hookmark"
 finish
 echo "## another base branch"
 sandbox master

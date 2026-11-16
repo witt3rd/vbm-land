@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.19.2 (patch)
+
+- **Fix:** with `LAND_INERT` set, every hook that ran AFTER the inert check failed with `timeout: invalid time interval 'M'` (a `post-tier1` hook refused the landing, an `on-run` hook silently never ran). The loop that tests a change's paths read each path's status (`M`, `A`, `D`) into `st`, which is the lander's own step-timeout variable; it now uses its own name. 0.19.0 and 0.19.1 carry the bug; a repository that set no `LAND_INERT` is unaffected. A regression case runs a `post-tier1` hook after the inert check.
+
 ## 0.19.1 (patch)
 
 - `LAND_INERT`: a path that is DELETED or renamed away is never inert. A check can read a file's existence (a trust-ledger entry citing a document), which nothing can tell apart from its content; editing or adding an inert path is what the declaration covers. Found by deleting, and by overwriting, a consumer repository's candidate paths and running its Tier 1.
