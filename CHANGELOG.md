@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.20.0 (minor)
+
+- **The release candidate is declared, and fixed on the branch and on main.** `land-release --declare` cuts `rc/vX.Y.Z` from main's head and pushes it, so main keeps landing at full speed while the candidate runs the full suite (`--rc`). A red result is fixed with the ordinary lander on the branch (`LAND_BASE=rc/vX.Y.Z`) and the same change on main (`git cherry-pick -x`). A release from the branch reads `LAND_RC_CMD` from the branch, and is refused while the branch holds a change that is not on main (`git cherry`). A release from main itself, with no branch, is unchanged. The README states the discipline: a push to main is best-effort and no promise of a green main; go fast in development, release with caution (section 4.8).
+
 ## 0.19.2 (patch)
 
 - **Fix:** with `LAND_INERT` set, every hook that ran AFTER the inert check failed with `timeout: invalid time interval 'M'` (a `post-tier1` hook refused the landing, an `on-run` hook silently never ran). The loop that tests a change's paths read each path's status (`M`, `A`, `D`) into `st`, which is the lander's own step-timeout variable; it now uses its own name. 0.19.0 and 0.19.1 carry the bug; a repository that set no `LAND_INERT` is unaffected. A regression case runs a `post-tier1` hook after the inert check.
