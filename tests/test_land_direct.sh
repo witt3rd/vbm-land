@@ -359,6 +359,30 @@ worker nf; commit "$T/nf" nf.txt 1
 git -C "$T/remote.git" config receive.denyNonFastForwards true
 check "the remote would refuse a non-fast-forward push (and the lander only ever pushes fast-forwards)" bash -c "cd '$T/nf' && git reset -q --hard HEAD~3 2>/dev/null; ! git push -q origin HEAD:main 2>/dev/null"
 
+echo "## reuse (LAND_REUSE=1): a base that moved in nothing this change touches or depends on is not validated again"
+reuse_conf() { local n=$1; shift; rm -f "$T/runs.$n" "$T/moved.$n"; set_conf "LAND_TEST_CMD=echo r >> $T/runs.$n; [ -e $T/moved.$n ] || { touch $T/moved.$n; git -C $T/${n}b pull -q --rebase origin main && git -C $T/${n}b push -q origin HEAD:main; }" "$@"; }
+runs() { wc -l < "$T/runs.$1" | tr -d ' '; }
+sandbox
+reuse_conf u1 'LAND_REUSE=1'; worker u1b; commit "$T/u1b" u1b.txt 2; worker u1; commit "$T/u1" u1.txt 1
+lands "a competitor lands during Tier 1 in other files: the retry lands" "$T/u1"; out_has '"validation":"reused"'; out_has "not run again"
+check "Tier 1 ran once, not twice" test "$(runs u1)" = 1
+check "both changes are on main" bash -c "git -C '$T/remote.git' cat-file -e main:u1.txt && git -C '$T/remote.git' cat-file -e main:u1b.txt"
+reuse_conf u2 'LAND_REUSE=1' 'LAND_AFFECTS_CMD=cat; echo u2.txt'; worker u2b; commit "$T/u2b" u2b.txt 2; worker u2; commit "$T/u2" u2.txt 1
+lands "a provider that says the competitor's file affects this change's: it is validated again" "$T/u2"
+check "Tier 1 ran twice" test "$(runs u2)" = 2; check "and it is not reused" bash -c "! grep -q '\"validation\":\"reused\"' '$T/out'"
+reuse_conf u3; worker u3b; commit "$T/u3b" u3b.txt 2; worker u3; commit "$T/u3" u3.txt 1
+lands "LAND_REUSE is off by default: the retry validates again" "$T/u3"; check "Tier 1 ran twice" test "$(runs u3)" = 2
+reuse_conf u4 'LAND_REUSE=1' 'LAND_PROTECTED=u4.txt'; worker u4b; commit "$T/u4b" u4b.txt 2; worker u4; commit "$T/u4" u4.txt 1
+lands "a change touching the protected set is never reused" "$T/u4"; check "Tier 1 ran twice" test "$(runs u4)" = 2
+reuse_conf u5 'LAND_REUSE=1' 'LAND_AFFECTS_CMD=exit 1'; worker u5b; commit "$T/u5b" u5b.txt 2; worker u5; commit "$T/u5" u5.txt 1
+lands "a provider that fails is a run, not a skip (fail closed)" "$T/u5"; check "Tier 1 ran twice" test "$(runs u5)" = 2
+reuse_conf u6 'LAND_REUSE=1'; worker u6b; mkdir -p "$T/u6b/.land"; commit "$T/u6b" .land/x.conf 2; worker u6; commit "$T/u6" u6.txt 1
+lands "the settings directory moving is a run: nothing about it is reused" "$T/u6"; check "Tier 1 ran twice" test "$(runs u6)" = 2
+reuse_conf u8 'LAND_REUSE=1' 'LAND_AFFECTS_CMD=sed p; echo "*"'; worker u8b; commit "$T/u8b" u8b.txt 2; worker u8; commit "$T/u8" u8.txt 1
+lands "a provider that prints * (a path that affects everything) is a run" "$T/u8"; check "Tier 1 ran twice" test "$(runs u8)" = 2
+set_conf 'LAND_TEST_CMD=true' 'LAND_REUSE=2'; worker u7; commit "$T/u7" u7.txt 1; refused "LAND_REUSE=2 is a config error" 2 "$T/u7"; out_has "LAND_REUSE must be 0 or 1"
+set_conf 'LAND_TEST_CMD=true'
+
 echo "## inert paths (LAND_INERT): a change that touches only paths nothing reads is not validated"
 sandbox
 set_conf 'LAND_TEST_CMD=false' 'LAND_INERT=CHANGELOG.md docs/*'   # Tier 1 would FAIL if it ran

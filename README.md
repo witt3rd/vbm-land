@@ -219,12 +219,19 @@ The last line of stdout is JSON, and it is what a caller reads, never the text a
 | `LAND_PROTECTED` | none | Shell patterns (`*` matches `/`): the gate-defining set. A change that touches it is judged by the `post-rebase` hook. |
 | `LAND_INERT` | none | Shell patterns (`*` matches `/`): paths that no Tier 1 command, hook or reviewer reads (a changelog, prose docs). A change whose every touched path matches, with none of them in `LAND_PROTECTED`, skips Tier 1 and the `post-tier1` hook (where a reviewer runs), and its summary line then carries `"validation":"inert"`. See "Inert paths" below. |
 | `LAND_HOOKS_DIR` | `.land/land.d` | Where the repository's hooks live. |
+| `LAND_REUSE`, `LAND_AFFECTS_CMD` | `0`, none | Reuse (above): `1` skips the re-validation of a landing whose base moved only in paths unrelated to the change; the command (paths on stdin, the paths they affect on stdout) widens "unrelated" beyond the same file. |
 | `LAND_RC_CMD`, `LAND_RC_TIMEOUT` | none, `7200` s | The release candidate's full suite (4.8): `land-release` runs it with `LAND_RC=1` on the exact `HEAD` before any tag, and makes no tag unless it exits 0; `land-release --rc` runs it alone. |
 | `LAND_LOCALE` | `C` | Pinned for collation and glob order. |
 | `LAND_ATTEMPTS`, `LAND_DEADLINE` | `30`, `900` s | When main moves under a landing it is rebased and validated again: at most this many attempts, none started after this many seconds (then exit 16). Hooks and Tier 1 see `LAND_ATTEMPT` and `LAND_PREV_BASE` (the base the previous attempt validated against; empty on the first) so a repository may re-run only what the new base can affect. |
 | `LAND_TIER1_TIMEOUT`, `LAND_STEP_TIMEOUT`, `LAND_GIT_TIMEOUT` | `1800`, `600`, `180` s | The bound on every step. A step that runs over is killed with one plain line and the run stops as that step's failure. |
 
 Policy is never read from the environment. The operator may set `LAND_CONF` (another config file), `LAND_FIX_FOR_RED=1` (declare this change a fix, so it passes a freeze), `LAND_DIRECT_LOG` and the three timeouts. A key this tool has retired is not a key: a `land.conf` that names one is refused as unknown, by file and line. Commands the lander runs see `LAND_TOP`, `LAND_BASE_REF` (`origin/main`), `LAND_STATE_DIR` (shared by every run of the clone), `LAND_RUN_DIR` (this run's own), `LAND_ATTEMPT`, `LAND_PREV_BASE` and `LAND_TASK`.
+
+#### Reuse
+
+With `LAND_REUSE=1` a landing whose base moves **does not validate again** when the move cannot matter. A landing that has passed Tier 1 on base B1 and finds the base at B2 (it lost the race, or the base moved during Tier 1) compares what moved (`B1..B2`) with what the change touches. If no moved path is a path the change touches, and no path on either side affects a path on the other, the verdict still describes the combination and the push goes ahead: `"validation":"reused"` in the summary. The default affects relation is the identity (the same file); `LAND_AFFECTS_CMD` widens it for a project that knows its dependencies (paths on stdin, the paths they can affect on stdout, for example the importers of a module; a line `*` says the path affects everything, such as a toolchain pin, and forces a run).
+
+It is **best-effort by design** and fails toward running: the settings directory moving, a provider that fails, a regenerated file, a protected path touched, or a base that is not a descendant each mean Tier 1 runs as always. A break the rule lets through that Tier 1 would have caught is an **escape**, found by the release candidate (4.8), which is also what audits `LAND_AFFECTS_CMD`. It applies to the one-step `land-direct`; `--validate` then `--push SHA` still refuses a moved base. Disjointness (2b) is what makes it pay: the less overlap, the fewer re-validations.
 
 #### Inert paths
 

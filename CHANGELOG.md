@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.21.0 (minor)
+
+- **Reuse: a base that moved in nothing the change touches is not validated again** (`LAND_REUSE=1`, default off; `LAND_AFFECTS_CMD` optional). A landing that passed Tier 1 on base B1 and meets base B2 (a lost race, or a base that moved during Tier 1) compares `B1..B2` with its own paths; with no overlap and nothing the provider relates, it pushes without running Tier 1 or the post-tier1 hook again, and the summary says `"validation":"reused"`. It fails toward running (settings directory moved, provider failed, generated file regenerated, protected path touched). What it lets through that Tier 1 would have caught is an escape, found by the release candidate. README "Reuse".
+
 ## 0.20.0 (minor)
 
 - **The release candidate is declared, and fixed on the branch and on main.** `land-release --declare` cuts `rc/vX.Y.Z` from main's head and pushes it, so main keeps landing at full speed while the candidate runs the full suite (`--rc`). A red result is fixed with the ordinary lander on the branch (`LAND_BASE=rc/vX.Y.Z`) and the same change on main (`git cherry-pick -x`). A release from the branch reads `LAND_RC_CMD` from the branch, and is refused while the branch holds a change that is not on main (`git cherry`). A release from main itself, with no branch, is unchanged. The README states the discipline: a push to main is best-effort and no promise of a green main; go fast in development, release with caution (section 4.8).
