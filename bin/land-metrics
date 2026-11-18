@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# land-metrics: read the landings record that land-direct appends to and print integer measures a scorecard can take, one `name value` line each.
+#
+#   land-metrics [FILE]      FILE defaults to <git common dir>/vbm-land/landings.jsonl (docs/landings.md)
+#
+#   landings                      the lines of the record that are landing attempts (every result but checked and validated, the two dry steps: a validate-then-push pair counts once)
+#   landed                        the lines whose result is landed
+#   refused-tier1                 the lines whose result is tier1 (Tier 1 refused the change)
+#   tier1-seconds-p50 / -p90      tier1_seconds of the landed lines in which Tier 1 really ran (a line with a "validation" key, inert or reused, ran none)
+#   commit-to-main-seconds-p50 / -p90   at - first_commit_at of the landed lines whose first_commit_at is a number (never below 0)
+#
+# Percentile rule: NEAREST RANK. The n values sorted ascending; the p-th percentile is the value at rank ceil(p*n/100) (1-based). No interpolation: the
+# result is always one of the recorded values, and an integer. A measure with no value behind it, and every measure when the file is missing, prints
+# `unmeasured`, never 0 (a count is 0 only when the file exists and holds no such line). A line that is not a version 1 record is skipped.
+set -euo pipefail
+export LC_ALL=C
+[ $# -le 1 ] || { echo "usage: land-metrics [FILE]" >&2; exit 2; }
+f=${1:-}
+if [ -z "$f" ]; then
+  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || { echo "land-metrics: not inside a git worktree and no FILE given" >&2; exit 2; }
+  f=$common/vbm-land/landings.jsonl
+fi
+names="landings landed tier1-seconds-p50 tier1-seconds-p90 commit-to-main-seconds-p50 commit-to-main-seconds-p90 refused-tier1"
+if [ ! -r "$f" ] || [ -d "$f" ]; then for n in $names; do echo "$n unmeasured"; done; exit 0; fi
+awk '
+function field(s, k,   m) { if (match(s, "\"" k "\":[^,}]*")) { m = substr(s, RSTART + length(k) + 3, RLENGTH - length(k) - 3); gsub(/^"|"$/, "", m); return m } return "" }
+function isnum(x) { return x ~ /^[0-9]+$/ }
+function pct(a, n, p,   i, j, t, r) {   # nearest rank on a[1..n]
+  if (n == 0) return "unmeasured"
+  for (i = 2; i <= n; i++) { t = a[i]; for (j = i - 1; j >= 1 && a[j] > t; j--) a[j + 1] = a[j]; a[j + 1] = t }
+  r = int((p * n + 99) / 100); if (r < 1) r = 1
+  return a[r]
+}
+/^\{"v":1,/ {
+  res = field($0, "result"); if (res != "checked" && res != "validated") n++; if (res == "landed") landed++; if (res == "tier1") refused++
+  if (res == "landed") {
+    t = field($0, "tier1_seconds"); if (isnum(t) && $0 !~ /"validation":/) t1[++nt] = t + 0
+    a = field($0, "at"); c = field($0, "first_commit_at")
+    if (isnum(a) && isnum(c)) { d = a - c; if (d < 0) d = 0; cm[++nc] = d }
+  }
+}
+END {
+  print "landings " n + 0; print "landed " landed + 0
+  print "tier1-seconds-p50 " pct(t1, nt, 50); print "tier1-seconds-p90 " pct(t1, nt, 90)
+  print "commit-to-main-seconds-p50 " pct(cm, nc, 50); print "commit-to-main-seconds-p90 " pct(cm, nc, 90)
+  print "refused-tier1 " refused + 0
+}' "$f"

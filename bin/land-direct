@@ -24,9 +24,10 @@
 #   12 refused by a hook, the protected-set rules, the vendored-copy drift check, or a regeneration that failed | 13 Tier 1 fails (nothing lands) | 14 held or frozen |
 #   16 base moved faster than the lander could validate (LAND_ATTEMPTS / LAND_DEADLINE used up): nothing was pushed; run it again. Run again after a crash that followed an accepted push: exit 0, "already landed".
 # The LAST line of stdout is JSON: {"sha","commits","tier1_seconds","result","exit"} plus any keys a `json-fields` hook prints (null where not known; result: landed,
-#   would-land, checked, conflict, refused, tier1, held, moved, error). Every run also appends one line to the metrics log
+#   would-land, checked, conflict, refused, tier1, held, moved, error). Every run also appends one line to the landings record (<git common dir>/vbm-land/landings.jsonl, docs/landings.md, read by land-metrics) and one to the metrics log
 #   ($LAND_DIRECT_LOG, default <git common dir>/vbm-land/metrics.jsonl): ts, result, commits, commit (the tip handed over), attempts, inherited_red, tier1_s, total_s.
 #   Tier 1 that fails ONLY with failures the bare base already has (the names the Tier 1 commands record in $LAND_FAILED_FILE; one extra run, only then) passes as "inherited red": a landing must not ADD a failure.
+#   The landings record is typed and versioned: {"v":1,"at","sha","base","commits","tier1_seconds","result","exit","first_commit_at"} (+ "validation" when inert or reused); a write that fails never changes the result or the exit code.
 # BOUNDED: every step runs under `timeout --kill-after=30`: LAND_TIER1_TIMEOUT (Tier 1, regeneration of generated files by Tier 1 is part of it), LAND_STEP_TIMEOUT
 #   (hooks, regeneration), LAND_GIT_TIMEOUT (fetch, push). A step that runs over is killed with one plain line and the run stops as that step's failure.
 # Operator environment (not policy): REMOTE-independent knobs LAND_CONF, LAND_FIX_FOR_RED=1 (treat this change as a fix, so it passes a freeze), LAND_DIRECT_LOG, and the
@@ -57,7 +58,7 @@ if [ "$pushmode" = 1 ]; then [ ${#args[@]} = 0 ] && [ "$dry$checkonly$group" = 0
 
 hooks=; wt=; sha=; ncommits=; t1=; result=error; t0=$(date +%s); common=; state=; run=; extra_json=; tip0=; attempt=0; already=0; inherited=0; stage=; newfail=; hookcwd=
 validation=tier1; vjson=   # what judged this landing: tier1, or inert (every changed path is declared inert in LAND_INERT: nothing reads it); vjson is the summary key, present ONLY for inert and reused (LAND_REUSE: the base moved since the last passing validation, in nothing this change touches or depends on) so the usual line keeps its shape; set early, every exit prints the summary
-reason=; step=start; lastlines=; logfile=; cfiles=; bsha=
+reason=; step=start; lastlines=; logfile=; cfiles=; bsha=; first_at=
 jesc() { awk 'BEGIN{ORS=""} {gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); gsub(/\t/,"\\t"); gsub(/\r/,""); if (NR>1) print "\\n"; print}'; }
 json_num() { [[ "${1:-}" =~ ^[0-9]+(\.[0-9]+)?$ ]] && printf '%s' "$1" || printf null; }
 json_str() { [[ "${1:-}" =~ ^[A-Za-z0-9._-]+$ ]] && printf '"%s"' "$1" || printf null; }
@@ -66,6 +67,9 @@ onexit() {
   [ -z "$op" ] || { run_cleanup "$c"; exit "$c"; }
   if [ -n "$state" ] && [ -d "$state" ]; then   # the measurements, one O_APPEND line each: landings per hour, commit-to-main time
     printf '{"ts":%s,"result":"%s","commits":%s,"commit":%s,"attempts":%s,"inherited_red":%s,"tier1_s":%s,"total_s":%s,"exit":%s,"step":"%s","reason":"%s","last_lines":"%s"}\n' "$(date +%s)" "$result" "$(json_num "$ncommits")" "$(json_str "$tip0")" "$(json_num "$([ "$attempt" = 0 ] || echo "$attempt")")" "$([ "$inherited" = 1 ] && echo true || echo false)" "$(json_num "$t1")" "$(( $(date +%s) - t0 ))" "$c" "$step" "$(printf '%s\n' "$reason" | jesc)" "$(printf '%s\n' "$lastlines" | jesc)" >> "${LAND_DIRECT_LOG:-$state/metrics.jsonl}" 2>/dev/null || true
+  fi
+  if [ -n "$state" ] && [ -d "$state" ]; then   # the landings record (docs/landings.md): one typed line per terminal result, the facts of the summary line plus the two times; a failed write changes nothing (no result, no exit code, no output)
+    { printf '{"v":1,"at":%s,"sha":%s,"base":%s,"commits":%s,"tier1_seconds":%s,"result":"%s","exit":%s,"first_commit_at":%s%s}\n' "$(date -u +%s)" "$(json_str "$sha")" "$(json_str "$bsha")" "$(json_num "$ncommits")" "$(json_num "$t1")" "$result" "$c" "$(json_num "$first_at")" "$vjson" >> "$state/landings.jsonl"; } 2>/dev/null || true
   fi
   run_hook on-run >/dev/null 2>&1 || true
   local typed= f fl=   # what a caller needs to DECIDE, typed: the reason (carried text), the path of the failing stage's whole log, the conflicted files, the base this run saw
@@ -169,6 +173,7 @@ if [ -z "$commits" ]; then   # --push of a commit that is already in the base (a
 fi
 [ -z "$(git -C "$top" rev-list --merges "$remote/$base..$tip0")" ] || badinput "$rev has merge commits: history lands linear; rebase onto $remote/$base first"
 ncommits=$(wc -l <<<"$commits")
+first_at=$(git -C "$top" log --no-walk --format=%at $commits 2>/dev/null | LC_ALL=C sort -n | sed -n 1p || true)   # author time of the oldest landed commit (the commit-to-main clock starts there), for the landings record
 [ "$rev" != HEAD ] || [ -z "$(git -C "$top" status --porcelain --untracked-files=no)" ] || echo "land-direct: note: uncommitted changes in $top are not landed (only the $ncommits commit(s))" >&2
 
 # ---- land-time checks, per commit

@@ -42,6 +42,8 @@ Units: seconds, counts, and permille (thousandths). Run every command from the r
 | `release-candidate-escapes` | lower | 3 | no command: needs a record, per release, of the failures `LAND_RC_CMD` found that Tier 1 had passed (`README.md:141`) | unmeasured: no record in the repository | unmeasured | |
 | `release-candidate-seconds` | lower | 3 | `s=$(date +%s); tests/acceptance.sh --soak >/dev/null 2>&1; echo $(( $(date +%s)-s ))` (runs Tier 1 on a scratch clone, then 20 landers at once; the soak is "by hand, on a machine with room", `docs/gate-mechanism-acceptance.md`; `LAND_RC_TIMEOUT` is 3600) | unmeasured: not cheap, and it needs a machine with room | unmeasured | |
 
+Update: since the landings record (`docs/landings.md`), the lander keeps `tier1_seconds` and the author time of the oldest landed commit for every landing, and `bin/land-metrics` prints the nearest-rank p50 and p90 of Tier 1 seconds and of commit-to-main seconds, the count of `tier1` refusals and `landed`. The rows above that say `unmeasured` for the commit-to-main time can now take `commit-to-main-seconds-p90` from it once a clone has landings on record; red minutes are still not recorded.
+
 ## Health today
 
 - **The fast gate is not fast.** Tier 1 took 339 s against a stated "under 60 s" and "about half a minute". One script, `tests/test_lean_recheck.sh`, accounts for all of it (339 s; its own comment says "about 5 minutes under this load"). Without it the next script is 120 s, which is still over the target. The goal is regressed, or the docs are stale; this is the largest gap.

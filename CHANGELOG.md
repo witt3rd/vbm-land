@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## Unreleased (minor; additive: one file, one command)
+
+- **The landings record and `land-metrics`.** Every run of `land-direct` that prints its JSON summary line also appends one typed line (`v`, `at`, `sha`, `base`, `commits`, `tier1_seconds`, `result`, `exit`, `first_commit_at`) to `<git common dir>/vbm-land/landings.jsonl`; a failed write changes neither the result nor the exit code. `bin/land-metrics` reads it and prints `landings`, `landed`, `refused-tier1` and the nearest-rank p50 and p90 of Tier 1 seconds and of commit-to-main seconds, `unmeasured` (never 0) when there is no file. `docs/landings.md`.
+
 ## 0.21.0 (minor)
 
 - **Reuse: a base that moved in nothing the change touches is not validated again** (`LAND_REUSE=1`, default off; `LAND_AFFECTS_CMD` optional). A landing that passed Tier 1 on base B1 and meets base B2 (a lost race, or a base that moved during Tier 1) compares `B1..B2` with its own paths; with no overlap and nothing the provider relates, it pushes without running Tier 1 or the post-tier1 hook again, and the summary says `"validation":"reused"`. It fails toward running (settings directory moved, provider failed, generated file regenerated, protected path touched). What it lets through that Tier 1 would have caught is an escape, found by the release candidate. README "Reuse".
