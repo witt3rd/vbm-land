@@ -414,6 +414,39 @@ set_conf 'LAND_TEST_CMD=true' 'LAND_INERT=CHANGELOG.md docs/*'
 worker i10; commit "$T/i10" code10.txt 1
 lands "with LAND_INERT set, a change that is not inert still runs the post-tier1 hook" "$T/i10" HOOKMARK="$T/hookmark"
 check "the hook ran (the step timeout survived the inert check)" test -f "$T/hookmark"
+echo "## the secret gate's files (.gitleaks.toml on the BASE turns the protection on; docs/secrets-gate.md)"
+sandbox
+set_conf 'LAND_TEST_CMD=true'
+sgcommit() {   # sgcommit DIR FILE [TRAILER]: change FILE, with a Protected: trailer when one is given
+  local d=$1 f=$2 tr=${3:-}; mkdir -p "$(dirname "$d/$f")"; echo "$RANDOM" > "$d/$f"; git -C "$d" add -- "$f"
+  git -C "$d" commit -qm "feat: change $f" -m "Task-ID: t1" ${tr:+-m "Protected: $tr"}
+}
+worker sg0; sgcommit "$T/sg0" .gitleaks.toml
+lands "the landing that ADDS .gitleaks.toml is judged by the base (which has none): not refused (the opt-in is a conscious act)" "$T/sg0"
+for f in .gitleaks.toml .gitleaksignore .githooks/pre-commit; do
+  n=sg$(echo "$f" | tr -c 'a-z\n' _)
+  worker "$n-a"; sgcommit "$T/$n-a" "$f"
+  refused "with .gitleaks.toml on the base, a change to $f without the trailer is refused" 12 "$T/$n-a"; out_has "the secret gate's files are protected"; out_has "$f"
+  worker "$n-b"; sgcommit "$T/$n-b" "$f" "reviewed false positive in a fixture"
+  lands "the same change to $f WITH the Protected: trailer lands" "$T/$n-b"; out_has "allowed by the Protected: trailer"; check "$f is on the remote" remote_has "$f"
+done
+worker sg-mv; git -C "$T/sg-mv" mv .gitleaksignore .gitleaksignore.off 2>/dev/null || { echo x > "$T/sg-mv/.gitleaksignore.off"; git -C "$T/sg-mv" rm -q -f .gitleaksignore; git -C "$T/sg-mv" add .gitleaksignore.off; }
+git -C "$T/sg-mv" commit -qm "chore: rename the ignore file" -m "Task-ID: t1"
+check "a file renamed away from a protected path is seen leaving it (the base has .gitleaksignore here, so it is refused)" bash -c "cd '$T/sg-mv' && ! '$L' >'$T/out' 2>&1 && grep -q 'the secret gate' '$T/out'"
+worker sg-del; git -C "$T/sg-del" rm -q .gitleaks.toml; git -C "$T/sg-del" commit -qm "chore: drop the scanner config" -m "Task-ID: t1"
+refused "a change that DELETES .gitleaks.toml without the trailer is refused (the base decides, not the change)" 12 "$T/sg-del"; out_has "the secret gate's files are protected"
+worker sg-del2; git -C "$T/sg-del2" rm -q .gitleaks.toml; git -C "$T/sg-del2" commit -qm "chore: drop the scanner config" -m "Task-ID: t1" -m "Protected: the repository leaves the secret gate"
+lands "the deletion WITH the trailer lands" "$T/sg-del2"; check "it is gone from the remote" bash -c "! git -C '$T/remote.git' cat-file -e main:.gitleaks.toml"
+echo "## ...and a repository WITHOUT .gitleaks.toml on its base is unchanged"
+sandbox
+set_conf 'LAND_TEST_CMD=true'
+for f in .gitleaksignore .githooks/pre-commit; do
+  n=sn$(echo "$f" | tr -c 'a-z\n' _); worker "$n"; sgcommit "$T/$n" "$f"
+  lands "no .gitleaks.toml on the base: a change to $f is not protected, no trailer needed" "$T/$n"; check "no word of the secret gate in the output" bash -c "! grep -qi 'secret gate' '$T/out'"; out_has "protected set: none touched"
+done
+worker sn-c; sgcommit "$T/sn-c" .gitleaks.toml; worker sn-d; sgcommit "$T/sn-d" .gitleaksignore
+lands "the first .gitleaks.toml lands" "$T/sn-c"
+refused "once it is on the base the very next change to .gitleaksignore (taken from the base, not from the same landing) is protected" 12 "$T/sn-d"
 finish
 echo "## another base branch"
 sandbox master

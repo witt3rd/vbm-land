@@ -46,6 +46,18 @@ A gate that cannot fail proves nothing. In a temporary directory (removed on exi
 
 The planted token is built at run time from fragments and is never a literal in this repository's source: this repository is scanned by its own gate, and a literal planted secret in a tool that scans for secrets would be found by it. `tests/test_secrets.sh` proves the self-test can fail, with a scanner stub that always exits 0.
 
+## The protected set: the gate's own files
+
+A secret gate that a change can reconfigure is no gate: the change could allowlist its own secret. So `bin/land-direct` protects the gate's files.
+
+* **When:** `.gitleaks.toml` exists at the repository root of the BASE (`origin/main`). The presence of the file is the opt-in, exactly as `.land/lean.conf` turns on the Lean gates. A repository without it is unchanged, byte for byte.
+* **What:** `.gitleaks.toml`, `.gitleaksignore` and `.githooks/*`, in addition to whatever `LAND_PROTECTED` names.
+* **The rule:** a landing that touches any of them (adds, edits, deletes, or renames away from one) lands only with one conscious `Protected: <reason>` trailer in any of its commits. Without it, `land-direct` stops with exit 12 (refused), names the files, and nothing is pushed. With it, the landing goes on: it is counted as touching the protected set (`LAND_PROTECTED_TOUCHED`, no Tier 1 reuse, no inert skip) and every gate must still pass.
+* **Read from the base, never from the change:** a change that deletes `.gitleaks.toml` does not escape the rule in the same landing; the deletion itself touches a protected path and needs the trailer.
+* **The opt-in itself:** the first landing that ADDS `.gitleaks.toml` is judged by the base, which has none, so this rule does not refuse it. That landing is a conscious act of the repository's own review; every later change to the file is protected.
+
+The trailer is a conscious act, not an approval: the reason is written once, in the commit, for whoever reviews it. The findings rule above still holds: a trailer is never the way to allowlist a real secret.
+
 ## Adopting it
 
 1. Put `.gitleaks.toml` in the repository (a `[extend] useDefault = true` and, for each false positive, an allowlist entry with a comment giving the reason).

@@ -308,6 +308,16 @@ while :; do
   # the protected set, judged on what would land (the rebased tree against base): touching it is allowed; the hooks and Tier 1 must pass
   g diff --name-only "$bsha" > "$run/touched.txt"; export LAND_TOUCHED_FILE=$run/touched.txt; prot_hit=
   if [ ${#prot_globs[@]} -gt 0 ]; then while IFS= read -r f; do matches_any "$f" "${prot_globs[@]}" && prot_hit="$prot_hit $f"; done < "$run/touched.txt"; fi
+  # the secret gate's own files (docs/secrets-gate.md): protected when the BASE has .gitleaks.toml (its presence is the opt-in; the change cannot switch it off or on in the same landing). They land only on
+  # one conscious `Protected: <reason>` trailer in any commit of the landing; a rename or a deletion counts as touching the old path too.
+  if g cat-file -e "$bsha:.gitleaks.toml" 2>/dev/null; then
+    sec_hit=; g diff --name-only --no-renames "$bsha" > "$run/touched.secrets.txt"
+    while IFS= read -r f; do matches_any "$f" .gitleaks.toml .gitleaksignore '.githooks/*' && sec_hit="$sec_hit $f"; done < "$run/touched.secrets.txt"
+    if [ -n "$sec_hit" ]; then
+      sec_msgs=$(g log --format=%B "$bsha..HEAD" | tr -d '\r'); grep -qE '^Protected: ..*' <<<"$sec_msgs" || stop 12 refused "the secret gate's files are protected (the base has .gitleaks.toml):${sec_hit}; a change to them lands only with a 'Protected: <reason>' trailer in one of its commits; not landing."
+      prot_hit="$prot_hit$sec_hit"; echo "land-direct: the secret gate's files touched (${sec_hit# }): allowed by the Protected: trailer"
+    fi
+  fi
   export LAND_PROTECTED_TOUCHED=${prot_hit# }
   [ -z "$prot_hit" ] && echo "land-direct: protected set: none touched" || echo "land-direct: protected set: TOUCHED ($LAND_PROTECTED_TOUCHED): allowed, every gate must pass"
   if [ "${LAND_OWNER:-}" != 1 ]; then while IFS= read -r f; do   # a signing keys file that already exists changes only by its owner (a first install of one is not a change)
