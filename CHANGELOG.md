@@ -4,8 +4,12 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
-## Unreleased (minor; additive: one file, one command)
+## 0.22.0 (minor; additive: a tool, a template, a protected-set rule, one file and one command for the landings record; a consumer that does nothing is unchanged)
 
+- **`land-secrets`, the secret gate** (`docs/secrets-gate.md`). The tool owns HOW: it runs the repository's pinned gitleaks over the whole history and the working tree (`--staged` for a hook), always with `--redact`, FAILS CLOSED (exit 2 when it cannot run, 1 for a finding, 0 clean), and carries a negative self-test (`--selftest`) that has been watched to fail. The repository owns WHICH (its `.gitleaks.toml`, a reason beside every allowlist entry) and pins the scanner in its `mise.toml`; the tool never vendors one. A secret found in history: rotate it first, then remove it; never allowlist a real one.
+- **The pre-commit hook template** `templates/pre-commit-secrets` (copy to `.githooks/pre-commit`): runs `land-secrets --staged` from the top level and refuses the commit when it exits non-zero or cannot run. It is the early warning and a per-clone opt-in; the Tier 1 gate is the one that cannot be skipped.
+- **The protected set** (`land-direct`): when `.gitleaks.toml` exists on the base, a landing that touches `.gitleaks.toml`, `.gitleaksignore` or `.githooks/*` needs a `Protected: <reason>` trailer (exit 12 without it).
+- **Upgrade notes, to adopt it:** (1) `land-update`; (2) add `.gitleaks.toml` and pin gitleaks 8.x in `mise.toml`; (3) call `.land/tool/bin/land-secrets` and `--selftest` from Tier 1; (4) copy the hook template to `.githooks/pre-commit`, `chmod +x`, `git config core.hooksPath .githooks`.
 - **The landings record and `land-metrics`.** Every run of `land-direct` that prints its JSON summary line also appends one typed line (`v`, `at`, `sha`, `base`, `commits`, `tier1_seconds`, `result`, `exit`, `first_commit_at`) to `<git common dir>/vbm-land/landings.jsonl`; a failed write changes neither the result nor the exit code. `bin/land-metrics` reads it and prints `landings`, `landed`, `refused-tier1` and the nearest-rank p50 and p90 of Tier 1 seconds and of commit-to-main seconds, `unmeasured` (never 0) when there is no file. `docs/landings.md`.
 
 ## 0.21.0 (minor)

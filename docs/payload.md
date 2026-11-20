@@ -62,6 +62,7 @@ path, an old directory layout, a word in a comment, a few lines of local comment
 | the pin tool | `pinned-lib.py`, `pinned-libs.lock` | replaced by `land-pin` and `.land/pins.lock` | built (v0.10.0); each repository deletes its copy |
 | other process scripts | `git-hermetic.sh`, `check-zero-warning.sh`, `lint-pipefail.sh`, `lint-public`, `public-banned-hashes.txt`, `ran-gates.txt` | decided after the same inventory (each is read, its variants diffed) | to inventory |
 | the Lean gates | `AxiomGate.lean`, `LedgerGate.lean`, `ClosureGate.lean`, `trust_ledger.py`, `trust-ledger-check.sh` | the vbm-land PAYLOAD, as an opt-in `lean/` set (section 4a; docs/lean-gates.md) | `AxiomGate.lean` BUILT (`land-lean axiom`); `trust_ledger.py` and the derivation BUILT (`land-lean trust`); `LedgerGate` to study; `ClosureGate` stays repository-owned |
+| the secret gate | `bin/land-secrets`, `docs/secrets-gate.md`, `templates/pre-commit-secrets` | the vbm-land PAYLOAD: the tool owns HOW the scanner is run; the repository owns WHICH (`.gitleaks.toml`) and pins the scanner (`mise.toml`) | BUILT (v0.22.0; docs/secrets-gate.md) |
 | repository-owned | `tier1.sh`, the repository's tests, its build file, `AGENTS.md` | the repository | stays |
 | boilerplate at creation | `LICENSE`, `NOTICE`, `SECURITY.md`, `CONTRIBUTING.md`, `CODEOWNERS`, `.gitignore`, `mise.toml` | templates (`new-repo`); `LICENSE` is also checked equal to the standard's | to specify |
 

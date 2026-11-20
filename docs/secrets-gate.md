@@ -62,10 +62,27 @@ The trailer is a conscious act, not an approval: the reason is written once, in 
 
 1. Put `.gitleaks.toml` in the repository (a `[extend] useDefault = true` and, for each false positive, an allowlist entry with a comment giving the reason).
 2. Pin the scanner in `mise.toml` (gitleaks 8.x).
-3. Call `.land/tool/bin/land-secrets` and `.land/tool/bin/land-secrets --selftest` from the repository's Tier 1, and `.land/tool/bin/land-secrets --staged` from its pre-commit hook.
+3. Call `.land/tool/bin/land-secrets` and `.land/tool/bin/land-secrets --selftest` from the repository's Tier 1.
+4. Install the pre-commit hook (below).
+
+## The pre-commit hook
+
+`templates/pre-commit-secrets` (in a consumer, `.land/tool/templates/pre-commit-secrets`) is the hook. Per clone:
+
+```
+cp .land/tool/templates/pre-commit-secrets .githooks/pre-commit
+chmod +x .githooks/pre-commit
+git config core.hooksPath .githooks     # once per clone
+mise install                            # the repository's pinned scanner
+```
+
+The hook changes to the top level and runs `.land/tool/bin/land-secrets --staged`. When that exits non-zero it refuses the commit with exit 1 and says `Nothing was committed. Secrets live in doppler, never in a repository.` It fails CLOSED: with the hook installed, a commit is refused when the scanner cannot run (no scanner, no `.land/tool/`).
+
+Say it plainly: the hook is the EARLY warning and a per-clone opt-in (a clone that never set `core.hooksPath`, or a commit with `--no-verify`, skips it). The gate in Tier 1 is the one that cannot be skipped. `.githooks/*` is in the protected set, so a change to the hook needs the `Protected:` trailer.
 
 ## What it does not do
 
 * It does not pin or vendor a scanner.
+* It does not make the hook binding: the hook is per clone; Tier 1 is the gate.
 * It does not decide what an allowlist may hold: the repository's review does.
 * It does not rotate a secret, and it does not rewrite history.

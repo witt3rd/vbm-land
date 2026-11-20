@@ -3,7 +3,7 @@
 # what it is asked to scan holds a marker string, 0 otherwise, records its arguments, and prints the marker itself unless it was given --redact (so "the output never carries the secret" is a real check).
 # Proved: clean 0; a marked file 1 with the rotate-first sentence and not the marker; a marker in an old commit gone from the tree still 1 (the history is scanned); a missing config 2; a missing scanner 2
 # (fail closed); the scanner is always given --redact; --staged passes the pre-commit mode; the self-test passes with the honest stub and FAILS with a blind one (the negative self-test WATCHED to fail);
-# the runner order (flag, environment, mise, bare). One case runs the real gitleaks when it is on PATH.
+# the runner order (flag, environment, mise, bare); the pre-commit hook template (refuses a staged secret, commits a clean change, fails closed). One case runs the real gitleaks when it is on PATH.
 . "$(dirname "$0")/lib.sh"
 sandbox
 real=$(command -v gitleaks 2>/dev/null || true); REALPATH=$PATH
@@ -85,6 +85,28 @@ touch "$R2/mise.toml"; : > "$STUB_LOG"; expect_exit "mise.toml and mise on PATH:
 : > "$STUB_LOG"; LAND_SECRETS_RUNNER=runner-a expect_exit "the environment beats mise" 0 s2 --staged; grep -q '^runner-a' "$STUB_LOG" && ! grep -q '^mise' "$STUB_LOG" && pass "LAND_SECRETS_RUNNER named the runner" || fail "the environment did not beat mise"
 : > "$STUB_LOG"; LAND_SECRETS_RUNNER=runner-a expect_exit "the flag beats the environment" 0 s2 --staged --runner runner-b; grep -q '^runner-b' "$STUB_LOG" && ! grep -q '^runner-a' "$STUB_LOG" && pass "--runner beat LAND_SECRETS_RUNNER" || fail "the flag did not beat the environment"
 expect_exit "a runner that is not on PATH is exit 2" 2 s2 --staged --runner no-such-runner-xyz; out_has "not on PATH"
+
+echo "## the pre-commit hook template (templates/pre-commit-secrets)"
+H=$T/hookrepo; git init -q -b main "$H"; git -C "$H" config commit.gpgsign false
+mkdir -p "$H/.githooks" "$H/.land/tool/bin"; cp "$ROOT/bin/land-secrets" "$H/.land/tool/bin/"; cp "$ROOT/templates/pre-commit-secrets" "$H/.githooks/pre-commit"; chmod +x "$H/.githooks/pre-commit"
+cp "$R/.gitleaks.toml" "$H/"; echo hi > "$H/a.txt"; git -C "$H" config core.hooksPath .githooks
+check "the template is executable" test -x "$ROOT/templates/pre-commit-secrets"
+hc() { ( cd "$H" && git commit -q -m "$1" ); }
+git -C "$H" add -A; expect_exit "a clean staged change commits" 0 hc "chore: clean"
+check "the clean commit is in" test "$(git -C "$H" rev-list --count HEAD)" = 1
+echo "$MARK" > "$H/leak.txt"; git -C "$H" add leak.txt
+expect_exit "a staged marked file is refused" 1 hc "chore: leak"; out_has "Nothing was committed. Secrets live in doppler, never in a repository."; nomark
+check "nothing was committed" test "$(git -C "$H" rev-list --count HEAD)" = 1
+git -C "$H" rm -q -f --cached leak.txt; rm -f "$H/leak.txt"; echo more >> "$H/a.txt"; git -C "$H" add a.txt
+expect_exit "a scanner that cannot run (exit 2) refuses the commit (fails closed)" 1 env STUB_MODE=fail bash -c 'cd "$1" && git commit -q -m x' _ "$H"; out_has "Nothing was committed"
+NG2=$T/nogl2; mkdir "$NG2"; for c in git bash env mktemp rm tail grep cat dirname; do ln -s "$(command -v $c)" "$NG2/$c"; done
+expect_exit "no scanner on PATH refuses the commit (fails closed)" 1 bash -c 'cd "$1" && PATH="$2" git commit -q -m x' _ "$H" "$NG2"; out_has "Nothing was committed"
+mv "$H/.land/tool/bin/land-secrets" "$H/land-secrets.away"
+expect_exit "a missing .land/tool refuses the commit (fails closed)" 1 hc "chore: x"; out_has "Nothing was committed"
+mv "$H/land-secrets.away" "$H/.land/tool/bin/land-secrets"
+check "the commit count is still one" test "$(git -C "$H" rev-list --count HEAD)" = 1
+expect_exit "the hook commits again once the scanner is back" 0 hc "chore: more"
+expect_exit "a commit made from a subdirectory runs from the top level" 0 bash -c 'cd "$1" && mkdir -p sub && echo s > sub/s.txt && git add sub/s.txt && cd sub && git commit -q -m sub' _ "$H"
 
 echo "## the real scanner"
 if [ -n "$real" ]; then
