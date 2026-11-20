@@ -3,7 +3,7 @@
 # what it is asked to scan holds a marker string, 0 otherwise, records its arguments, and prints the marker itself unless it was given --redact (so "the output never carries the secret" is a real check).
 # Proved: clean 0; a marked file 1 with the rotate-first sentence and not the marker; a marker in an old commit gone from the tree still 1 (the history is scanned); a missing config 2; a missing scanner 2
 # (fail closed); the scanner is always given --redact; --staged passes the pre-commit mode; the self-test passes with the honest stub and FAILS with a blind one (the negative self-test WATCHED to fail);
-# the runner order (flag, environment, mise, bare); the pre-commit hook template (refuses a staged secret, commits a clean change, fails closed). One case runs the real gitleaks when it is on PATH.
+# the runner order (flag, environment, mise, bare); the pre-commit hook template (refuses a staged secret, commits a clean change, fails closed). One case runs the real gitleaks only when `gitleaks version` runs (a shim that cannot run, or no gitleaks, is a stated skip, never a failure).
 . "$(dirname "$0")/lib.sh"
 sandbox
 real=$(command -v gitleaks 2>/dev/null || true); REALPATH=$PATH
@@ -109,11 +109,28 @@ expect_exit "the hook commits again once the scanner is back" 0 hc "chore: more"
 expect_exit "a commit made from a subdirectory runs from the top level" 0 bash -c 'cd "$1" && mkdir -p sub && echo s > sub/s.txt && git add sub/s.txt && cd sub && git commit -q -m sub' _ "$H"
 
 echo "## the real scanner"
-if [ -n "$real" ]; then
-  PATH=$REALPATH; export PATH; rm -f "$T/bin/gitleaks" "$T/bin/mise"
+# Availability is decided by RUNNING the scanner (`gitleaks version`, bare on PATH, the runner the case uses), never by `command -v`: a mise shim with no version set is on PATH and cannot run.
+# A case that cannot run is reported `skip NAME: REASON` (not a pass, not a failure: it adds nothing to the `ran: secrets: N cases` total).
+gl_usable() {   # sets GL_WHY; returns 0 when `gitleaks version` exits 0 and prints a version
+  local out rc=0
+  if ! command -v gitleaks >/dev/null 2>&1; then GL_WHY="no gitleaks on PATH"; return 1; fi
+  if command -v timeout >/dev/null 2>&1; then out=$(timeout 20 gitleaks version 2>&1) || rc=$?; else out=$(gitleaks version 2>&1) || rc=$?; fi
+  if [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -Eq '^v?[0-9]+\.[0-9]+'; then GL_WHY=; return 0; fi
+  GL_WHY="gitleaks is on PATH but cannot run: $(printf '%s\n' "$out" | head -n1)"; [ -n "$out" ] || GL_WHY="gitleaks is on PATH but cannot run: exit $rc, no output"; return 1
+}
+real_case() {
+  if ! gl_usable; then echo "skip the real gitleaks: --selftest passes: $GL_WHY"; return 0; fi
   W=$T/realrepo; git init -q -b main "$W"; git -C "$W" config commit.gpgsign false; cp "$R/.gitleaks.toml" "$W/"; echo hi > "$W/a.txt"; git -C "$W" add -A; git -C "$W" commit -qm "chore: clean"
   expect_exit "the real gitleaks: --selftest passes (planted token found, clean file passes)" 0 bash -c 'cd "$1" && "$2/bin/land-secrets" --runner "" --selftest' _ "$W" "$ROOT"
-else
-  echo "note: gitleaks is not on PATH: the one real-scanner case is not run here (the stub cases above cover the boundary)"
-fi
+}
+PATH=$REALPATH; export PATH; rm -f "$T/bin/gitleaks" "$T/bin/mise"
+real_case
+BR=$T/brokengl; mkdir "$BR"; printf '#!/usr/bin/env bash\necho "mise ERROR No version is set for shim: gitleaks" >&2\necho "Set a global default version with one of the following:" >&2\nexit 1\n' > "$BR/gitleaks"; chmod +x "$BR/gitleaks"
+sub_real_case() ( PATH="$BR:$REALPATH"; real_case )
+expect_exit "a gitleaks shim that cannot run (exit 1, the mise error): the real-scanner case is skipped and the test is not failed (watched: the old command -v rule ran it and got exit 2)" 0 sub_real_case
+out_has "skip the real gitleaks: --selftest passes: gitleaks is on PATH but cannot run: mise ERROR No version is set for shim: gitleaks"
+check "the broken shim really is on PATH, and land-secrets fails closed on it (exit 2): the tool is right, only the availability rule was wrong" bash -c 'PATH="$1:$PATH"; command -v gitleaks | grep -q "$1" && cd "$2" && "$3/bin/land-secrets" --runner "" --selftest; [ $? = 2 ]' _ "$BR" "$R2" "$ROOT"
+sub_no_gl() ( PATH="$NG"; real_case )
+expect_exit "no gitleaks on PATH: the real-scanner case is skipped with its own reason" 0 sub_no_gl
+out_has "skip the real gitleaks: --selftest passes: no gitleaks on PATH"
 finish
