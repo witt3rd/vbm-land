@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# land-pin tree DIR | vendor NAME URL TAG | verify | online | list | skill add|review|adopt|update|list|verify        (docs/pin.md). Run from the repository root, or set LAND_PIN_ROOT.
+# land-pin tree DIR | vendor NAME URL TAG | verify | online | list | skill add|review|adopt|update|list|verify | outdated [--json] | update --all [--only NAME...]        (docs/pin.md). Run from the repository root, or set LAND_PIN_ROOT.
 #   tree DIR  print the tree hash of DIR.
 #   vendor    the ONLY way to add or move a pin: fetch the tag, REFUSE unless it is annotated and signed by a key in the signers file, its message records exactly one tree_sha256= and the exported tree
 #             hashes to it; then replace vendor/NAME and the lock line, and run verify. A refusal changes nothing.
@@ -14,10 +14,13 @@
 #             skill update URL COMMIT SKILL...  [--license|--why|--skip|--root as above]   re-vendor ALL the skills of a source from a newer commit: prints the diff, resets the review
 #             skill list | skill verify   (offline, fast: hashes local directories only; `land-pin verify` runs it too).  Exit 0 done; 1 refused (a refusal changes nothing); 2 usage or a malformed lock.
 #             The tool runs nothing from a skill and decides nothing from reading one: the review aid only PRINTS (the file list, the fenced shell blocks, the URL hosts).
+#   outdated  (docs/pin.md section 9) ONLINE and READ-ONLY: every pin of every kind (library, skill source, the tool) against its source; text or --json. Exit 0 nothing behind, 1 something is, 2 misuse, 3 a source unreachable (1 wins).
+#   update --all [--only NAME...]   one change in the working tree, never a commit, atomic: the report first, then `vendor`, `skill update` and `land-update` as they are. Refuses a dirty tree and an undecided skill. Every skill is `pending` after it.
+#             Both live in lib/outdated.sh; this file only dispatches to them.
 set -euo pipefail
 export LC_ALL=C GIT_TERMINAL_PROMPT=0
 here=$(cd "$(dirname "$0")" && pwd)
-. "$here/../lib/paths.sh"; . "$here/../lib/verify.sh"
+. "$here/../lib/paths.sh"; . "$here/../lib/verify.sh"; . "$here/../lib/outdated.sh"
 root=${LAND_PIN_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}
 die() { echo "land-pin: $*" >&2; exit 2; }
 refuse() { echo "land-pin: REFUSED $*" >&2; exit 1; }
@@ -428,6 +431,8 @@ case ${1:-} in
   verify) [ $# = 1 ] || die "usage: land-pin verify"; verify_all;;
   skill) shift; skill_cmd "$@";;
   online) [ $# = 1 ] || die "usage: land-pin online"; online;;
+  outdated) shift; outdated_cmd "$@";;
+  update) shift; update_all_cmd "$@";;
   list) [ $# = 1 ] || die "usage: land-pin list"; read_lock; for n in ${L_NAME[@]+"${L_NAME[@]}"}; do echo "$n"; done;;
-  *) die "usage: land-pin tree DIR | vendor NAME URL TAG | verify | online | list | skill add|review|adopt|update|list|verify";;
+  *) die "usage: land-pin tree DIR | vendor NAME URL TAG | verify | online | list | skill add|review|adopt|update|list|verify | outdated [--json] | update --all [--only NAME...]";;
 esac
