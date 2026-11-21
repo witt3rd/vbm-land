@@ -3,6 +3,7 @@
 #
 #   land-direct [--validate] [--check] [--group] [--conf PATH] [<rev>]   lands the commits <remote>/<base>..<rev> (default HEAD) of the worktree it is run in,
 #                                                             each as itself (linear history). --check runs only the land-time checks.
+#   --conf PATH: PATH is a path IN <remote>/<base> (default $LAND_CONF_FILE), the configuration file read from the base. It is not the operator's LAND_CONF (below), which is a FILE on disk.
 #   --group: the commits are batch entries a coordinator already checked one by one: the size budget is waived.
 #   land-direct --hold "<reason>" | --release                 stop / allow landings in this clone (checked at the start and again before the push)
 #   land-direct --freeze "<reason>" --owner NAME --for 6h     freeze landing but for fixes and reverts (owner and expiry are required) | --thaw
@@ -17,6 +18,7 @@
 #
 # CONFIGURATION is the repository's own file (default $LAND_CONF_FILE, lib/paths.sh; lib/conf.sh documents every key). It is read from <remote>/<base>, i.e. from what main
 # already says, so a commit cannot loosen the rules it is judged by; only when main has no such file yet (the first landing) is the working tree's copy used.
+# The AREAS file (.land/areas.json) is read from the base ONLY: a base with none is judged by its own configuration (LAND_TEST_CMD, ...) entirely, the working tree's file being validated and not applied (docs/areas.md section 7).
 # HOOKS are repository-owned executables in LAND_HOOKS_DIR, taken from <remote>/<base> too: pre-rebase, post-rebase, post-tier1, json-fields, on-run, prepare.
 #
 # Exit codes (the contract): 0 landed | 1 stopped with a plain message (base kept moving, push refused, a bad commit message) | 2 bad input or bad config |
@@ -34,7 +36,7 @@
 #   --check and --push start nothing heavy (docs/no-build-host.md).
 # BOUNDED: every step runs under `timeout --kill-after=30`: LAND_TIER1_TIMEOUT (Tier 1, regeneration of generated files by Tier 1 is part of it), LAND_STEP_TIMEOUT
 #   (hooks, regeneration), LAND_GIT_TIMEOUT (fetch, push). A step that runs over is killed with one plain line and the run stops as that step's failure.
-# Operator environment (not policy): REMOTE-independent knobs LAND_CONF, LAND_FIX_FOR_RED=1 (treat this change as a fix, so it passes a freeze), LAND_DIRECT_LOG, and the
+# Operator environment (not policy): REMOTE-independent knobs LAND_CONF (a configuration FILE on disk, read instead of the base's: the owner's recovery override, not a migration path; --conf names a path in the base), LAND_FIX_FOR_RED=1 (treat this change as a fix, so it passes a freeze), LAND_DIRECT_LOG, and the
 #   timeouts above. Policy keys are never read from the environment.
 # Commands the lander runs get: LAND_TOP (the worktree landed from), LAND_BASE_REF (<remote>/<base>), LAND_STATE_DIR (shared by every run of the clone: hold, freeze, metrics), LAND_RUN_DIR (this run's own: scratch worktree, hooks, logs), LAND_ATTEMPT (1, 2, ...) and LAND_PREV_BASE (the base commit the last attempt validated against; empty on the first), LAND_TASK (the tip's first required trailer value).
 set -euo pipefail
@@ -44,7 +46,7 @@ here=$(cd "$(dirname "$0")" && pwd); lib=$here/../lib
 o_t1=${LAND_TIER1_TIMEOUT:-}; o_st=${LAND_STEP_TIMEOUT:-}; o_gt=${LAND_GIT_TIMEOUT:-}; o_conf=${LAND_CONF:-}; o_fixred=${LAND_FIX_FOR_RED:-}
 conf_defaults
 
-usage() { echo "usage: land-direct [--validate] [--check] [--group] [--conf PATH] [<rev>] | --push SHA | --hold REASON | --release | --freeze REASON --owner NAME --for DURATION | --thaw | --status | --print-gate-diff-hash FILE-SET [<rev>] | --print-gate-diff FILE-SET [<rev>] | --version" >&2; exit 2; }
+usage() { echo "usage: land-direct [--validate] [--check] [--group] [--conf PATH-IN-BASE] [<rev>] | --push SHA | --hold REASON | --release | --freeze REASON --owner NAME --for DURATION | --thaw | --status | --print-gate-diff-hash FILE-SET [<rev>] | --print-gate-diff FILE-SET [<rev>] | --version" >&2; exit 2; }
 dry=0; pushmode=0; pushrev=; checkonly=0; group=0; confpath=$LAND_CONF_FILE; [ -z "$o_conf" ] || confpath=$o_conf; args=(); op=; opreason=; owner=; dur=; pfile=
 while [ $# -gt 0 ]; do case $1 in
   --validate) dry=1;; --check) checkonly=1;; --group) group=1;;

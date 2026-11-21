@@ -134,4 +134,53 @@ sed -i 's|areas_steps "\$wt" "\$run" "\$lt";|:;|' "$mk/lib/areas.sh"; cmp -s "$m
 worker w8; commit "$T/w8" app/z.c 1; commit "$T/w8" app/BAD 1 "feat: bad2"
 ( cd "$T/w8" && "$mk/bin/land-direct" > "$T/out" 2>&1 ) && rc=0 || rc=$?
 check "a lander that runs no step lands a red change (so the real one's exit 13 above is the gate)" test "$rc" = 0
+
+echo "## the FIRST adoption lands with no override: the base judges, the new file is validated and not applied (docs/areas.md section 7)"
+sandbox
+set_conf 'LAND_BASE=main' 'LAND_TEST_CMD=echo ran >> $LAND_STATE_DIR/old-t1; test -e gate.ok'
+adopt() {   # adopt DIR: a commit that adds an areas file and removes the key (the whole gate as one area)
+  commit "$1" .land/areas.json '{"version":1,"areas":[{"name":"all","paths":["*"],"steps":[{"run":"true"}]}]}' "feat: adopt areas"
+  printf '%s\n' 'LAND_BASE=main' > "$1/$LAND_CONF_FILE"; git -C "$1" add "$LAND_CONF_FILE"; git -C "$1" commit -qm "chore: drop LAND_TEST_CMD" -m "Task-ID: t1"; }
+worker a1; adopt "$T/a1"
+expect_exit "adoption is judged by the BASE's Tier 1, which is red here (no override, exit 13)" 13 bash -c "cd '$T/a1' && '$L'"
+check "the base's command ran (it, not the new file, judged)" test -e "$T/a1/.git/vbm-land/old-t1"
+check "nothing reached the remote" bash -c "! git -C '$T/remote.git' cat-file -e main:.land/areas.json"
+seed_push gate.ok 1; git -C "$T/a1" fetch -q origin
+( cd "$T/a1" && git rebase -q origin/main )
+expect_exit "adoption lands once the base's own gate is green: no LAND_CONF, no override" 0 bash -c "cd '$T/a1' && env -u LAND_CONF '$L'"
+out_has "NOT applied"; check "the summary line carries no areas (the base's rules judged)" bash -c "! tail -n1 '$T/out' | grep -q '\"areas\"'"
+check "the areas file is on the base now and LAND_TEST_CMD is gone" bash -c "git -C '$T/remote.git' cat-file -e main:.land/areas.json && ! git -C '$T/remote.git' show main:$LAND_CONF_FILE | grep -q LAND_TEST_CMD"
+worker a2; commit "$T/a2" docs/n.md 1
+expect_exit "the NEXT landing is judged by the areas" 0 bash -c "cd '$T/a2' && '$L'"
+out_has '"areas":\["all"\]'
+echo "## a malformed file in the working tree refuses the adoption (validated, not applied)"
+sandbox; set_conf 'LAND_BASE=main' 'LAND_TEST_CMD=true'
+worker a3; commit "$T/a3" .land/areas.json '{"version":1,"areas":[]}' "feat: bad areas"
+expect_exit "malformed areas file beside a base with none" 2 bash -c "cd '$T/a3' && '$L'"; out_has "areas must be a non-empty list"
+echo "## the lander that APPLIES the working tree's file (the old behaviour) is caught: the same adoption is refused"
+sandbox; set_conf 'LAND_BASE=main' 'LAND_TEST_CMD=true'
+worker a4; adopt "$T/a4"
+cp "$ROOT/lib/areas.sh" "$mk/lib/areas.sh"; cp "$ROOT/lib/areas.py" "$mk/lib/"
+cat >> "$mk/lib/areas.sh" <<'M'
+areas_setup() { have_areas=0; LAND_AREAS_ON=0; areas_fetch "$1" "$2" "$3/areas.json" || return 0; areas_run validate --file "$3/areas.json" || return 2; have_areas=1; LAND_AREAS_ON=1; }
+M
+expect_exit "the mutant refuses the adoption: both sources beside the file" 2 bash -c "cd '$T/a4' && '$mk/bin/land-direct'"; out_has "refused beside .land/areas.json"
+expect_exit "the real lander lands the same commits" 0 bash -c "cd '$T/a4' && '$L'"
+
+echo "## a commit is judged by the BASE's areas: deleting what they run is refused, and the order of the migration lands"
+sandbox; set_conf 'LAND_BASE=main'
+cat > "$T/ba.json" <<'J'
+{"version":1,"areas":[{"name":"all","paths":["*"],"steps":[{"run":"sh scripts/chk.sh"}]}]}
+J
+seed_push scripts/chk.sh 'exit 0'; seed_push .land/areas.json "$(cat "$T/ba.json")" "chore: areas"; seed_push scripts/new.sh 'exit 0'
+worker d1; git -C "$T/d1" rm -q scripts/chk.sh; git -C "$T/d1" commit -qm "chore: drop the old check" -m "Task-ID: t1"
+expect_exit "a commit that deletes a script the base's areas run is refused (exit 13)" 13 bash -c "cd '$T/d1' && '$L'"
+out_has "area all, step 'sh scripts/chk.sh'"; out_has "never of this change"
+worker d2; git -C "$T/d2" rm -q scripts/chk.sh
+printf '%s\n' '{"version":1,"areas":[{"name":"all","paths":["*"],"steps":[{"run":"sh scripts/new.sh"}]}]}' > "$T/d2/.land/areas.json"; git -C "$T/d2" add -A; git -C "$T/d2" commit -qm "chore: new areas and drop the old check" -m "Task-ID: t1"
+expect_exit "so is one commit that does both (the new file cannot loosen the rules it is judged by)" 13 bash -c "cd '$T/d2' && '$L'"
+worker d3; printf '%s\n' '{"version":1,"areas":[{"name":"all","paths":["*"],"steps":[{"run":"sh scripts/new.sh"}]}]}' > "$T/d3/.land/areas.json"; git -C "$T/d3" add -A; git -C "$T/d3" commit -qm "chore: new areas" -m "Task-ID: t1"
+expect_exit "migration step 1: the additive landing lands" 0 bash -c "cd '$T/d3' && '$L'"
+worker d4; git -C "$T/d4" rm -q scripts/chk.sh; git -C "$T/d4" commit -qm "chore: drop the old check" -m "Task-ID: t1"
+expect_exit "migration step 2: the deletion lands" 0 bash -c "cd '$T/d4' && '$L'"
 finish

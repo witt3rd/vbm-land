@@ -13,16 +13,23 @@ areas_run() {
   command -v python3 >/dev/null 2>&1 || { echo "land-areas: python3 is required to read $LAND_AREAS_FILE (it is the JSON decoder)" >&2; return 2; }
   python3 "$(dirname "${BASH_SOURCE[0]}")/areas.py" "$@"
 }
-# areas_fetch TOP REF DEST: the repository's areas file from REF (what the base already says: a commit cannot loosen the rules it is judged by), else, before the base has one, the working tree's copy. 1 when there is none.
+# areas_fetch TOP REF DEST: the repository's areas file from REF (what the base already says: a commit cannot loosen the rules it is judged by), else the working tree's copy (the offline report and the release candidate; the lander does NOT judge by it, see areas_setup). 1 when there is none.
 areas_fetch() {
   if git -C "$1" cat-file -e "$2:$LAND_AREAS_FILE" 2>/dev/null; then git -C "$1" show "$2:$LAND_AREAS_FILE" > "$3"
   elif [ -r "$1/$LAND_AREAS_FILE" ]; then cp "$1/$LAND_AREAS_FILE" "$3"
   else return 1; fi
 }
-# areas_setup TOP REF RUN: does the repository have an areas file (on REF, else in the working tree)? Sets have_areas (0 or 1) and LAND_AREAS_ON (read by conf_validate), and leaves the file at RUN/areas.json. A malformed one: 2 with the reason.
+# areas_setup TOP REF RUN: does REF (the base) have an areas file? Sets have_areas (0 or 1) and LAND_AREAS_ON (read by conf_validate), and leaves the file at RUN/areas.json. A malformed one: 2 with the reason.
+# ONLY the base's file judges a landing (docs/areas.md section 7). A base with none is judged by its own land.conf entirely; the working tree's file, if any, is validated (a malformed one refuses) and not applied.
 areas_setup() {
   have_areas=0; LAND_AREAS_ON=0
-  areas_fetch "$1" "$2" "$3/areas.json" || return 0
+  if git -C "$1" cat-file -e "$2:$LAND_AREAS_FILE" 2>/dev/null; then git -C "$1" show "$2:$LAND_AREAS_FILE" > "$3/areas.json"
+  elif [ -r "$1/$LAND_AREAS_FILE" ]; then
+    cp "$1/$LAND_AREAS_FILE" "$3/areas.pending.json"
+    areas_run validate --file "$3/areas.pending.json" || { echo "land-direct: $LAND_AREAS_FILE is refused (above); nothing landed" >&2; return 2; }
+    echo "land-direct: $LAND_AREAS_FILE is valid and NOT applied: $2 has none yet, so this landing is judged by $2's own rules; areas apply from the next landing on (docs/areas.md section 7)"
+    return 0
+  else return 0; fi
   areas_run validate --file "$3/areas.json" || { echo "land-direct: $LAND_AREAS_FILE is refused (above); nothing landed" >&2; return 2; }
   have_areas=1; LAND_AREAS_ON=1
 }
@@ -34,7 +41,7 @@ areas_steps() {
     echo "land-direct: area $a: step $i: $r$([ "$c" = . ] || echo " (in $c)")"
     LAND_TEST_CMD=$r; stepcwd=$c; lt=$left; step=tier1-$a   # a step is run as the `tests` stage (an areas file refuses LAND_TEST_CMD, so it is free): the same bound, log, failed-names record and inherited-red rule
     t1stage tests "$wt/$c" "$run/tier1.$i.log" "$run/failed.step" || {
-      inherited_red tests || { logfile=$run/tier1.$i.log; tail -15 "$logfile" >&2; lastlines=$(tail -5 "$logfile"); stop 13 tier1 "Tier 1: area $a, step '$r' fails on the rebased commits${newfail:+ (a failure $base does not have: $newfail)} (log: $logfile); nothing lands."; }
+      inherited_red tests || { logfile=$run/tier1.$i.log; tail -15 "$logfile" >&2; lastlines=$(tail -5 "$logfile"); stop 13 tier1 "Tier 1: area $a, step '$r' fails on the rebased commits${newfail:+ (a failure $base does not have: $newfail)} (log: $logfile); nothing lands. The steps are those of the areas file on $base, never of this change: a commit that deletes what they run lands second (docs/areas.md section 7)."; }
       inherited=1; echo "land-direct: area $a, step '$r' fails, but only with failures $base already has (inherited red: not yours); landing"; }
   done < "$run/areas.d/steps0"
   LAND_TEST_CMD=; stepcwd=; lt=$3

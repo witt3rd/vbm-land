@@ -10,7 +10,7 @@ The model is adopted from a sibling tool that has run it in production. Its rule
 
 ## 1. The areas file
 
-`.land/areas.json`, JSON, read from `origin/<base>` exactly like `land.conf` (a commit cannot loosen the rules it is judged by; only the first landing, when the base has no such file yet, uses the working tree's copy). **The presence of the file turns areas on** (as `.land/lean.conf` turns the Lean gates on); no `land.conf` key is added. Everything under `.land/` is in the protected set (section 2, rule 5), so this file is.
+`.land/areas.json`, JSON, read from `origin/<base>` exactly like `land.conf` (a commit cannot loosen the rules it is judged by). When the base has no such file yet, the working tree's copy is **validated** (a malformed one refuses) and is **not applied**: that landing is judged by the base's own rules (section 7, theorem). **The presence of the file turns areas on** (as `.land/lean.conf` turns the Lean gates on); no `land.conf` key is added. Everything under `.land/` is in the protected set (section 2, rule 5), so this file is.
 
 ```json
 {
@@ -81,6 +81,8 @@ decide(areas, inert, protected, changes, release_candidate):
 The vectors are the specification where this text is short.
 
 ## 3. Concurrency
+
+**The judge is the base.** A landing is judged by the areas file and the steps **on `origin/<base>`**, never by the ones its own commits carry: a commit that changes the areas file, or deletes what a step runs, is decided and run by the base's file, so a commit cannot loosen the rules it is judged by. The consequence for a change that moves the factoring is an order of landings (section 7, "The migration order"); a landing that deletes a script the base's steps run fails its own gate (exit 13, and the message says the steps are the base's).
 
 ### 3.1 Why whole-gate validation does not scale
 
@@ -195,7 +197,7 @@ The landings record (`docs/landings.md`) carries the same keys in the same way, 
 
 | exists | with an areas file |
 |---|---|
-| `LAND_TEST_CMD`, `LAND_GATES_CMD` | **refused together** with the file (exit 2): Tier 1 is the steps. `land.conf`'s rule "at least one command is set" reads "or an areas file" |
+| `LAND_TEST_CMD`, `LAND_GATES_CMD` | **refused together** with the file **on the base** (exit 2): Tier 1 is the steps. `land.conf`'s rule "at least one command is set" reads "or an areas file on the base". A commit that adds the file and removes the keys is not refused: the base has no file yet (section 7, theorem) |
 | `LAND_INERT` | works (rule 6); its patterns are the area `inert`; retired in the next major release |
 | `LAND_PROTECTED` | its paths run every area; they are not unmapped |
 | `LAND_REUSE` | `1` turns on area-level reuse (3.2); `LAND_AFFECTS_CMD` refused with the file |
@@ -207,15 +209,30 @@ The landings record (`docs/landings.md`) carries the same keys in the same way, 
 
 ## 7. How a project migrates
 
-A repository with only `LAND_TEST_CMD` **keeps working**: with no areas file it has one implicit area `all` that owns everything (rule 6), so nothing changes until it chooses to. It adopts areas by *splitting* that one area:
+A repository with only `LAND_TEST_CMD` **keeps working**: with no areas file it has one implicit area `all` that owns everything (rule 6), so nothing changes until it chooses to.
 
-1. **Start with one area that is the whole gate.** Write `.land/areas.json` with one area `all`, `paths: ["*"]`, whose steps are the commands of `LAND_GATES_CMD` and `LAND_TEST_CMD`, and delete those two keys. The verdicts are the same as before. This landing runs the full suite (it touches `.land/`).
+**The adoption theorem.** Let `B` be the base a landing is judged on and `C` the commit's net change.
+1. If `B` has **no** areas file, the landing is judged by `B`'s rules entirely: `B`'s `land.conf` (`LAND_GATES_CMD`, `LAND_TEST_CMD`, its Tier 1, its hooks). `C`'s `.land/areas.json`, if any, is only **validated** (`land-areas validate`; a malformed file refuses, exit 2) and is not what judges. `C` may add the file and remove `LAND_GATES_CMD` and `LAND_TEST_CMD` in the same landing: no key of `C` is read, so nothing is refused beside the file. No override is needed or used.
+2. If `B` has an areas file, the landing is judged by `B`'s file and `B`'s steps, whatever `C` changes in it (a change to the file touches `.land/`, so it runs the full suite of `B`'s areas), and `LAND_GATES_CMD`/`LAND_TEST_CMD` in `B`'s `land.conf` are refused (exit 2).
+3. Hence the first areas landing is the last one judged by the old rules, and the **next landing** is the first one judged by the areas. `tests/test_areas.sh` checks (1) and (2) on fixture repositories, with the negative of each watched to fail.
+
+The `LAND_CONF` environment variable (a configuration file on disk, the owner's recovery override) is **not** a step of this migration; `--conf PATH` is a path **in the base** (default `.land/land.conf`), another thing.
+
+**The migration order.** Because the base judges, a change that moves the factoring lands in two kinds of landing, additions first:
+
+1. **Additive landing.** Land what only adds: the new step scripts, the new areas file (and, while the base has none, the removal of `LAND_GATES_CMD`/`LAND_TEST_CMD`). Everything the base's steps run still exists, so the base's gate passes.
+2. **Deleting landing.** Only now, with the new file on the base, land the deletions of what the old areas (or the old commands) ran: a script, a Makefile target, a test file. Landed in step 1 they would fail the base's gate, which still runs them (exit 13, naming the area and step).
+3. A rename of a script is both: add the new name in step 1, point the areas at it, delete the old name in step 2.
+
+It adopts areas by *splitting* that one area:
+
+1. **Start with one area that is the whole gate.** Write `.land/areas.json` with one area `all`, `paths: ["*"]`, whose steps are the commands of `LAND_GATES_CMD` and `LAND_TEST_CMD`, and delete those two keys, in **one** landing. It is judged by the base's rules (theorem, 1): the old Tier 1 runs, and the new file is validated. The verdicts from the next landing on are the same as before.
 2. **Peel the documents.** A stepless area for what no check reads (`docs/*`, `CHANGELOG.md`): this replaces `LAND_INERT`, which can then be deleted. Remove those paths from `all`'s `paths` as you split, or keep `*` and let overlap show you what is left.
 3. **Split by seam**, the one the changes actually follow. Run `land-check --areas` after each step: the overlap is the price of the split, the unmapped list is what the split has not yet placed. The first goal is *no unmapped path that is not on purpose*; the second is shrinking the overlap.
 4. **Audit each new area** (3.3) before trusting it, and run the release candidate after the split lands. Count escapes: an escape is an area whose `paths` need widening. A repository that sees many escapes should hold the split where it is.
 5. **Turn on `LAND_REUSE=1`** once the candidate has been green with the factoring for a release.
 
-Every one of these is a landing like any other; a change to the areas file runs the full suite, so a bad split is caught by the thing it changes.
+Every one of these is a landing like any other, judged by the base (section 3): a change to the areas file runs the full suite of the base's areas, so a bad split is caught by the file it replaces. Each step of the split that moves a script goes in the order above.
 
 ## 8. Worked examples
 
