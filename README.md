@@ -218,6 +218,7 @@ The last line of stdout is JSON, and it is what a caller reads, never the text a
 | `LAND_CONVENTIONAL`, `LAND_COMMIT_TYPES` | `1`, the usual types | Require `type(scope): summary` subjects; git's own `Revert "..."` is accepted. |
 | `LAND_PROTECTED` | none | Shell patterns (`*` matches `/`): the gate-defining set. A change that touches it is judged by the `post-rebase` hook. |
 | `LAND_INERT` | none | Shell patterns (`*` matches `/`): paths that no Tier 1 command, hook or reviewer reads (a changelog, prose docs). A change whose every touched path matches, with none of them in `LAND_PROTECTED`, skips Tier 1 and the `post-tier1` hook (where a reviewer runs), and its summary line then carries `"validation":"inert"`. See "Inert paths" below. |
+| `LAND_INERT_<PHASE>` | none | Per-phase inert lists (contract: [docs/phases.md](docs/phases.md)): `PHASE` is upper-case letters, digits, `_`; the same patterns as `LAND_INERT`, naming the paths that phase does not read (`LAND_INERT` is implied in each). A phase is skipped when every changed path matches its list, none is deleted or protected; no list, every phase runs; the gate asks with `land-phase NAME`. |
 | `LAND_HOOKS_DIR` | `.land/land.d` | Where the repository's hooks live. |
 | `LAND_REUSE`, `LAND_AFFECTS_CMD` | `0`, none | Reuse (above): `1` skips the re-validation of a landing whose base moved only in paths unrelated to the change; the command (paths on stdin, the paths they affect on stdout) widens "unrelated" beyond the same file. |
 | `LAND_RC_CMD`, `LAND_RC_TIMEOUT` | none, `7200` s | The release candidate's full suite (4.8): `land-release` runs it with `LAND_RC=1` on the exact `HEAD` before any tag, and makes no tag unless it exits 0; `land-release --rc` runs it alone. |
@@ -242,6 +243,8 @@ A change that touches only a changelog or prose documentation has nothing for a 
 - The lander still checks holds and freezes, the commit rules, the signing-key rule, the vendored-copy drift check and the `post-rebase` hook; it still rebases onto the base and pushes a fast-forward. Only Tier 1 and the `post-tier1` hook are skipped, and the summary line says so (`"validation":"inert"`; the key is absent otherwise, so the usual line keeps its shape).
 
 **The set is a declaration, and a wrong declaration skips a check that should have judged the change.** Keep it small and specific (`CHANGELOG.md`, `docs/*.md` that nothing reads), and check it the way the rest of the discipline checks things: whatever verifies the release candidate (a full run that skips nothing, not cached, not selected, not shortened by `LAND_INERT`) is the audit of this list. A path that fails the release candidate only because it was declared inert is the signal to remove it from the list.
+
+A gate with phases (a Lean build, a web build, a document check) can say which phases a path does not reach, so a change runs only what it can affect and the release candidate runs all of them: `LAND_INERT_<PHASE>`, specified in [docs/phases.md](docs/phases.md).
 
 ### 6.4 Hooks
 

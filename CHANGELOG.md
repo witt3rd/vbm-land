@@ -193,6 +193,7 @@ Upgrade notes: delete your `.github/workflows/` (CI, the watchdog and the update
 
 ## Unreleased
 
+- docs: `docs/phases.md`, the contract for per-phase inert lists (`LAND_INERT_<PHASE>`, `LAND_PHASES_SKIP`, `LAND_TOUCHED`, `bin/land-phase`, `"skipped_phases"` in the summary). A specification only: no code and no interface changes in this entry; the release that builds it is a minor one (additive).
 - internal: lib/paths.sh defines every consumer path in one place (no behaviour change).
 ## Strip (a deletion release: nothing is added, 1.4k lines go)
 - **Removed: gate-edit approvals, protected-paths lists, the `Protected:` trailer, the append-only judge, the diff budget, `--print-gate-diff[-hash]`.** The keys `LAND_APPROVALS`, `LAND_APPROVAL_DAYS`, `LAND_PROTECTED_LIST`, `LAND_PROTECTED_APPROVALS`, `LAND_GATE_APPEND_ONLY`, `LAND_PROD_PATHS` and `LAND_BUDGET_LINES` are read and ignored (named once). Reason: in a week 50 of 59 stops were false and approvals stopped nothing.
