@@ -39,7 +39,7 @@
 # Commands the lander runs get: LAND_TOP (the worktree landed from), LAND_BASE_REF (<remote>/<base>), LAND_STATE_DIR (shared by every run of the clone: hold, freeze, metrics), LAND_RUN_DIR (this run's own: scratch worktree, hooks, logs), LAND_ATTEMPT (1, 2, ...) and LAND_PREV_BASE (the base commit the last attempt validated against; empty on the first), LAND_TASK (the tip's first required trailer value).
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd); lib=$here/../lib
-. "$lib/conf.sh"; . "$lib/freeze.sh"; . "$lib/paths.sh"
+. "$lib/conf.sh"; . "$lib/freeze.sh"; . "$lib/paths.sh"; . "$lib/areas.sh"
 # operator knobs first, then clear every policy variable so only the repository's file can set policy
 o_t1=${LAND_TIER1_TIMEOUT:-}; o_st=${LAND_STEP_TIMEOUT:-}; o_gt=${LAND_GIT_TIMEOUT:-}; o_conf=${LAND_CONF:-}; o_fixred=${LAND_FIX_FOR_RED:-}
 conf_defaults
@@ -168,11 +168,13 @@ if [ -n "$o_conf" ] && [ -r "$o_conf" ]; then conf_parse "$o_conf" < "$o_conf" |
 elif git -C "$top" cat-file -e "$remote/$base:$confpath" 2>/dev/null; then conf_parse "$remote/$base:$confpath" < <(git -C "$top" show "$remote/$base:$confpath") || exit 2; confsrc="$remote/$base:$confpath"
 elif [ -r "$top/$confpath" ]; then conf_parse "$confpath" < "$top/$confpath" || exit 2; confsrc="$confpath (working tree: $base has no $confpath yet)"
 else badinput "no configuration: $remote/$base has no $confpath and neither has the working tree (see lib/conf.sh)"; fi
+areas_setup "$top" "$remote/$base" "$run" || exit 2
 conf_validate || exit 2
 if [ "$LAND_REMOTE" != "$remote" ] || [ "$LAND_BASE" != "$base" ]; then   # the file names another remote or base: fetch that one
   remote=$LAND_REMOTE; base=$LAND_BASE
   git -C "$top" remote get-url "$remote" >/dev/null 2>&1 || badinput "LAND_REMOTE=$remote: no such remote"
   fetch_base "${o_gt:-$LAND_GIT_TIMEOUT}" "$top" || die "cannot fetch $remote $base"
+  areas_setup "$top" "$remote/$base" "$run" || exit 2; conf_validate || exit 2
 fi
 export LC_ALL=$LAND_LOCALE
 lt=${o_t1:-$LAND_TIER1_TIMEOUT}; st=${o_st:-$LAND_STEP_TIMEOUT}; gt=${o_gt:-$LAND_GIT_TIMEOUT}
@@ -238,6 +240,7 @@ freezecheck() { freeze_active "$freezef" || return 0
 holdcheck; freezecheck
 
 # Tier 1 is two stages, the gates command then the test command. t1stage STAGE DIR LOG runs one of them in DIR (no command = nothing to run); 0 = green.
+stepcwd=   # the directory of an areas step (lib/areas.sh areas_steps), for the base run of inherited_red
 t1cmd() { case $1 in gates) echo "$LAND_GATES_CMD";; *) echo "$LAND_TEST_CMD";; esac; }
 t1stage() { local c; c=$(t1cmd "$1"); [ -z "$c" ] || { heavy_gate; : > "$4"; (cd "$2" && LAND_FAILED_FILE=$4 bounded "$lt" "Tier 1 $1" bash -c "$c") >"$3" 2>&1; }; }   # $4: where the command may RECORD what failed (LAND_FAILED_FILE: one name per line)
 # inherited_red STAGE: a landing must not ADD a failure, and one already on the base is not its fault. The Tier 1 commands RECORD what failed, one name per line, in $LAND_FAILED_FILE (bin/run-tests-parallel does
@@ -247,7 +250,7 @@ inherited_red() {
   local mine theirs; newfail=; mine=$(LC_ALL=C sort -u "$run/failed.$1" 2>/dev/null || true); [ -n "$mine" ] || return 1
   rm -rf "$run/base"; git -C "$top" worktree add -q -f --detach "$run/base" "$bsha" || return 1
   hookcwd=$run/base run_hook prepare || return 1
-  t1stage "$1" "$run/base" "$run/base.log" "$run/failed.base.$1" || true
+  t1stage "$1" "$run/base${stepcwd:+/$stepcwd}" "$run/base.log" "$run/failed.base.$1" || true
   theirs=$(LC_ALL=C sort -u "$run/failed.base.$1" 2>/dev/null || true)
   newfail=$(comm -23 <(printf '%s\n' "$mine") <(printf '%s\n' "$theirs") | sed -n 1p | cut -c1-200)
   git -C "$top" worktree remove -f "$run/base" >/dev/null 2>&1 || true
@@ -350,6 +353,7 @@ while :; do
   # inert paths (LAND_INERT): when EVERY path this landing changes is declared inert, and none is in the protected set, there is nothing for Tier 1 to judge (no command, hook or reviewer reads
   # these paths: the project declares it and audits it): it is not run, and neither is the post-tier1 hook. One non-inert path, or a protected one, and the whole of Tier 1 runs as always.
   inert=0
+  if [ "$have_areas" = 1 ]; then areas_tier1; else   # an areas file (docs/areas.md): its steps are Tier 1; closed by the fi after the line that sets t1 for inert and reused
   if [ ${#inert_globs[@]} -gt 0 ] && [ -z "$prot_hit" ] && [ -s "$run/touched.txt" ]; then
     g diff --name-status --no-renames "$bsha" > "$run/touched.paths.txt"   # a rename is a deletion plus an addition here (touched.txt, which the hooks and the signers rule read, is unchanged): a file moved INTO an inert path is still seen leaving its old one
     # a path that is DELETED (or renamed away) is never inert: a check can read a file's existence (a ledger entry citing it), and nothing can tell that from its content; editing or adding an inert path is what the declaration covers
@@ -371,6 +375,7 @@ while :; do
   step=post-tier1-hook; run_hook post-tier1 || stop 12 refused "the post-tier1 hook refused this change (a gate that judges the tree after Tier 1, such as an attack suite; see above)"
   fi
   [ "$inert$reuse" = 00 ] || { t1=0; prev=$bsha; }
+  fi
   # Tier 1 may render generated files: dirty only in generated paths = they were stale: commit them as a commit of the lander (carrying the tip's trailers)
   dirty=$(g status --porcelain | sed 's/^...//'); strays=$(grep -vxFf <(printf '%s\n' "$gen") <<<"$dirty" || true)
   [ -z "$strays" ] || stop 13 tier1 "Tier 1 left changes outside the generated paths: $(echo $strays); not landing."

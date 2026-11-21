@@ -70,7 +70,10 @@ conf_validate() {
   [[ "$LAND_REUSE" =~ ^[01]$ ]] || b "LAND_REUSE must be 0 or 1 (is '$LAND_REUSE')"
   [ "$LAND_ATTEMPTS" -ge 1 ] 2>/dev/null || b "LAND_ATTEMPTS must be at least 1 (is '$LAND_ATTEMPTS')"
   [[ "$LAND_REQUIRE_TRAILERS" =~ ^[A-Za-z0-9\ -]*$ ]] || b "LAND_REQUIRE_TRAILERS: trailer names are letters, digits and - separated by spaces"
-  [ -n "$LAND_GATES_CMD$LAND_TEST_CMD" ] || b "neither LAND_GATES_CMD nor LAND_TEST_CMD is set: there is no Tier 1, so nothing could gate a landing"
+  if [ "${LAND_AREAS_ON:-0}" = 1 ]; then   # an areas file (docs/areas.md): Tier 1 is its steps, and the lander never invents a command
+    [ -z "$LAND_GATES_CMD$LAND_TEST_CMD" ] || b "LAND_GATES_CMD and LAND_TEST_CMD are refused beside $LAND_AREAS_FILE: Tier 1 is the steps of the areas"
+    [ -z "$LAND_AFFECTS_CMD" ] || b "LAND_AFFECTS_CMD is refused beside $LAND_AREAS_FILE: the overlap of the areas is the declared dependency"
+  else [ -n "$LAND_GATES_CMD$LAND_TEST_CMD" ] || b "neither LAND_GATES_CMD nor LAND_TEST_CMD is set (and there is no $LAND_AREAS_FILE): there is no Tier 1, so nothing could gate a landing"; fi
   [ -z "$bad" ] || { echo "land.conf: $bad" >&2; return 2; }
 }
 
