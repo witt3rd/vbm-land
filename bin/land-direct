@@ -28,8 +28,10 @@
 #   ($LAND_DIRECT_LOG, default <git common dir>/vbm-land/metrics.jsonl): ts, result, commits, commit (the tip handed over), attempts, inherited_red, tier1_s, total_s.
 #   Tier 1 that fails ONLY with failures the bare base already has (the names the Tier 1 commands record in $LAND_FAILED_FILE; one extra run, only then) passes as "inherited red": a landing must not ADD a failure.
 #   The landings record is typed and versioned: {"v":1,"at","sha","base","commits","tier1_seconds","result","exit","first_commit_at"} (+ "validation" when inert or reused); a write that fails never changes the result or the exit code.
-# NO-BUILD HOST: before anything else (no git call, no scratch directory, no network) a landing or --validate asks bin/no-build-guard; a host with a no-build marker exits 2 with the guard's message and starts nothing. No override.
-#   --status/--hold/--release/--freeze/--thaw/--version/--check/--print-gate-diff[-hash] and --push start nothing heavy and are allowed there (docs/no-build-host.md).
+# NO-BUILD HOST: the guard (bin/no-build-guard, the one reader of the marker) is asked at the HEAVY command, not at the door: heavy_gate runs immediately before the first command that can be heavy (Tier 1, every hook,
+#   the regeneration, LAND_GEN_CMD and LAND_AFFECTS_CMD commands) and a host with a no-build marker exits 2 with the guard's message, saying nothing landed and nothing was pushed. Git work (fetch, rebase, the inert and
+#   reuse decisions, the push) is light and runs on any host, so an inert landing lands there. A guard that is missing refuses a heavy command (fail closed), not an inert landing. No override. The operator operations,
+#   --check and --push start nothing heavy (docs/no-build-host.md).
 # BOUNDED: every step runs under `timeout --kill-after=30`: LAND_TIER1_TIMEOUT (Tier 1, regeneration of generated files by Tier 1 is part of it), LAND_STEP_TIMEOUT
 #   (hooks, regeneration), LAND_GIT_TIMEOUT (fetch, push). A step that runs over is killed with one plain line and the run stops as that step's failure.
 # Operator environment (not policy): REMOTE-independent knobs LAND_CONF, LAND_FIX_FOR_RED=1 (treat this change as a fix, so it passes a freeze), LAND_DIRECT_LOG, and the
@@ -65,7 +67,7 @@ jesc() { awk 'BEGIN{ORS=""} {gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); gsub(/\t/,"\\t
 json_num() { [[ "${1:-}" =~ ^[0-9]+(\.[0-9]+)?$ ]] && printf '%s' "$1" || printf null; }
 json_str() { [[ "${1:-}" =~ ^[A-Za-z0-9._-]+$ ]] && printf '"%s"' "$1" || printf null; }
 onexit() {
-  local c=$?
+  local c=$?; in_exit=1
   [ -z "$op" ] || { run_cleanup "$c"; exit "$c"; }
   if [ -n "$state" ] && [ -d "$state" ]; then   # the measurements, one O_APPEND line each: landings per hour, commit-to-main time
     printf '{"ts":%s,"result":"%s","commits":%s,"commit":%s,"attempts":%s,"inherited_red":%s,"tier1_s":%s,"total_s":%s,"exit":%s,"step":"%s","reason":"%s","last_lines":"%s"}\n' "$(date +%s)" "$result" "$(json_num "$ncommits")" "$(json_str "$tip0")" "$(json_num "$([ "$attempt" = 0 ] || echo "$attempt")")" "$([ "$inherited" = 1 ] && echo true || echo false)" "$(json_num "$t1")" "$(( $(date +%s) - t0 ))" "$c" "$step" "$(printf '%s\n' "$reason" | jesc)" "$(printf '%s\n' "$lastlines" | jesc)" >> "${LAND_DIRECT_LOG:-$state/metrics.jsonl}" 2>/dev/null || true
@@ -98,15 +100,19 @@ stop() { local code=$1; result=$2; shift 2; reason="$*"; echo "land-direct: $*" 
 die() { stop 1 error "$*"; }
 badinput() { echo "land-direct: $*" >&2; exit 2; }
 
-# ---- the heavy-host guard, FIRST (docs/no-build-host.md): before any git call, scratch directory, fetch, hook or gate. A host that carries a no-build marker never runs Tier 1 (`lake build` there
-# once took down a whole session): the lander asks bin/no-build-guard (the one reader of the marker; its paths are not repeated here) and exits with ITS code (2), starting nothing. There is NO override.
-# Not asked, because they start nothing heavy: the operator operations (--hold, --release, --freeze, --thaw, --status), --version, --check (the land-time checks only: no hook, no gate), --print-gate-diff[-hash],
-# and --push SHA (it pushes the commit --validate pinned and runs no check: --validate is where the host was asked). A missing guard refuses too (fail closed).
-if [ -z "$op" ] && [ "$checkonly" = 0 ] && [ "$pushmode" = 0 ]; then
-  nbg_rc=0
-  if [ -x "$here/no-build-guard" ]; then "$here/no-build-guard" || nbg_rc=$?; else echo "land-direct: REFUSED: the heavy-host guard $here/no-build-guard is missing: refusing to run Tier 1 without it." >&2; nbg_rc=2; fi
-  [ "$nbg_rc" = 0 ] || { result=refused; reason="the heavy-host guard refused this host (exit $nbg_rc): no Tier 1, nothing was started"; echo "land-direct: refused: this host may not run Tier 1; nothing was started (no override)" >&2; exit "$nbg_rc"; }
-fi
+# ---- the heavy-host guard (docs/no-build-host.md), asked at the heavy command: a host that carries a no-build marker never runs Tier 1 (`lake build` there once took down a whole session), but it may land text.
+# heavy_gate is the ONE place the guard is asked and is called immediately before every command that can be heavy (t1stage, run_hook, the regeneration and affects commands): a site cannot be forgotten by copying a call.
+# It asks bin/no-build-guard and exits with ITS code (2); a missing guard refuses too (fail closed). The answer is kept, so later sites cost nothing. In the exit trap it only returns the code. There is NO override.
+gate_ok=0; in_exit=0
+heavy_gate() {   # heavy_gate [soft]: soft = return the guard's code instead of exiting (a site that runs after the push, or in the exit trap, where "nothing was pushed" would be false)
+  [ "$gate_ok" = 0 ] || return 0
+  local rc=0
+  if [ -x "$here/no-build-guard" ]; then "$here/no-build-guard" || rc=$?; else echo "land-direct: REFUSED: the heavy-host guard $here/no-build-guard is missing: refusing to run a heavy command without it." >&2; rc=2; fi
+  if [ "$rc" = 0 ]; then gate_ok=1; return 0; fi
+  if [ "${1:-}" = soft ] || [ "$in_exit" = 1 ]; then return "$rc"; fi
+  result=refused; reason="the heavy-host guard refused this host (exit $rc): nothing landed, nothing was pushed"
+  echo "land-direct: refused: this host may not run Tier 1 or any command of the repository; nothing landed and nothing was pushed (no override)" >&2; exit "$rc"
+}
 
 top=$(git rev-parse --show-toplevel 2>/dev/null) || badinput "not inside a git worktree"
 common=$(git -C "$top" rev-parse --path-format=absolute --git-common-dir); state=$common/vbm-land; mkdir -p "$state"
@@ -222,6 +228,7 @@ prepare_hooks() {
 }
 # run_hook NAME [ARGS]: runs the hook in the scratch worktree, bounded; its output goes to stderr. Returns its exit code (0 when there is no such hook).
 run_hook() { local n=$1; shift; [ -n "$hooks" ] && [ -x "$hooks/$n" ] || return 0
+  heavy_gate || return $?
   (cd "${hookcwd:-$wt}" && LAND_RESULT=$result LAND_SHA=$sha LAND_COMMITS=$ncommits LAND_TIER1_SECONDS=$t1 bounded "$st" "hook $n" "$hooks/$n" "$@") >&2; }
 
 # ---- a freeze (a person's: a named owner and an expiry) stops landing but for a fix or a revert. A RED main does not: whoever sees it reverts the commit that made it red with git revert.
@@ -232,7 +239,7 @@ holdcheck; freezecheck
 
 # Tier 1 is two stages, the gates command then the test command. t1stage STAGE DIR LOG runs one of them in DIR (no command = nothing to run); 0 = green.
 t1cmd() { case $1 in gates) echo "$LAND_GATES_CMD";; *) echo "$LAND_TEST_CMD";; esac; }
-t1stage() { local c; c=$(t1cmd "$1"); [ -z "$c" ] || { : > "$4"; (cd "$2" && LAND_FAILED_FILE=$4 bounded "$lt" "Tier 1 $1" bash -c "$c") >"$3" 2>&1; }; }   # $4: where the command may RECORD what failed (LAND_FAILED_FILE: one name per line)
+t1stage() { local c; c=$(t1cmd "$1"); [ -z "$c" ] || { heavy_gate; : > "$4"; (cd "$2" && LAND_FAILED_FILE=$4 bounded "$lt" "Tier 1 $1" bash -c "$c") >"$3" 2>&1; }; }   # $4: where the command may RECORD what failed (LAND_FAILED_FILE: one name per line)
 # inherited_red STAGE: a landing must not ADD a failure, and one already on the base is not its fault. The Tier 1 commands RECORD what failed, one name per line, in $LAND_FAILED_FILE (bin/run-tests-parallel does
 # it for the scripts it runs): every name this stage recorded must also be recorded by the same stage on the bare base commit (one extra run, only here, in a scratch worktree of its own, prepared like the landing's).
 # The lander compares two sets of names; it never reads the words of the output. Nothing recorded = no inheritance.
@@ -277,7 +284,7 @@ more() { [ "$attempt" -lt "$LAND_ATTEMPTS" ] && [ "$(date +%s)" -lt "$deadline" 
 # paths on stdin, the paths they can affect on stdout; identity when unset) one the other touches, the earlier verdict still describes this combination and Tier 1 is not run again. Anything unsure is a
 # run: the tool, hooks and settings moving ($LAND_HOME/, the hooks directory, the conf file), a provider that fails, a regenerated file, a protected path touched, a base that is not a descendant. Best effort by design: what the rule lets
 # through that Tier 1 would have caught is an escape, found by the release candidate (README 4.8), which is also what audits LAND_AFFECTS_CMD.
-affects() { if [ -n "$LAND_AFFECTS_CMD" ]; then (cd "$wt" && bounded "$st" "LAND_AFFECTS_CMD" bash -c "$LAND_AFFECTS_CMD"); else cat; fi; }
+affects() { if [ -n "$LAND_AFFECTS_CMD" ]; then heavy_gate; (cd "$wt" && bounded "$st" "LAND_AFFECTS_CMD" bash -c "$LAND_AFFECTS_CMD"); else cat; fi; }
 reuse_ok() {
   g merge-base --is-ancestor "$prev" "$bsha" || return 1
   g diff --name-only --no-renames "$prev" "$bsha" > "$run/moved.txt" || return 1
@@ -310,11 +317,11 @@ while :; do
   if [ "$regenned" = 1 ]; then
     [ -n "$LAND_REGEN_CMD" ] || stop 12 refused "generated files conflicted and LAND_REGEN_CMD is not set: they cannot be regenerated; not landing."
     echo "land-direct: generated files conflicted: took $base's and regenerating"
-    rc=0; (cd "$wt" && bounded "$st" "regenerate (conflict)" bash -c "$LAND_REGEN_CMD") >"$run/regen.log" 2>&1 || rc=$?
+    heavy_gate; rc=0; (cd "$wt" && bounded "$st" "regenerate (conflict)" bash -c "$LAND_REGEN_CMD") >"$run/regen.log" 2>&1 || rc=$?
     [ "$rc" = 0 ] || { logfile=$run/regen.log; tail -3 "$run/regen.log" >&2; stop 12 refused "the regeneration after a conflict in generated files failed (exit $rc; log: $run/regen.log); not landing."; }
   fi
   if [ -n "$LAND_GEN_CMD" ]; then   # always regenerated on the rebased tree: two commits that each regenerated correctly can disagree once both are on base
-    rc=0; (cd "$wt" && bounded "$st" "regenerate" bash -c "$LAND_GEN_CMD") >"$run/gen.log" 2>&1 || rc=$?
+    heavy_gate; rc=0; (cd "$wt" && bounded "$st" "regenerate" bash -c "$LAND_GEN_CMD") >"$run/gen.log" 2>&1 || rc=$?
     [ "$rc" = 0 ] || { logfile=$run/gen.log; tail -3 "$run/gen.log" >&2; stop 13 tier1 "the generated files cannot be regenerated (exit $rc; log: $run/gen.log); not landing."; }
   fi
   # the protected set, judged on what would land (the rebased tree against base): touching it is allowed; the hooks and Tier 1 must pass
@@ -389,7 +396,7 @@ while :; do
   sleep "$(awk -v n="$attempt" -v r="$RANDOM" 'BEGIN { m = n / 2; if (m > 10) m = 10; printf "%.2f", m * r / 32768 }')"   # jitter, so losers do not collide again
 done
 # extra JSON keys from the json-fields hook: `key=value` lines, key [a-z_]+, value a number or [A-Za-z0-9._-]+ (anything else is null)
-if [ -n "$hooks" ] && [ -x "$hooks/json-fields" ]; then
+if [ -n "$hooks" ] && [ -x "$hooks/json-fields" ] && heavy_gate soft; then   # after the push: a host that refuses skips the hook (its extra keys are optional) and never fails a landing that is done
   jf=$(cd "$wt" && bounded "$st" "hook json-fields" "$hooks/json-fields" 2>/dev/null || true)
   while IFS='=' read -r k v; do [[ "$k" =~ ^[a-z_][a-z0-9_]*$ ]] || continue
     case $k in sha|commits|tier1_seconds|result|exit|validation|reason|log|files|base) continue;; esac

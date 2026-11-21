@@ -79,17 +79,17 @@ cp "$RS" "$fx/$LAND_DIR/bin/run-scoped.sh"; rm "$fx/scripts/long-runners.txt"; p
 expect_exit "lint: scripts/heavy-runners.txt is read too" 1 lintfx
 rm "$fx/$LAND_DIR/bin/run-scoped.sh" "$fx/scripts/x.sh"; expect_exit "lint: declared runners and no helper fails" 1 lintfx
 expect_exit "lint: --selftest" 0 "$G" --selftest
-# 5. the lander (bin/land-direct) asks the guard FIRST: a landing or --validate on a marked host exits 2 and starts nothing (no scratch directory, no state directory, no commit pushed, Tier 1 never reached);
-# the read-only commands still work there; with the marker removed the same landing proceeds (the negative: the check can fail the other way); --push only pushes what --validate pinned, so it does not ask.
+# 5. the lander (bin/land-direct) asks the guard at the HEAVY command (heavy_gate), not at the door: a landing or --validate that needs Tier 1 on a marked host exits 2 and starts no heavy command
+# (the Tier 1 witness file stays absent, nothing is pushed or pinned); the read-only commands still work there; with the marker removed the same landing proceeds (the negative: the check can fail the other way);
+# --push only pushes what --validate pinned, so it does not ask. An inert landing (section 6) needs no heavy command and lands on a marked host.
 sandbox; trap 'rm -rf "$tmp" "${SANDBOXES[@]}" "$RESULTS"' EXIT   # the lib's sandbox replaced the trap: remove both
 LD=$ROOT/bin/land-direct; t1ran=$tmp/tier1ran
 set_conf "LAND_TEST_CMD=touch $t1ran"
 worker w1; commit "$T/w1" x.txt 1; worker w2; commit "$T/w2" y.txt 1
 ld() { local d=$1; shift; ( cd "$d" && env_clean "$@" ) >"$T/out" 2>&1; }   # ld DIR CMD...: output to $T/out
-untouched() {   # untouched DESC DIR BEFORE: nothing was created or pushed
-  local d=$1 dir=$2 before=$3 g
-  g=$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir)
-  [ ! -e "$g/vbm-land" ] && [ ! -e "$t1ran" ] && [ -z "$(ls -A "$T/tmp")" ] && [ "$(remote_head)" = "$before" ] && [ -z "$(git -C "$dir" for-each-ref refs/vbm-land)" ] && pass "$d: nothing created (no state or scratch directory, no Tier 1, nothing pushed)" || fail "$d: something was started: $(ls -A "$g" | tr '\n' ' ')"
+untouched() {   # untouched DESC DIR BEFORE: no heavy command was started and nothing was pushed or pinned
+  local d=$1 dir=$2 before=$3
+  [ ! -e "$t1ran" ] && [ "$(remote_head)" = "$before" ] && [ -z "$(git -C "$dir" for-each-ref refs/vbm-land)" ] && pass "$d: nothing heavy started (no Tier 1, nothing pushed or pinned)" || fail "$d: something was started or pushed"
 }
 head0=$(remote_head); rm -f "$t1ran"
 marker_on
@@ -133,5 +133,28 @@ marker_off; head1=$(remote_head); rc=0; ld "$T/w2" "$LD" || rc=$?
 [ "$rc" = 0 ] && [ "$(remote_head)" != "$head1" ] && [ -e "$t1ran" ] && pass "land-direct landing, no marker: lands (exit 0), Tier 1 ran" || fail "land-direct landing, no marker: exit $rc"
 marker_on; head2=$(remote_head); worker w3; commit "$T/w3" z.txt 1; rm -f "$t1ran"
 rc=0; ld "$T/w3" "$LD" || rc=$?; [ "$rc" = 2 ] && [ "$(remote_head)" = "$head2" ] && [ ! -e "$t1ran" ] && pass "land-direct landing, marker back: refused again, nothing pushed" || fail "land-direct landing, marker back: exit $rc"
+# 6. the guard is asked at the heavy command: on a marked host an inert landing lands, a landing that needs Tier 1 or a hook does not start it, a missing guard refuses only a heavy command
+sandbox; trap 'rm -rf "$tmp" "${SANDBOXES[@]}" "$RESULTS"' EXIT
+marker_on; t1ran=$T/tier1ran; hran=$T/hookran
+set_conf "LAND_TEST_CMD=touch $t1ran" 'LAND_INERT=docs/*'
+worker n1; commit "$T/n1" docs/a.md 1; worker n2; commit "$T/n2" code.txt 1; head0=$(remote_head)
+rc=0; ld "$T/n1" "$LD" || rc=$?; [ "$rc" = 0 ] && [ "$(remote_head)" != "$head0" ] && [ ! -e "$t1ran" ] && pass "marked host, inert landing: lands (exit 0), no Tier 1" || fail "marked host, inert landing: exit $rc, started=$([ -e "$t1ran" ] && echo yes || echo no)"
+json_last | grep -q '"validation":"inert"' && pass 'marked host, inert landing: the summary says "validation":"inert"' || fail "inert summary: $(json_last)"
+head0=$(remote_head)
+rc=0; ld "$T/n2" "$LD" || rc=$?; [ "$rc" = 2 ] && [ ! -e "$t1ran" ] && [ "$(remote_head)" = "$head0" ] && pass "marked host, non-inert landing: exit 2, the Tier 1 command never started, nothing pushed" || fail "marked host, non-inert landing: exit $rc, started=$([ -e "$t1ran" ] && echo yes || echo no)"
+out_has REFUSED; out_has "nothing landed and nothing was pushed"
+[ "$(json_last | sed -n 's/.*"result":"\([a-z]*\)".*"exit":\([0-9]*\).*/\1 \2/p')" = "refused 2" ] && pass "marked host, non-inert landing: the JSON summary says refused, exit 2" || fail "summary: $(json_last)"
+# a configured hook is a heavy command too: it never starts on a marked host (even for an inert landing, which would not run Tier 1)
+seed_exec "$LAND_HOOKS_DEFAULT/prepare" "#!/bin/sh
+touch $hran"
+worker n3; commit "$T/n3" docs/b.md 1; head0=$(remote_head)
+rc=0; ld "$T/n3" "$LD" || rc=$?; [ "$rc" = 2 ] && [ ! -e "$hran" ] && [ "$(remote_head)" = "$head0" ] && pass "marked host, a configured hook: exit 2 before the hook started" || fail "marked host, hook: exit $rc, hook ran=$([ -e "$hran" ] && echo yes || echo no)"
+marker_off; rc=0; ld "$T/n3" "$LD" || rc=$?; [ "$rc" = 0 ] && [ -e "$hran" ] && pass "self-test: no marker, the same landing runs the hook and lands" || fail "no marker, hook landing: exit $rc"
+# a guard missing beside the lander: a non-inert landing refuses (fail closed); an inert one needs no guard
+marker_off; rm -f "$t1ran" "$hran"; git -C "$T/seed" pull -q origin main; git -C "$T/seed" rm -q "$LAND_HOOKS_DEFAULT/prepare"; git -C "$T/seed" commit -qm "chore: no hook" -m "Task-ID: seed"; git -C "$T/seed" push -q origin main
+worker n4; commit "$T/n4" code2.txt 1; worker n5; commit "$T/n5" docs/c.md 1; head0=$(remote_head)
+rm -f "$stub/bin/no-build-guard"
+rc=0; ld "$T/n4" "$stub/bin/land-direct" || rc=$?; [ "$rc" = 2 ] && [ ! -e "$t1ran" ] && [ "$(remote_head)" = "$head0" ] && pass "guard missing, non-inert landing: exit 2, Tier 1 never started" || fail "guard missing, non-inert: exit $rc"; out_has "is missing"
+rc=0; ld "$T/n5" "$stub/bin/land-direct" || rc=$?; [ "$rc" = 0 ] && [ "$(remote_head)" != "$head0" ] && [ ! -e "$t1ran" ] && pass "guard missing, inert landing: lands (it starts no heavy command)" || fail "guard missing, inert: exit $rc"
 marker_off
 finish
