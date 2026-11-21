@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# land-areas: the areas of docs/areas.md, read-only. It decides from paths and the project's areas file ONLY (it reads no source, runs no step, changes nothing).
+#
+#   land-areas touched  [OPTIONS] < CHANGES      the decision as JSON: areas, skipped_areas, unmapped, gate_defining, full_suite, steps ([cwd, run] in order), validation
+#   land-areas reuse    [OPTIONS] --moved FILE < MINE   which of my areas run again and which keep their verdict: {"rerun":[...],"reused":[...]} (both sorted)
+#   land-areas overlap | unmapped | report [--json] [OPTIONS] < TRACKED   the report of docs/areas.md section 4 from tracked paths (git ls-files); text ends with three counts; always exit 0 on a well-formed file
+#   land-areas validate [OPTIONS]                exit 0 when the file is well formed, 2 with the reason when it is not
+# CHANGES are `git diff --name-status` lines (A, M, D, `R<TAB>old<TAB>new`; a rename is a deletion plus an addition) or bare paths (taken as modified); MOVED is the same for the trunk's move.
+# OPTIONS: --file F (default .land/areas.json) | --gates CMD --test CMD (a repository with no areas file: the implicit area `all`) | --inert "GLOBS" (LAND_INERT) | --protected "GLOBS" (LAND_PROTECTED) | --rc (the release candidate: every area).
+# Exit codes: 0 | 2 bad input, with the reason (a malformed file, a duplicate name, an area with no paths, a glob outside the language).
+set -euo pipefail
+export LC_ALL=C
+here=$(cd "$(dirname "$0")" && pwd); . "$here/../lib/areas.sh"
+args=("$@"); has=0; for a in "$@"; do [ "$a" != --file ] || has=1; done
+if [ "$has" = 0 ] && [ -z "$(printf '%s\n' "$@" | sed -n '/^--gates$/p;/^--test$/p')" ]; then args+=(--file "${LAND_AREAS_FILE}"); fi
+areas_run "${args[@]}"
