@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## Unreleased
+
+- **`land-pin update` with no argument is `update --all`; `update [--all|--only NAME...] --dry-run` changes nothing** and prints the typed report of `outdated --json` plus the field `would` (`null` or `{from,to,pending_review}`), exit 0 when nothing would change, 1 when something would. An unknown argument stays exit 2; `skill update URL COMMIT SKILL...` is unchanged. `docs/pin.md` 9.2, `tests/test_outdated.sh`.
+
 ## 0.23.1 (patch; the interface is unchanged, the refusal is narrowed to where it matters)
 
 - **The no-build guard is asked at the heavy command, not at the door.** `land-direct` used to ask `bin/no-build-guard` before anything else, so a host with a no-build marker refused even an inert landing (every changed path in `LAND_INERT`) and a reused one, which run nothing. One function, `heavy_gate`, now asks the guard immediately before the first command that can be heavy, at every site that starts one: the Tier 1 commands, every hook, the regeneration commands and `LAND_AFFECTS_CMD`. Git work (fetch, rebase, the inert and reuse decisions, the push) runs on any host. The refusal keeps exit code 2 and the guard's message, and now also says that nothing landed and nothing was pushed. A missing guard still refuses a landing that is about to run a heavy command; an inert landing does not need it. `docs/no-build-host.md`, `tests/test_no_build_host.sh`.

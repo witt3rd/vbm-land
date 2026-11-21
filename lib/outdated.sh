@@ -4,7 +4,7 @@
 
 RE_TAG='^v[0-9]+\.[0-9]+\.[0-9]+$'      # a library or tool release tag: the form the lock accepts; any other tag is not a version
 RE_REL='^v?[0-9]+\.[0-9]+\.[0-9]+$'     # a release tag of a skill source (information only)
-OD=; OD_N=0; REC=; SEL_ON=0; declare -A SEL=() SELU=()
+OD=; OD_N=0; DRY=0; REC=; SEL_ON=0; declare -A SEL=() SELU=()
 
 # tag_gt A B: A is a newer version than B, by their three NUMBERS (v1.10.0 is newer than v1.9.0; never a string comparison).
 tag_gt() {
@@ -173,7 +173,11 @@ od_obj() {   # one JSON object for the record dir $1
   else printf null; fi
   printf ',"release":'
   if [ -n "$(<"$d/relt")" ]; then printf '{"tag":%s,"rev":%s}' "$(js "$(<"$d/relt")")" "$(js "$(<"$d/relr")")"; else printf null; fi
-  printf ',"missing_at_tip":%s}' "$(if [ -n "$(<"$d/missing")" ]; then cat "$d/missing"; else printf null; fi)"
+  printf ',"missing_at_tip":%s' "$(if [ -n "$(<"$d/missing")" ]; then cat "$d/missing"; else printf null; fi)"
+  if [ "$DRY" = 1 ]; then   # update --dry-run: `would` is null when the pin stays, else what the update does to it
+    if [ "$(<"$d/status")" = behind ]; then printf ',"would":{"from":%s,"to":%s,"pending_review":%s}' "$(js "$(<"$d/pinned")")" "$(js "$(<"$d/newer")")" "$([ "$(<"$d/kind")" = skill ] && echo true || echo false)"; else printf ',"would":null'; fi
+  fi
+  printf '}'
 }
 
 od_json() {
@@ -247,17 +251,17 @@ ua_fail() {   # ua_fail KIND PIN: put every kind already applied back, name what
 ua_state() { printf '%s' "$1" | sed -n 1p; }
 
 update_all_cmd() {
-  local all=0 sawonly=0 mode= n i j k found d dirty
+  local sawonly=0 mode= dry=0 n i j k found d dirty
   local -a a=() only=()
   while [ $# -gt 0 ]; do
     case $1 in
-      --all) all=1; mode=;;
+      --all) mode=;;
+      --dry-run) dry=1; mode=;;
       --only) sawonly=1; mode=only;;
-      -*) die "usage: land-pin update --all [--only NAME...]";;
-      *) [ "$mode" = only ] || die "usage: land-pin update --all [--only NAME...]"; only+=("$1");;
+      -*) die "usage: land-pin update [--all] [--only NAME...] [--dry-run]";;
+      *) [ "$mode" = only ] || die "usage: land-pin update [--all] [--only NAME...] [--dry-run]"; only+=("$1");;
     esac; shift
   done
-  [ "$all" = 1 ] || die "usage: land-pin update --all [--only NAME...] (--all is required: one pin is moved by vendor, skill update or land-update)"
   { [ "$sawonly" = 0 ] || [ ${#only[@]} -gt 0 ]; } || die "--only needs at least one NAME"
   od_ctx
   if [ "$sawonly" = 1 ]; then
@@ -271,7 +275,7 @@ update_all_cmd() {
     done
   fi
   dirty=$(GIT_OPTIONAL_LOCKS=0 git -C "$root" status --porcelain)
-  if [ -n "$dirty" ]; then echo "land-pin: REFUSED: the working tree is not clean (the whole change must be the update, to be reviewed as one):" >&2; printf '%s\n' "$dirty" | sed 's/^/  /' >&2; exit 1; fi
+  if [ "$dry" = 0 ] && [ -n "$dirty" ]; then echo "land-pin: REFUSED: the working tree is not clean (the whole change must be the update, to be reviewed as one):" >&2; printf '%s\n' "$dirty" | sed 's/^/  /' >&2; exit 1; fi
   report_build
   trap 'ua_exit' EXIT; trap 'exit 1' INT TERM
   # what the report named as behind, and what refuses the run before anything is written
@@ -294,7 +298,8 @@ update_all_cmd() {
   if [ -n "$tool_new" ] && [ ! -r "$root/$LAND_SIGNERS_FILE" ]; then refusals+=("the release $tool_new of the tool cannot be verified: there is no $LAND_SIGNERS_FILE"); fi
   if [ ${#refusals[@]} -gt 0 ]; then for s in "${refusals[@]}"; do echo "land-pin: REFUSED $s" >&2; done; echo "land-pin: update --all: nothing was changed" >&2; exit 1; fi
   if [ ${#unreach[@]} -gt 0 ]; then for s in "${unreach[@]}"; do echo "land-pin: UNREACHABLE $s" >&2; done; echo "land-pin: update --all: a selected source could not be reached, so nothing was changed" >&2; exit 3; fi
-  if [ ${#ul_name[@]} = 0 ] && [ ${#us_url[@]} = 0 ] && [ -z "$tool_new" ]; then echo "land-pin: update --all: nothing is behind"; return 0; fi
+  if [ ${#ul_name[@]} = 0 ] && [ ${#us_url[@]} = 0 ] && [ -z "$tool_new" ]; then echo "land-pin: update --all: nothing is behind"; if [ "$dry" = 1 ]; then DRY=1; od_json; DRY=0; fi; return 0; fi
+  if [ "$dry" = 1 ]; then DRY=1; od_json; DRY=0; return 1; fi   # nothing is written: the typed report plus `would`; exit 1, something would change
   # apply: a snapshot first, then libraries, skills, the tool (last: it replaces the code that is running)
   ua_snapshot
   for ((i = 0; i < ${#ul_name[@]}; i++)); do

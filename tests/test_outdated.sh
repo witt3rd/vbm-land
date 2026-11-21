@@ -81,7 +81,7 @@ echo "## outdated: misuse is exit 2"
 lite
 expect_exit "an unknown option" 2 pin outdated --nope; out_has "usage: land-pin outdated"
 expect_exit "an extra argument" 2 pin outdated x
-expect_exit "a bare update is misuse (--all is required)" 2 pin update; out_has "--all is required"
+expect_exit "an unknown argument to update" 2 pin update --bogus; out_has "usage: land-pin update"
 rm "$C/$LAND_PIN"; expect_exit "no PIN: the tool is not installed" 2 pin outdated; out_has "not installed"
 lite; echo garbage > "$C/$LAND_PIN"; expect_exit "a malformed PIN" 2 pin outdated
 for bad in "source=$TS|version=1.1.0" "source=$TS|version=v1.1.0|commit=abc" "source=$TS|version=v1.1.0|commit=$H40|manifest_sha256=abc" "version=v1.1.0|commit=$H40|manifest_sha256=$H64"; do
@@ -181,6 +181,14 @@ expect_exit "an unknown option" 2 pin update --all --nope
 expect_exit "a name with no --only" 2 pin update --all libx
 echo "libx $LW v1.0.0 $LREV1" > "$C/$LAND_PINS_FILE"; git -C "$C" commit -qam bad; expect_exit "a malformed lock" 2 pin update --all
 
+echo "## update: bare means --all; --dry-run changes nothing"
+world; S=$(state); R=$(refs_state); expect_exit "a dry run exits 1 when something would change" 1 pin update --dry-run
+check "  the tree and refs are byte for byte as before" test "$(state)" = "$S" -a "$(refs_state)" = "$R"
+check "  it is typed: would is set on the library" bash -c "LAND_PIN_ROOT='$C' '$PINBIN' update --dry-run | jq -e '[.pins[] | select(.kind==\"library\")][0].would.to == \"v1.1.0\" and ([.pins[] | select(.kind==\"skill\")][0].would.pending_review == true)' >/dev/null"
+lite "$(libline "$LW" v1.1.0)"; expect_exit "a dry run with nothing behind exits 0" 0 pin update --dry-run
+world; cp -a "$C" "$T/w2"; pin update >/dev/null 2>&1; X1=$(state); rm -rf "$C"; cp -a "$T/w2" "$C"; pin update --all >/dev/null 2>&1
+check "bare update gives the same tree as update --all" test "$(state)" = "$X1"; rm -rf "$T/w2"
+
 echo "## update --all: it refuses a dirty tree and changes nothing"
 world; echo changed >> "$C/$LAND_CONF_FILE"; S=$(state); R=$(refs_state)
 expect_exit "a modified tracked file" 1 pin update --all; out_has "working tree is not clean"; check "  nothing changed" test "$(state)" = "$S" -a "$(refs_state)" = "$R"
@@ -274,12 +282,15 @@ watch "an unreachable source reported as current" lib/outdated.sh 's/else rec st
 watch "a listing that lets git detect renames" lib/outdated.sh 's/ --no-renames//' s_rename
 watch "a licence change never flagged" lib/outdated.sh 's/|| lic=true$/|| lic=false/' s_licence
 watch "undecided skills never reported" lib/outdated.sh 's/\[ "\$k" = 1 \] || \[ -n "\${NT\[\$n\]+x}" \] || cand+=("\$n")/true/' s_undec_report
-watch "update --all on a dirty tree" lib/outdated.sh 's/if \[ -n "\$dirty" \]; then/if false; then/' s_dirty
+watch "update --all on a dirty tree" lib/outdated.sh 's/if \[ "\$dry" = 0 \] \&\& \[ -n "\$dirty" \]; then/if false; then/' s_dirty
 watch "update --all with an undecided skill" lib/outdated.sh 's/for s in "\${a\[@\]}"; do refusals+=/for s in; do refusals+=/' s_undec_refused
 watch "an update that does not roll back" lib/outdated.sh 's/^ua_rollback() {$/ua_rollback() { return 0/' s_atomic
 watch "an update that commits" lib/outdated.sh 's/^  UA_ACTIVE=0$/  UA_ACTIVE=0; git -C "$root" add -A; git -C "$root" commit -qm x/' s_nocommit
 watch "an update that records a review" lib/outdated.sh 's/^  UA_ACTIVE=0$/  UA_ACTIVE=0; sed -i "s| pending$| 2026-01-01:auto|" "$root\/$LAND_SKILLS_LOCK"/' s_pending
 watch "an unreachable selected source that does not stop the update" lib/outdated.sh 's/^  if \[ \${#unreach\[@\]} -gt 0 \]; then/  if false; then/' s_unreach_update
 watch "--only ignored" lib/outdated.sh 's/^od_sel() .*$/od_sel() { return 0; }/' s_only
+s_dry() { world; S=$(state); [ "$(rc_of pin update --dry-run)" = 1 ] && [ "$(state)" = "$S" ]; }
+watch "a dry run that writes" lib/outdated.sh 's/if \[ "\$dry" = 1 \]; then DRY=1; od_json; DRY=0; return 1; fi/if false; then :; fi/' s_dry
+watch "a dry run that exits 0 when behind" lib/outdated.sh 's/DRY=0; return 1; fi/DRY=0; return 0; fi/' s_dry
 rm -rf "$MUT"
 finish
