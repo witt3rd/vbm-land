@@ -1,0 +1,7888 @@
+{
+ "format": "vbm-land areas conformance vectors",
+ "version": 1,
+ "spec": "docs/areas.md section 10",
+ "how_to_read": "Each case has an id, the rule it covers (the numbered rules of docs/areas.md section 2; 'concurrency', 'tooling' and 'examples' name the section), a kind (decide, reuse, report, validate), an input and the exact expected output. wrong_implementation names a plausible wrong implementation that the case fails. In decide and reuse the areas file is input.areas_file, or input.legacy (the land.conf keys of a repository with no areas file: the implicit area `all` stands for it); input.land_inert and input.protected are the LAND_INERT and LAND_PROTECTED patterns, input.release_candidate says this run is the release candidate. A change is [status, path] with status A, M or D, or [R, old, new]. Every list in expect is in the order the spec defines (names sorted; steps in the order of the areas in the file, then of their steps, a step that two areas share run once). input.facts is information an implementation must ignore. docs/areas.md section 10 is the full format.",
+ "cases": [
+  {
+   "id": "one-area",
+   "rule": "2",
+   "kind": "decide",
+   "about": "a path owned by one area touches that area and runs ALL of its steps, in file order",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "src/app/main.c"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "app"
+    ],
+    "skipped_areas": [
+     "docs",
+     "lib",
+     "tools",
+     "vendor"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "make fmt-check"
+     ],
+     [
+      ".",
+      "make test-app"
+     ],
+     [
+      "src/app",
+      "make lint-app"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "narrows the steps by where the change is: runs only make lint-app (cwd src/app) and drops make fmt-check and make test-app"
+  },
+  {
+   "id": "shared-path-two-areas",
+   "rule": "4",
+   "kind": "decide",
+   "about": "src/lib/* is in the paths of lib and app: the path touches BOTH, and a step two areas share (make fmt-check) runs once",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "src/lib/x.c"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "app",
+     "lib"
+    ],
+    "skipped_areas": [
+     "docs",
+     "tools",
+     "vendor"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "make fmt-check"
+     ],
+     [
+      ".",
+      "make test-lib"
+     ],
+     [
+      ".",
+      "make test-app"
+     ],
+     [
+      "src/app",
+      "make lint-app"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "first match wins (touches lib only), or selects by import graph and runs only the area that imports the symbol"
+  },
+  {
+   "id": "star-crosses-slash",
+   "rule": "2",
+   "kind": "decide",
+   "about": "* matches any run of characters, / included: site/api/v1/x.json is owned by site/* AND by site/api/*, so both are touched",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "site",
+       "paths": [
+        "site/*"
+       ],
+       "steps": [
+        {
+         "run": "site-test"
+        }
+       ]
+      },
+      {
+       "name": "site-api",
+       "paths": [
+        "site/api/*"
+       ],
+       "steps": [
+        {
+         "run": "api-test"
+        }
+       ]
+      },
+      {
+       "name": "root-docs",
+       "paths": [
+        "README.md",
+        "LICENSE"
+       ],
+       "steps": []
+      }
+     ]
+    },
+    "changes": [
+     [
+      "A",
+      "site/api/v1/x.json"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "site",
+     "site-api"
+    ],
+    "skipped_areas": [
+     "root-docs"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "site-test"
+     ],
+     [
+      ".",
+      "api-test"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "pathname globbing, where * stops at /: neither glob matches, and only the enclosing site-api runs"
+  },
+  {
+   "id": "no-dependency-edges",
+   "rule": "4",
+   "kind": "decide",
+   "about": "tests/lib/* belongs to lib only. app uses the library, but there are no edges between areas: app is not touched",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "tests/lib/t.c"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "lib"
+    ],
+    "skipped_areas": [
+     "app",
+     "docs",
+     "tools",
+     "vendor"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "make fmt-check"
+     ],
+     [
+      ".",
+      "make test-lib"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "adds a dependency edge (everything that depends on lib runs)"
+  },
+  {
+   "id": "exclude-removes-the-path",
+   "rule": "2",
+   "kind": "decide",
+   "about": "tools/vendor/* is excluded from tools and owned by vendor: only vendor is touched",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "tools/vendor/v.c"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "vendor"
+    ],
+    "skipped_areas": [
+     "app",
+     "docs",
+     "lib",
+     "tools"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "make test-vendor"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "ignores exclude, so tools is touched too"
+  },
+  {
+   "id": "globs-are-case-sensitive",
+   "rule": "2",
+   "kind": "decide",
+   "about": "Docs/a.md is not docs/*: no area owns or encloses it, so it is unmapped and the whole suite runs",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "Docs/a.md"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "app",
+     "docs",
+     "lib",
+     "tools",
+     "vendor"
+    ],
+    "skipped_areas": [],
+    "unmapped": [
+     "Docs/a.md"
+    ],
+    "gate_defining": [],
+    "full_suite": true,
+    "steps": [
+     [
+      ".",
+      "make fmt-check"
+     ],
+     [
+      ".",
+      "make test-lib"
+     ],
+     [
+      ".",
+      "make test-app"
+     ],
+     [
+      "src/app",
+      "make lint-app"
+     ],
+     [
+      ".",
+      "make test-tools"
+     ],
+     [
+      ".",
+      "make test-vendor"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "a case-insensitive matcher touches docs and runs nothing"
+  },
+  {
+   "id": "unmapped-runs-everything",
+   "rule": "5",
+   "kind": "decide",
+   "about": "scripts/release.sh: no area owns it and no area encloses it: UNMAPPED. The full suite runs and the path is named",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "scripts/release.sh"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "app",
+     "docs",
+     "lib",
+     "tools",
+     "vendor"
+    ],
+    "skipped_areas": [],
+    "unmapped": [
+     "scripts/release.sh"
+    ],
+    "gate_defining": [],
+    "full_suite": true,
+    "steps": [
+     [
+      ".",
+      "make fmt-check"
+     ],
+     [
+      ".",
+      "make test-lib"
+     ],
+     [
+      ".",
+      "make test-app"
+     ],
+     [
+      "src/app",
+      "make lint-app"
+     ],
+     [
+      ".",
+      "make test-tools"
+     ],
+     [
+      ".",
+      "make test-vendor"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "skips a path no area owns"
+  },
+  {
+   "id": "root-glob-encloses-nothing",
+   "rule": "5",
+   "kind": "decide",
+   "about": "scripts/x.sh matches no glob. root-docs owns two root files by name, and a glob that starts in the repository root encloses NOTHING (or an area at the root would swallow every unmapped path): UNMAPPED, full suite",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "site",
+       "paths": [
+        "site/*"
+       ],
+       "steps": [
+        {
+         "run": "site-test"
+        }
+       ]
+      },
+      {
+       "name": "site-api",
+       "paths": [
+        "site/api/*"
+       ],
+       "steps": [
+        {
+         "run": "api-test"
+        }
+       ]
+      },
+      {
+       "name": "root-docs",
+       "paths": [
+        "README.md",
+        "LICENSE"
+       ],
+       "steps": []
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "scripts/x.sh"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "root-docs",
+     "site",
+     "site-api"
+    ],
+    "skipped_areas": [],
+    "unmapped": [
+     "scripts/x.sh"
+    ],
+    "gate_defining": [],
+    "full_suite": true,
+    "steps": [
+     [
+      ".",
+      "site-test"
+     ],
+     [
+      ".",
+      "api-test"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "treats the root as a directory that encloses every path: root-docs absorbs it and the alarm never rings"
+  },
+  {
+   "id": "closest-enclosing-area",
+   "rule": "5",
+   "kind": "decide",
+   "about": "core/io/data.json matches no glob. core (directory core) and core-io (directory core/io) both enclose it: the LONGEST directory wins, core-io alone",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "core",
+       "paths": [
+        "core/*.py",
+        "core/tests/*"
+       ],
+       "exclude": [
+        "core/gen/*"
+       ],
+       "steps": [
+        {
+         "run": "pytest core"
+        }
+       ]
+      },
+      {
+       "name": "core-io",
+       "paths": [
+        "core/io/*.py"
+       ],
+       "steps": [
+        {
+         "run": "pytest core/io"
+        }
+       ]
+      },
+      {
+       "name": "notes-md",
+       "paths": [
+        "x/y/*.md"
+       ],
+       "steps": [
+        {
+         "run": "lint-md x/y"
+        }
+       ]
+      },
+      {
+       "name": "notes-txt",
+       "paths": [
+        "x/y/*.txt"
+       ],
+       "steps": [
+        {
+         "run": "lint-txt x/y"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "core/io/data.json"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "core-io"
+    ],
+    "skipped_areas": [
+     "core",
+     "notes-md",
+     "notes-txt"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "pytest core/io"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "takes the first enclosing area (core), or all enclosing areas"
+  },
+  {
+   "id": "enclosing-shorter",
+   "rule": "5",
+   "kind": "decide",
+   "about": "core/iodata.json: the enclosing directory is a PATH prefix, not a string prefix. core/io does not enclose core/iodata.json; core does",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "core",
+       "paths": [
+        "core/*.py",
+        "core/tests/*"
+       ],
+       "exclude": [
+        "core/gen/*"
+       ],
+       "steps": [
+        {
+         "run": "pytest core"
+        }
+       ]
+      },
+      {
+       "name": "core-io",
+       "paths": [
+        "core/io/*.py"
+       ],
+       "steps": [
+        {
+         "run": "pytest core/io"
+        }
+       ]
+      },
+      {
+       "name": "notes-md",
+       "paths": [
+        "x/y/*.md"
+       ],
+       "steps": [
+        {
+         "run": "lint-md x/y"
+        }
+       ]
+      },
+      {
+       "name": "notes-txt",
+       "paths": [
+        "x/y/*.txt"
+       ],
+       "steps": [
+        {
+         "run": "lint-txt x/y"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "core/iodata.json"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "core"
+    ],
+    "skipped_areas": [
+     "core-io",
+     "notes-md",
+     "notes-txt"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "pytest core"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "compares by string prefix (core/io is a prefix of core/iodata.json), so core-io wins"
+  },
+  {
+   "id": "enclosing-tie-runs-all-tied",
+   "rule": "5",
+   "kind": "decide",
+   "about": "x/y/z.bin matches no glob. notes-md and notes-txt start in the same directory x/y: areas that tie ALL run",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "core",
+       "paths": [
+        "core/*.py",
+        "core/tests/*"
+       ],
+       "exclude": [
+        "core/gen/*"
+       ],
+       "steps": [
+        {
+         "run": "pytest core"
+        }
+       ]
+      },
+      {
+       "name": "core-io",
+       "paths": [
+        "core/io/*.py"
+       ],
+       "steps": [
+        {
+         "run": "pytest core/io"
+        }
+       ]
+      },
+      {
+       "name": "notes-md",
+       "paths": [
+        "x/y/*.md"
+       ],
+       "steps": [
+        {
+         "run": "lint-md x/y"
+        }
+       ]
+      },
+      {
+       "name": "notes-txt",
+       "paths": [
+        "x/y/*.txt"
+       ],
+       "steps": [
+        {
+         "run": "lint-txt x/y"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "A",
+      "x/y/z.bin"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "notes-md",
+     "notes-txt"
+    ],
+    "skipped_areas": [
+     "core",
+     "core-io"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "lint-md x/y"
+     ],
+     [
+      ".",
+      "lint-txt x/y"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "first-tied-wins"
+  },
+  {
+   "id": "exclude-removes-enclosure-too",
+   "rule": "5",
+   "kind": "decide",
+   "about": "core/gen/a.py is excluded from core, so core does not enclose it either: unmapped, full suite",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "core",
+       "paths": [
+        "core/*.py",
+        "core/tests/*"
+       ],
+       "exclude": [
+        "core/gen/*"
+       ],
+       "steps": [
+        {
+         "run": "pytest core"
+        }
+       ]
+      },
+      {
+       "name": "core-io",
+       "paths": [
+        "core/io/*.py"
+       ],
+       "steps": [
+        {
+         "run": "pytest core/io"
+        }
+       ]
+      },
+      {
+       "name": "notes-md",
+       "paths": [
+        "x/y/*.md"
+       ],
+       "steps": [
+        {
+         "run": "lint-md x/y"
+        }
+       ]
+      },
+      {
+       "name": "notes-txt",
+       "paths": [
+        "x/y/*.txt"
+       ],
+       "steps": [
+        {
+         "run": "lint-txt x/y"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "A",
+      "core/gen/a.py"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "core",
+     "core-io",
+     "notes-md",
+     "notes-txt"
+    ],
+    "skipped_areas": [],
+    "unmapped": [
+     "core/gen/a.py"
+    ],
+    "gate_defining": [],
+    "full_suite": true,
+    "steps": [
+     [
+      ".",
+      "pytest core"
+     ],
+     [
+      ".",
+      "pytest core/io"
+     ],
+     [
+      ".",
+      "lint-md x/y"
+     ],
+     [
+      ".",
+      "lint-txt x/y"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "applies exclude to ownership but not to the closest-enclosing rule (it runs core alone)"
+  },
+  {
+   "id": "no-enclosing-area",
+   "rule": "5",
+   "kind": "decide",
+   "about": "other/f.txt: no area encloses it: unmapped, full suite",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "core",
+       "paths": [
+        "core/*.py",
+        "core/tests/*"
+       ],
+       "exclude": [
+        "core/gen/*"
+       ],
+       "steps": [
+        {
+         "run": "pytest core"
+        }
+       ]
+      },
+      {
+       "name": "core-io",
+       "paths": [
+        "core/io/*.py"
+       ],
+       "steps": [
+        {
+         "run": "pytest core/io"
+        }
+       ]
+      },
+      {
+       "name": "notes-md",
+       "paths": [
+        "x/y/*.md"
+       ],
+       "steps": [
+        {
+         "run": "lint-md x/y"
+        }
+       ]
+      },
+      {
+       "name": "notes-txt",
+       "paths": [
+        "x/y/*.txt"
+       ],
+       "steps": [
+        {
+         "run": "lint-txt x/y"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "other/f.txt"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "core",
+     "core-io",
+     "notes-md",
+     "notes-txt"
+    ],
+    "skipped_areas": [],
+    "unmapped": [
+     "other/f.txt"
+    ],
+    "gate_defining": [],
+    "full_suite": true,
+    "steps": [
+     [
+      ".",
+      "pytest core"
+     ],
+     [
+      ".",
+      "pytest core/io"
+     ],
+     [
+      ".",
+      "lint-md x/y"
+     ],
+     [
+      ".",
+      "lint-txt x/y"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "skips it"
+  },
+  {
+   "id": "deleted-path-touches",
+   "rule": "2",
+   "kind": "decide",
+   "about": "a DELETED path matches areas like any other path",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "D",
+      "src/app/old.c"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "app"
+    ],
+    "skipped_areas": [
+     "docs",
+     "lib",
+     "tools",
+     "vendor"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "make fmt-check"
+     ],
+     [
+      ".",
+      "make test-app"
+     ],
+     [
+      "src/app",
+      "make lint-app"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "ignores deletions (nothing is touched)"
+  },
+  {
+   "id": "rename-touches-both-ends",
+   "rule": "2",
+   "kind": "decide",
+   "about": "a rename is a deletion of the old path plus an addition of the new one; both ends are matched",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "R",
+      "tests/lib/a.c",
+      "tests/app/a.c"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "app",
+     "lib"
+    ],
+    "skipped_areas": [
+     "docs",
+     "tools",
+     "vendor"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "make fmt-check"
+     ],
+     [
+      ".",
+      "make test-lib"
+     ],
+     [
+      ".",
+      "make test-app"
+     ],
+     [
+      "src/app",
+      "make lint-app"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "matches the new path only (app alone) or the old path only (lib alone)"
+  },
+  {
+   "id": "rename-unmapped-end",
+   "rule": "5",
+   "kind": "decide",
+   "about": "a rename whose old end is owned and whose new end is not: the unmapped end alone makes the suite full",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "R",
+      "src/app/a.c",
+      "scripts/a.c"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "app",
+     "docs",
+     "lib",
+     "tools",
+     "vendor"
+    ],
+    "skipped_areas": [],
+    "unmapped": [
+     "scripts/a.c"
+    ],
+    "gate_defining": [],
+    "full_suite": true,
+    "steps": [
+     [
+      ".",
+      "make fmt-check"
+     ],
+     [
+      ".",
+      "make test-lib"
+     ],
+     [
+      ".",
+      "make test-app"
+     ],
+     [
+      "src/app",
+      "make lint-app"
+     ],
+     [
+      ".",
+      "make test-tools"
+     ],
+     [
+      ".",
+      "make test-vendor"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "looks at the old path only"
+  },
+  {
+   "id": "empty-steps-area-is-inert",
+   "rule": "6",
+   "kind": "decide",
+   "about": "docs has no steps: the change touches it, runs nothing, and the verdict says inert (the area list says why), never a bare green",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "docs/guide.md"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "docs"
+    ],
+    "skipped_areas": [
+     "app",
+     "lib",
+     "tools",
+     "vendor"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [],
+    "validation": "inert"
+   },
+   "wrong_implementation": "treats a stepless area as unmapped and runs everything"
+  },
+  {
+   "id": "stepless-plus-real",
+   "rule": "6",
+   "kind": "decide",
+   "about": "a change to a stepless area and to a real one runs the real one's steps; it is not inert",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "docs/guide.md"
+     ],
+     [
+      "M",
+      "tools/t.c"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "docs",
+     "tools"
+    ],
+    "skipped_areas": [
+     "app",
+     "lib",
+     "vendor"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "make test-tools"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "lets one stepless path make the whole change inert"
+  },
+  {
+   "id": "areas-file-is-gate-defining",
+   "rule": "5",
+   "kind": "decide",
+   "about": "a change under .land/ (the areas file is .land/areas.json) judges the judge: it runs every area and is named gate-defining, not unmapped",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      ".land/areas.json"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "app",
+     "docs",
+     "lib",
+     "tools",
+     "vendor"
+    ],
+    "skipped_areas": [],
+    "unmapped": [],
+    "gate_defining": [
+     ".land/areas.json"
+    ],
+    "full_suite": true,
+    "steps": [
+     [
+      ".",
+      "make fmt-check"
+     ],
+     [
+      ".",
+      "make test-lib"
+     ],
+     [
+      ".",
+      "make test-app"
+     ],
+     [
+      "src/app",
+      "make lint-app"
+     ],
+     [
+      ".",
+      "make test-tools"
+     ],
+     [
+      ".",
+      "make test-vendor"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "finds no owner, no enclosing area and runs nothing, or runs the full suite but names the path unmapped"
+  },
+  {
+   "id": "protected-runs-everything",
+   "rule": "5",
+   "kind": "decide",
+   "about": "a path in LAND_PROTECTED runs every area even when an area owns it, and is named gate-defining",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "tools/t.c"
+     ]
+    ],
+    "protected": [
+     "tools/t.c"
+    ]
+   },
+   "expect": {
+    "areas": [
+     "app",
+     "docs",
+     "lib",
+     "tools",
+     "vendor"
+    ],
+    "skipped_areas": [],
+    "unmapped": [],
+    "gate_defining": [
+     "tools/t.c"
+    ],
+    "full_suite": true,
+    "steps": [
+     [
+      ".",
+      "make fmt-check"
+     ],
+     [
+      ".",
+      "make test-lib"
+     ],
+     [
+      ".",
+      "make test-app"
+     ],
+     [
+      "src/app",
+      "make lint-app"
+     ],
+     [
+      ".",
+      "make test-tools"
+     ],
+     [
+      ".",
+      "make test-vendor"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "ignores LAND_PROTECTED (touches tools only)"
+  },
+  {
+   "id": "release-candidate-runs-every-area",
+   "rule": "7",
+   "kind": "decide",
+   "about": "the release candidate runs EVERY area whatever the change: a docs-only change run as a candidate runs all steps",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "docs/guide.md"
+     ]
+    ],
+    "release_candidate": true
+   },
+   "expect": {
+    "areas": [
+     "app",
+     "docs",
+     "lib",
+     "tools",
+     "vendor"
+    ],
+    "skipped_areas": [],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": true,
+    "steps": [
+     [
+      ".",
+      "make fmt-check"
+     ],
+     [
+      ".",
+      "make test-lib"
+     ],
+     [
+      ".",
+      "make test-app"
+     ],
+     [
+      "src/app",
+      "make lint-app"
+     ],
+     [
+      ".",
+      "make test-tools"
+     ],
+     [
+      ".",
+      "make test-vendor"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "applies the narrowing to the candidate"
+  },
+  {
+   "id": "inert-beside-areas",
+   "rule": "6",
+   "kind": "decide",
+   "about": "LAND_INERT keeps working beside an areas file: it is the pseudo-area inert, which owns its patterns (not deleted paths) and has no steps",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "CHANGELOG.md"
+     ]
+    ],
+    "land_inert": [
+     "CHANGELOG.md"
+    ]
+   },
+   "expect": {
+    "areas": [
+     "inert"
+    ],
+    "skipped_areas": [
+     "app",
+     "docs",
+     "lib",
+     "tools",
+     "vendor"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [],
+    "validation": "inert"
+   },
+   "wrong_implementation": "drops LAND_INERT when an areas file exists (CHANGELOG.md is then unmapped and runs everything)"
+  },
+  {
+   "id": "inert-plus-area",
+   "rule": "6",
+   "kind": "decide",
+   "about": "an inert path beside a path of a real area: the real area's steps run, inert is listed as touched",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "CHANGELOG.md"
+     ],
+     [
+      "M",
+      "src/app/a.c"
+     ]
+    ],
+    "land_inert": [
+     "CHANGELOG.md"
+    ]
+   },
+   "expect": {
+    "areas": [
+     "app",
+     "inert"
+    ],
+    "skipped_areas": [
+     "docs",
+     "lib",
+     "tools",
+     "vendor"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "make fmt-check"
+     ],
+     [
+      ".",
+      "make test-app"
+     ],
+     [
+      "src/app",
+      "make lint-app"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "skips everything when any path is inert"
+  },
+  {
+   "id": "inert-deleted-is-not-inert",
+   "rule": "6",
+   "kind": "decide",
+   "about": "a DELETED inert path is not owned by inert (a check can read that a file exists): no area owns it, so it is unmapped and the suite is full",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "D",
+      "CHANGELOG.md"
+     ]
+    ],
+    "land_inert": [
+     "CHANGELOG.md"
+    ]
+   },
+   "expect": {
+    "areas": [
+     "app",
+     "docs",
+     "inert",
+     "lib",
+     "tools",
+     "vendor"
+    ],
+    "skipped_areas": [],
+    "unmapped": [
+     "CHANGELOG.md"
+    ],
+    "gate_defining": [],
+    "full_suite": true,
+    "steps": [
+     [
+      ".",
+      "make fmt-check"
+     ],
+     [
+      ".",
+      "make test-lib"
+     ],
+     [
+      ".",
+      "make test-app"
+     ],
+     [
+      "src/app",
+      "make lint-app"
+     ],
+     [
+      ".",
+      "make test-tools"
+     ],
+     [
+      ".",
+      "make test-vendor"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "lets a deleted path be inert"
+  },
+  {
+   "id": "three-areas-share",
+   "rule": "4",
+   "kind": "decide",
+   "about": "a path in three areas touches all three",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "a",
+       "paths": [
+        "a/*",
+        "shared/*"
+       ],
+       "steps": [
+        {
+         "run": "test-a"
+        }
+       ]
+      },
+      {
+       "name": "b",
+       "paths": [
+        "b/*",
+        "shared/*"
+       ],
+       "steps": [
+        {
+         "run": "test-b"
+        }
+       ]
+      },
+      {
+       "name": "c",
+       "paths": [
+        "c/*",
+        "shared/*"
+       ],
+       "steps": [
+        {
+         "run": "test-c"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "shared/x"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "a",
+     "b",
+     "c"
+    ],
+    "skipped_areas": [],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "test-a"
+     ],
+     [
+      ".",
+      "test-b"
+     ],
+     [
+      ".",
+      "test-c"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "stops at the first owner"
+  },
+  {
+   "id": "legacy-test-cmd-only",
+   "rule": "6",
+   "kind": "decide",
+   "about": "a repository with only LAND_TEST_CMD is one implicit area `all` that owns everything",
+   "input": {
+    "legacy": {
+     "LAND_TEST_CMD": "make test"
+    },
+    "changes": [
+     [
+      "M",
+      "src/a.c"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "all"
+    ],
+    "skipped_areas": [],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "make test"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "requires an areas file, or leaves a path of the root unmapped"
+  },
+  {
+   "id": "legacy-gates-then-test",
+   "rule": "6",
+   "kind": "decide",
+   "about": "LAND_GATES_CMD runs before LAND_TEST_CMD; both are steps of the implicit area",
+   "input": {
+    "legacy": {
+     "LAND_GATES_CMD": "make gates",
+     "LAND_TEST_CMD": "make test"
+    },
+    "changes": [
+     [
+      "M",
+      "a"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "all"
+    ],
+    "skipped_areas": [],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "make gates"
+     ],
+     [
+      ".",
+      "make test"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "runs the test command first or drops the gates command"
+  },
+  {
+   "id": "legacy-inert-only",
+   "rule": "6",
+   "kind": "decide",
+   "about": "LAND_INERT: every changed path inert, nothing runs, the verdict is inert",
+   "input": {
+    "legacy": {
+     "LAND_TEST_CMD": "make test",
+     "LAND_INERT": [
+      "CHANGELOG.md",
+      "docs/*"
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "CHANGELOG.md"
+     ],
+     [
+      "A",
+      "docs/new.md"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "inert"
+    ],
+    "skipped_areas": [
+     "all"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [],
+    "validation": "inert"
+   },
+   "wrong_implementation": "implicit area does not yield to inert, so it also runs make test"
+  },
+  {
+   "id": "legacy-inert-mixed",
+   "rule": "6",
+   "kind": "decide",
+   "about": "LAND_INERT: one path that is not inert and the whole of Tier 1 runs",
+   "input": {
+    "legacy": {
+     "LAND_TEST_CMD": "make test",
+     "LAND_INERT": [
+      "CHANGELOG.md",
+      "docs/*"
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "CHANGELOG.md"
+     ],
+     [
+      "M",
+      "src/a.c"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "all",
+     "inert"
+    ],
+    "skipped_areas": [],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "make test"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "skips on any inert path"
+  },
+  {
+   "id": "legacy-inert-deleted",
+   "rule": "6",
+   "kind": "decide",
+   "about": "LAND_INERT: a deleted inert path runs Tier 1",
+   "input": {
+    "legacy": {
+     "LAND_TEST_CMD": "make test",
+     "LAND_INERT": [
+      "CHANGELOG.md",
+      "docs/*"
+     ]
+    },
+    "changes": [
+     [
+      "D",
+      "CHANGELOG.md"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "all"
+    ],
+    "skipped_areas": [
+     "inert"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "make test"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "treats a deletion as inert"
+  },
+  {
+   "id": "legacy-inert-rename-into",
+   "rule": "6",
+   "kind": "decide",
+   "about": "LAND_INERT: a code file renamed INTO an inert path is seen leaving its old path, and Tier 1 runs",
+   "input": {
+    "legacy": {
+     "LAND_TEST_CMD": "make test",
+     "LAND_INERT": [
+      "CHANGELOG.md",
+      "docs/*"
+     ]
+    },
+    "changes": [
+     [
+      "R",
+      "src/a.c",
+      "docs/a.c"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "all",
+     "inert"
+    ],
+    "skipped_areas": [],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "make test"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "looks only at the new path of a rename"
+  },
+  {
+   "id": "legacy-protected",
+   "rule": "6",
+   "kind": "decide",
+   "about": "LAND_PROTECTED: a protected path is never inert; the whole of Tier 1 runs",
+   "input": {
+    "legacy": {
+     "LAND_TEST_CMD": "make test",
+     "LAND_INERT": [
+      "docs/*"
+     ],
+     "LAND_PROTECTED": [
+      "docs/p.md"
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "docs/p.md"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "all",
+     "inert"
+    ],
+    "skipped_areas": [],
+    "unmapped": [],
+    "gate_defining": [
+     "docs/p.md"
+    ],
+    "full_suite": true,
+    "steps": [
+     [
+      ".",
+      "make test"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "lets the inert pattern win over protected"
+  },
+  {
+   "id": "reuse-disjoint-move",
+   "rule": "concurrency",
+   "kind": "reuse",
+   "about": "the trunk moved in docs only; my change touches app: the move touches no area of mine, so my verdict stands",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "mine": [
+     [
+      "M",
+      "src/app/a.c"
+     ]
+    ],
+    "moved": [
+     [
+      "M",
+      "docs/g.md"
+     ]
+    ]
+   },
+   "expect": {
+    "rerun": [],
+    "reused": [
+     "app"
+    ]
+   },
+   "wrong_implementation": "re-validates on any trunk move"
+  },
+  {
+   "id": "reuse-move-in-another-area",
+   "rule": "concurrency",
+   "kind": "reuse",
+   "about": "the trunk moved in tests/app of another area; my change is in lib's own tests: disjoint areas, reuse",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "mine": [
+     [
+      "M",
+      "tests/lib/t.c"
+     ]
+    ],
+    "moved": [
+     [
+      "M",
+      "tests/app/t.c"
+     ],
+     [
+      "M",
+      "tools/t.c"
+     ]
+    ]
+   },
+   "expect": {
+    "rerun": [],
+    "reused": [
+     "lib"
+    ]
+   },
+   "wrong_implementation": "re-validates on any trunk move"
+  },
+  {
+   "id": "reuse-same-area-other-file",
+   "rule": "concurrency",
+   "kind": "reuse",
+   "about": "the trunk moved src/app/b.c; I changed src/app/a.c: a DIFFERENT FILE of the same area still re-validates the area (file-level reuse is unsound here: the area's steps read both)",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "mine": [
+     [
+      "M",
+      "src/app/a.c"
+     ]
+    ],
+    "moved": [
+     [
+      "M",
+      "src/app/b.c"
+     ]
+    ]
+   },
+   "expect": {
+    "rerun": [
+     "app"
+    ],
+    "reused": []
+   },
+   "wrong_implementation": "file-level reuse (the same file only): it reuses a verdict that b.c may have invalidated"
+  },
+  {
+   "id": "reuse-overlap-counts",
+   "rule": "concurrency",
+   "kind": "reuse",
+   "about": "I changed src/app/a.c (app); the trunk moved src/lib/x.c, a path of lib AND app: the move touches app too (overlap is the declared dependency), so app re-validates even though the two paths differ",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "mine": [
+     [
+      "M",
+      "src/app/a.c"
+     ]
+    ],
+    "moved": [
+     [
+      "M",
+      "src/lib/x.c"
+     ]
+    ]
+   },
+   "expect": {
+    "rerun": [
+     "app"
+    ],
+    "reused": []
+   },
+   "wrong_implementation": "attributes a moved path to its first owner only (lib), so the move seems to touch no area of mine and app's verdict is wrongly reused"
+  },
+  {
+   "id": "reuse-move-in-shared-path",
+   "rule": "concurrency",
+   "kind": "reuse",
+   "about": "I changed tests/lib/t.c (lib); the trunk moved src/lib/x.c, a path of lib AND app: lib re-validates",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "mine": [
+     [
+      "M",
+      "tests/lib/t.c"
+     ]
+    ],
+    "moved": [
+     [
+      "M",
+      "src/lib/x.c"
+     ]
+    ]
+   },
+   "expect": {
+    "rerun": [
+     "lib"
+    ],
+    "reused": []
+   },
+   "wrong_implementation": "reuses because the moved path is not literally one of mine"
+  },
+  {
+   "id": "reuse-unmapped-move",
+   "rule": "concurrency",
+   "kind": "reuse",
+   "about": "the trunk moved a path no area owns: it runs the full suite, so every area of mine re-validates",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "mine": [
+     [
+      "M",
+      "tests/lib/t.c"
+     ]
+    ],
+    "moved": [
+     [
+      "M",
+      "scripts/x.sh"
+     ]
+    ]
+   },
+   "expect": {
+    "rerun": [
+     "lib"
+    ],
+    "reused": []
+   },
+   "wrong_implementation": "treats an unmapped moved path as touching nothing"
+  },
+  {
+   "id": "reuse-gate-defining-move",
+   "rule": "concurrency",
+   "kind": "reuse",
+   "about": "the trunk moved the areas file: what judges a change moved, so every area of mine re-validates",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "mine": [
+     [
+      "M",
+      "tests/lib/t.c"
+     ]
+    ],
+    "moved": [
+     [
+      "M",
+      ".land/areas.json"
+     ]
+    ]
+   },
+   "expect": {
+    "rerun": [
+     "lib"
+    ],
+    "reused": []
+   },
+   "wrong_implementation": "reuses across a change of the areas file"
+  },
+  {
+   "id": "reuse-my-change-gate-defining",
+   "rule": "concurrency",
+   "kind": "reuse",
+   "about": "my change touches the areas file: it runs every area, so nothing is reused even when the move is in docs",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "mine": [
+     [
+      "M",
+      ".land/areas.json"
+     ]
+    ],
+    "moved": [
+     [
+      "M",
+      "docs/g.md"
+     ]
+    ]
+   },
+   "expect": {
+    "rerun": [
+     "app",
+     "lib",
+     "tools",
+     "vendor"
+    ],
+    "reused": []
+   },
+   "wrong_implementation": "reuses the verdict of a change that edits the judge"
+  },
+  {
+   "id": "reuse-stepless-area-has-nothing-to-reuse",
+   "rule": "concurrency",
+   "kind": "reuse",
+   "about": "my change touches docs only (no steps): nothing ran, so there is nothing to re-run or to reuse; both lists are empty",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "mine": [
+     [
+      "M",
+      "docs/g.md"
+     ]
+    ],
+    "moved": [
+     [
+      "M",
+      "docs/h.md"
+     ]
+    ]
+   },
+   "expect": {
+    "rerun": [],
+    "reused": []
+   },
+   "wrong_implementation": "lists the stepless area as re-run or reused (an area with no steps ran nothing)"
+  },
+  {
+   "id": "reuse-rename-in-the-move",
+   "rule": "concurrency",
+   "kind": "reuse",
+   "about": "the trunk renamed a file from src/lib to tools: both ends count; lib and app are touched by the move",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "mine": [
+     [
+      "M",
+      "tests/lib/t.c"
+     ]
+    ],
+    "moved": [
+     [
+      "R",
+      "src/lib/a.c",
+      "tools/a.c"
+     ]
+    ]
+   },
+   "expect": {
+    "rerun": [
+     "lib"
+    ],
+    "reused": []
+   },
+   "wrong_implementation": "matches only the new end of a moved rename, which is in tools"
+  },
+  {
+   "id": "report-overlap-and-unmapped",
+   "rule": "tooling",
+   "kind": "report",
+   "about": "land-check: every pair of overlapping areas with the paths in the overlap, every tracked path no area owns (with the areas that would enclose it: empty when it is unmapped), and the areas with no steps. .land/ is the lander's own and is not listed",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "tracked": [
+     "Makefile",
+     "docs/g.md",
+     "src/app/a.c",
+     "src/lib/x.c",
+     "tests/app/t.c",
+     "tests/lib/t.c",
+     "tools/t.c",
+     "tools/vendor/v.c",
+     "scripts/x.sh",
+     ".land/areas.json"
+    ]
+   },
+   "expect": {
+    "overlap": [
+     {
+      "areas": [
+       "app",
+       "lib"
+      ],
+      "paths": [
+       "src/lib/x.c"
+      ]
+     }
+    ],
+    "unowned": [
+     {
+      "path": "Makefile",
+      "enclosed_by": []
+     },
+     {
+      "path": "scripts/x.sh",
+      "enclosed_by": []
+     }
+    ],
+    "no_steps": [
+     "docs"
+    ]
+   },
+   "wrong_implementation": "omits the overlap or the unowned list"
+  },
+  {
+   "id": "report-unowned-lists-enclosing",
+   "rule": "tooling",
+   "kind": "report",
+   "about": "a tracked path no glob matches but an area encloses is reported unowned with the enclosing areas; one nobody encloses is reported with an empty list",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "core",
+       "paths": [
+        "core/*.py",
+        "core/tests/*"
+       ],
+       "exclude": [
+        "core/gen/*"
+       ],
+       "steps": [
+        {
+         "run": "pytest core"
+        }
+       ]
+      },
+      {
+       "name": "core-io",
+       "paths": [
+        "core/io/*.py"
+       ],
+       "steps": [
+        {
+         "run": "pytest core/io"
+        }
+       ]
+      },
+      {
+       "name": "notes-md",
+       "paths": [
+        "x/y/*.md"
+       ],
+       "steps": [
+        {
+         "run": "lint-md x/y"
+        }
+       ]
+      },
+      {
+       "name": "notes-txt",
+       "paths": [
+        "x/y/*.txt"
+       ],
+       "steps": [
+        {
+         "run": "lint-txt x/y"
+        }
+       ]
+      }
+     ]
+    },
+    "tracked": [
+     "core/a.py",
+     "core/io/data.json",
+     "x/y/z.bin",
+     "other/f.txt",
+     "core/gen/a.py"
+    ]
+   },
+   "expect": {
+    "overlap": [],
+    "unowned": [
+     {
+      "path": "core/gen/a.py",
+      "enclosed_by": []
+     },
+     {
+      "path": "core/io/data.json",
+      "enclosed_by": [
+       "core-io"
+      ]
+     },
+     {
+      "path": "other/f.txt",
+      "enclosed_by": []
+     },
+     {
+      "path": "x/y/z.bin",
+      "enclosed_by": [
+       "notes-md",
+       "notes-txt"
+      ]
+     }
+    ],
+    "no_steps": []
+   },
+   "wrong_implementation": "reports only the paths no area encloses (it hides the paths that merely fall back to an enclosing area)"
+  },
+  {
+   "id": "report-inert-is-an-area",
+   "rule": "tooling",
+   "kind": "report",
+   "about": "with LAND_INERT, the pseudo-area inert is reported like any area: its patterns, its overlap and its no-steps entry",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "tracked": [
+     "CHANGELOG.md",
+     "docs/g.md",
+     "docs/CHANGELOG.md",
+     "src/app/a.c"
+    ],
+    "land_inert": [
+     "CHANGELOG.md",
+     "docs/CHANGELOG.md"
+    ]
+   },
+   "expect": {
+    "overlap": [
+     {
+      "areas": [
+       "docs",
+       "inert"
+      ],
+      "paths": [
+       "docs/CHANGELOG.md"
+      ]
+     }
+    ],
+    "unowned": [],
+    "no_steps": [
+     "docs",
+     "inert"
+    ]
+   },
+   "wrong_implementation": "ignores LAND_INERT in the report"
+  },
+  {
+   "id": "valid-file",
+   "rule": "1",
+   "kind": "validate",
+   "about": "a well-formed areas file",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "valid": true
+   },
+   "wrong_implementation": "rejects it"
+  },
+  {
+   "id": "invalid-duplicate-name",
+   "rule": "1",
+   "kind": "validate",
+   "about": "two areas with the same name",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      },
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "valid": false
+   },
+   "wrong_implementation": "does not enforce this rule and accepts the file"
+  },
+  {
+   "id": "invalid-name-inert",
+   "rule": "1",
+   "kind": "validate",
+   "about": "the name inert is reserved for LAND_INERT",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "inert",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "valid": false
+   },
+   "wrong_implementation": "does not enforce this rule and accepts the file"
+  },
+  {
+   "id": "invalid-name-chars",
+   "rule": "1",
+   "kind": "validate",
+   "about": "a name is [a-z0-9][a-z0-9_-]*",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "Lib Core",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "valid": false
+   },
+   "wrong_implementation": "does not enforce this rule and accepts the file"
+  },
+  {
+   "id": "invalid-unknown-key",
+   "rule": "1",
+   "kind": "validate",
+   "about": "an unknown key is an error, as in land.conf (a typo must not switch a gate off)",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ],
+       "path": [
+        "x/*"
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "valid": false
+   },
+   "wrong_implementation": "does not enforce this rule and accepts the file"
+  },
+  {
+   "id": "invalid-no-paths",
+   "rule": "1",
+   "kind": "validate",
+   "about": "an area must own something",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "valid": false
+   },
+   "wrong_implementation": "does not enforce this rule and accepts the file"
+  },
+  {
+   "id": "invalid-absolute-path",
+   "rule": "1",
+   "kind": "validate",
+   "about": "paths are relative to the repository root",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "/src/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "valid": false
+   },
+   "wrong_implementation": "does not enforce this rule and accepts the file"
+  },
+  {
+   "id": "invalid-dotdot",
+   "rule": "1",
+   "kind": "validate",
+   "about": "a path may not climb out",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "../x/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "valid": false
+   },
+   "wrong_implementation": "does not enforce this rule and accepts the file"
+  },
+  {
+   "id": "invalid-step-without-run",
+   "rule": "1",
+   "kind": "validate",
+   "about": "a step is {run, cwd?}",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "cwd": "src"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "valid": false
+   },
+   "wrong_implementation": "does not enforce this rule and accepts the file"
+  },
+  {
+   "id": "invalid-cwd-glob",
+   "rule": "1",
+   "kind": "validate",
+   "about": "a working directory is a literal directory",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "x",
+         "cwd": "src/*"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "valid": false
+   },
+   "wrong_implementation": "does not enforce this rule and accepts the file"
+  },
+  {
+   "id": "invalid-missing-steps",
+   "rule": "1",
+   "kind": "validate",
+   "about": "steps is required; an area with no steps says so with []",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "valid": false
+   },
+   "wrong_implementation": "does not enforce this rule and accepts the file"
+  },
+  {
+   "id": "invalid-version",
+   "rule": "1",
+   "kind": "validate",
+   "about": "version is exactly 1",
+   "input": {
+    "areas_file": {
+     "version": 2,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "valid": false
+   },
+   "wrong_implementation": "does not enforce this rule and accepts the file"
+  },
+  {
+   "id": "invalid-bracket-glob",
+   "rule": "1",
+   "kind": "validate",
+   "about": "the glob language is * and ? only",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/[ab]/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "valid": false
+   },
+   "wrong_implementation": "does not enforce this rule and accepts the file"
+  },
+  {
+   "id": "import-graph-does-not-select",
+   "rule": "3",
+   "kind": "decide",
+   "about": "src/app/main.c is changed. By the facts, the steps of lib read src/app/main.c (an escape that the release candidate will find): the contract still touches app ONLY. There is no selection by what a test read, by an import graph or by coverage",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "src/app/main.c"
+     ]
+    ],
+    "facts": {
+     "read_by": {
+      "src/app/main.c": [
+       "lib"
+      ]
+     },
+     "note": "informational: an implementation must ignore it"
+    }
+   },
+   "expect": {
+    "areas": [
+     "app"
+    ],
+    "skipped_areas": [
+     "docs",
+     "lib",
+     "tools",
+     "vendor"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "make fmt-check"
+     ],
+     [
+      ".",
+      "make test-app"
+     ],
+     [
+      "src/app",
+      "make lint-app"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "selects by import graph, by what a test read or by coverage, and adds lib"
+  },
+  {
+   "id": "coverage-does-not-narrow",
+   "rule": "3",
+   "kind": "decide",
+   "about": "the same change when the facts say that only make lint-app reads the changed file: every step of the touched area still runs; nothing narrower",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "src/app/main.c"
+     ]
+    ],
+    "facts": {
+     "read_by": {},
+     "covered_by": {
+      "src/app/main.c": [
+       "make lint-app"
+      ]
+     },
+     "note": "informational: an implementation must ignore it"
+    }
+   },
+   "expect": {
+    "areas": [
+     "app"
+    ],
+    "skipped_areas": [
+     "docs",
+     "lib",
+     "tools",
+     "vendor"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "make fmt-check"
+     ],
+     [
+      ".",
+      "make test-app"
+     ],
+     [
+      "src/app",
+      "make lint-app"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "selects steps or tests by coverage (it runs make lint-app only)"
+  },
+  {
+   "id": "no-size-cap",
+   "rule": "3",
+   "kind": "decide",
+   "about": "a change of 12 paths in one area runs exactly the steps of that area; a large change is never turned into the full suite or into a narrower one",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "src/app/f0.c"
+     ],
+     [
+      "M",
+      "src/app/f1.c"
+     ],
+     [
+      "M",
+      "src/app/f2.c"
+     ],
+     [
+      "M",
+      "src/app/f3.c"
+     ],
+     [
+      "M",
+      "src/app/f4.c"
+     ],
+     [
+      "M",
+      "src/app/f5.c"
+     ],
+     [
+      "M",
+      "src/app/f6.c"
+     ],
+     [
+      "M",
+      "src/app/f7.c"
+     ],
+     [
+      "M",
+      "src/app/f8.c"
+     ],
+     [
+      "M",
+      "src/app/f9.c"
+     ],
+     [
+      "M",
+      "src/app/f10.c"
+     ],
+     [
+      "M",
+      "src/app/f11.c"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "app"
+    ],
+    "skipped_areas": [
+     "docs",
+     "lib",
+     "tools",
+     "vendor"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "make fmt-check"
+     ],
+     [
+      ".",
+      "make test-app"
+     ],
+     [
+      "src/app",
+      "make lint-app"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "caps by size: more than 10 paths run the full suite"
+  },
+  {
+   "id": "example-python-lib-touches-all-services",
+   "rule": "examples",
+   "kind": "decide",
+   "about": "a change to the shared library touches the library and both services (each lists it)",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/acme/lib/*",
+        "tests/lib/*",
+        "tests/conftest.py",
+        "pyproject.toml",
+        "uv.lock"
+       ],
+       "steps": [
+        {
+         "run": "ruff check src/acme/lib tests/lib"
+        },
+        {
+         "run": "mypy src/acme/lib"
+        },
+        {
+         "run": "pytest tests/lib -q"
+        }
+       ]
+      },
+      {
+       "name": "orders",
+       "paths": [
+        "src/acme/services/orders/*",
+        "tests/services/orders/*",
+        "src/acme/lib/*",
+        "tests/conftest.py",
+        "pyproject.toml",
+        "uv.lock"
+       ],
+       "steps": [
+        {
+         "run": "ruff check src/acme/services/orders tests/services/orders"
+        },
+        {
+         "run": "mypy src/acme/services/orders"
+        },
+        {
+         "run": "pytest tests/services/orders -q"
+        }
+       ]
+      },
+      {
+       "name": "billing",
+       "paths": [
+        "src/acme/services/billing/*",
+        "tests/services/billing/*",
+        "src/acme/lib/*",
+        "tests/conftest.py",
+        "pyproject.toml",
+        "uv.lock"
+       ],
+       "steps": [
+        {
+         "run": "ruff check src/acme/services/billing tests/services/billing"
+        },
+        {
+         "run": "mypy src/acme/services/billing"
+        },
+        {
+         "run": "pytest tests/services/billing -q"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md"
+       ],
+       "steps": []
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "src/acme/lib/money.py"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "billing",
+     "lib",
+     "orders"
+    ],
+    "skipped_areas": [
+     "docs"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "ruff check src/acme/lib tests/lib"
+     ],
+     [
+      ".",
+      "mypy src/acme/lib"
+     ],
+     [
+      ".",
+      "pytest tests/lib -q"
+     ],
+     [
+      ".",
+      "ruff check src/acme/services/orders tests/services/orders"
+     ],
+     [
+      ".",
+      "mypy src/acme/services/orders"
+     ],
+     [
+      ".",
+      "pytest tests/services/orders -q"
+     ],
+     [
+      ".",
+      "ruff check src/acme/services/billing tests/services/billing"
+     ],
+     [
+      ".",
+      "mypy src/acme/services/billing"
+     ],
+     [
+      ".",
+      "pytest tests/services/billing -q"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "first match wins: only lib runs"
+  },
+  {
+   "id": "example-python-one-service",
+   "rule": "examples",
+   "kind": "decide",
+   "about": "a change inside one service touches that service only",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/acme/lib/*",
+        "tests/lib/*",
+        "tests/conftest.py",
+        "pyproject.toml",
+        "uv.lock"
+       ],
+       "steps": [
+        {
+         "run": "ruff check src/acme/lib tests/lib"
+        },
+        {
+         "run": "mypy src/acme/lib"
+        },
+        {
+         "run": "pytest tests/lib -q"
+        }
+       ]
+      },
+      {
+       "name": "orders",
+       "paths": [
+        "src/acme/services/orders/*",
+        "tests/services/orders/*",
+        "src/acme/lib/*",
+        "tests/conftest.py",
+        "pyproject.toml",
+        "uv.lock"
+       ],
+       "steps": [
+        {
+         "run": "ruff check src/acme/services/orders tests/services/orders"
+        },
+        {
+         "run": "mypy src/acme/services/orders"
+        },
+        {
+         "run": "pytest tests/services/orders -q"
+        }
+       ]
+      },
+      {
+       "name": "billing",
+       "paths": [
+        "src/acme/services/billing/*",
+        "tests/services/billing/*",
+        "src/acme/lib/*",
+        "tests/conftest.py",
+        "pyproject.toml",
+        "uv.lock"
+       ],
+       "steps": [
+        {
+         "run": "ruff check src/acme/services/billing tests/services/billing"
+        },
+        {
+         "run": "mypy src/acme/services/billing"
+        },
+        {
+         "run": "pytest tests/services/billing -q"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md"
+       ],
+       "steps": []
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "src/acme/services/orders/api.py"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "orders"
+    ],
+    "skipped_areas": [
+     "billing",
+     "docs",
+     "lib"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "ruff check src/acme/services/orders tests/services/orders"
+     ],
+     [
+      ".",
+      "mypy src/acme/services/orders"
+     ],
+     [
+      ".",
+      "pytest tests/services/orders -q"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "adds dependency edges: the library and billing run too"
+  },
+  {
+   "id": "example-typescript-web-only",
+   "rule": "examples",
+   "kind": "decide",
+   "about": "a change in web touches web only: web lists shared, shared does not list web",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "shared",
+       "paths": [
+        "packages/shared/*",
+        "package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "tsconfig.base.json"
+       ],
+       "steps": [
+        {
+         "run": "pnpm lint",
+         "cwd": "packages/shared"
+        },
+        {
+         "run": "pnpm typecheck",
+         "cwd": "packages/shared"
+        },
+        {
+         "run": "pnpm test",
+         "cwd": "packages/shared"
+        }
+       ]
+      },
+      {
+       "name": "web",
+       "paths": [
+        "packages/web/*",
+        "packages/shared/*",
+        "package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "tsconfig.base.json"
+       ],
+       "steps": [
+        {
+         "run": "pnpm lint",
+         "cwd": "packages/web"
+        },
+        {
+         "run": "pnpm typecheck",
+         "cwd": "packages/web"
+        },
+        {
+         "run": "pnpm test",
+         "cwd": "packages/web"
+        },
+        {
+         "run": "pnpm build",
+         "cwd": "packages/web"
+        }
+       ]
+      },
+      {
+       "name": "api",
+       "paths": [
+        "packages/api/*",
+        "packages/shared/*",
+        "package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "tsconfig.base.json"
+       ],
+       "steps": [
+        {
+         "run": "pnpm lint",
+         "cwd": "packages/api"
+        },
+        {
+         "run": "pnpm typecheck",
+         "cwd": "packages/api"
+        },
+        {
+         "run": "pnpm test",
+         "cwd": "packages/api"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*",
+        "README.md",
+        "LICENSE"
+       ],
+       "steps": []
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "packages/web/src/app.tsx"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "web"
+    ],
+    "skipped_areas": [
+     "api",
+     "docs",
+     "shared"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      "packages/web",
+      "pnpm lint"
+     ],
+     [
+      "packages/web",
+      "pnpm typecheck"
+     ],
+     [
+      "packages/web",
+      "pnpm test"
+     ],
+     [
+      "packages/web",
+      "pnpm build"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "adds dependency edges: shared runs too"
+  },
+  {
+   "id": "example-typescript-shared",
+   "rule": "examples",
+   "kind": "decide",
+   "about": "a change in shared touches shared, web and api",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "shared",
+       "paths": [
+        "packages/shared/*",
+        "package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "tsconfig.base.json"
+       ],
+       "steps": [
+        {
+         "run": "pnpm lint",
+         "cwd": "packages/shared"
+        },
+        {
+         "run": "pnpm typecheck",
+         "cwd": "packages/shared"
+        },
+        {
+         "run": "pnpm test",
+         "cwd": "packages/shared"
+        }
+       ]
+      },
+      {
+       "name": "web",
+       "paths": [
+        "packages/web/*",
+        "packages/shared/*",
+        "package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "tsconfig.base.json"
+       ],
+       "steps": [
+        {
+         "run": "pnpm lint",
+         "cwd": "packages/web"
+        },
+        {
+         "run": "pnpm typecheck",
+         "cwd": "packages/web"
+        },
+        {
+         "run": "pnpm test",
+         "cwd": "packages/web"
+        },
+        {
+         "run": "pnpm build",
+         "cwd": "packages/web"
+        }
+       ]
+      },
+      {
+       "name": "api",
+       "paths": [
+        "packages/api/*",
+        "packages/shared/*",
+        "package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "tsconfig.base.json"
+       ],
+       "steps": [
+        {
+         "run": "pnpm lint",
+         "cwd": "packages/api"
+        },
+        {
+         "run": "pnpm typecheck",
+         "cwd": "packages/api"
+        },
+        {
+         "run": "pnpm test",
+         "cwd": "packages/api"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*",
+        "README.md",
+        "LICENSE"
+       ],
+       "steps": []
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "packages/shared/src/id.ts"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "api",
+     "shared",
+     "web"
+    ],
+    "skipped_areas": [
+     "docs"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      "packages/shared",
+      "pnpm lint"
+     ],
+     [
+      "packages/shared",
+      "pnpm typecheck"
+     ],
+     [
+      "packages/shared",
+      "pnpm test"
+     ],
+     [
+      "packages/web",
+      "pnpm lint"
+     ],
+     [
+      "packages/web",
+      "pnpm typecheck"
+     ],
+     [
+      "packages/web",
+      "pnpm test"
+     ],
+     [
+      "packages/web",
+      "pnpm build"
+     ],
+     [
+      "packages/api",
+      "pnpm lint"
+     ],
+     [
+      "packages/api",
+      "pnpm typecheck"
+     ],
+     [
+      "packages/api",
+      "pnpm test"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "first match wins"
+  },
+  {
+   "id": "example-haskell-test-only",
+   "rule": "examples",
+   "kind": "decide",
+   "about": "a change under test/ touches the test-suite area only",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "library",
+       "paths": [
+        "src/*",
+        "acme.cabal",
+        "cabal.project",
+        "cabal.project.freeze",
+        "hlint.yaml",
+        ".fourmolu.yaml"
+       ],
+       "steps": [
+        {
+         "run": "cabal build lib:acme --ghc-options=-Werror"
+        },
+        {
+         "run": "hlint src"
+        },
+        {
+         "run": "fourmolu --mode check src"
+        }
+       ]
+      },
+      {
+       "name": "executable",
+       "paths": [
+        "app/*",
+        "src/*",
+        "acme.cabal",
+        "cabal.project",
+        "cabal.project.freeze",
+        "hlint.yaml",
+        ".fourmolu.yaml"
+       ],
+       "steps": [
+        {
+         "run": "cabal build exe:acme-cli --ghc-options=-Werror"
+        },
+        {
+         "run": "hlint app"
+        },
+        {
+         "run": "fourmolu --mode check app"
+        }
+       ]
+      },
+      {
+       "name": "tests",
+       "paths": [
+        "test/*",
+        "src/*",
+        "app/*",
+        "acme.cabal",
+        "cabal.project",
+        "cabal.project.freeze",
+        "hlint.yaml",
+        ".fourmolu.yaml"
+       ],
+       "steps": [
+        {
+         "run": "cabal test --test-show-details=failures"
+        },
+        {
+         "run": "hlint test"
+        },
+        {
+         "run": "fourmolu --mode check test"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md"
+       ],
+       "steps": []
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "test/Spec.hs"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "tests"
+    ],
+    "skipped_areas": [
+     "docs",
+     "executable",
+     "library"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "cabal test --test-show-details=failures"
+     ],
+     [
+      ".",
+      "hlint test"
+     ],
+     [
+      ".",
+      "fourmolu --mode check test"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "adds dependency edges"
+  },
+  {
+   "id": "example-haskell-library",
+   "rule": "examples",
+   "kind": "decide",
+   "about": "a change under src/ touches all three code areas",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "library",
+       "paths": [
+        "src/*",
+        "acme.cabal",
+        "cabal.project",
+        "cabal.project.freeze",
+        "hlint.yaml",
+        ".fourmolu.yaml"
+       ],
+       "steps": [
+        {
+         "run": "cabal build lib:acme --ghc-options=-Werror"
+        },
+        {
+         "run": "hlint src"
+        },
+        {
+         "run": "fourmolu --mode check src"
+        }
+       ]
+      },
+      {
+       "name": "executable",
+       "paths": [
+        "app/*",
+        "src/*",
+        "acme.cabal",
+        "cabal.project",
+        "cabal.project.freeze",
+        "hlint.yaml",
+        ".fourmolu.yaml"
+       ],
+       "steps": [
+        {
+         "run": "cabal build exe:acme-cli --ghc-options=-Werror"
+        },
+        {
+         "run": "hlint app"
+        },
+        {
+         "run": "fourmolu --mode check app"
+        }
+       ]
+      },
+      {
+       "name": "tests",
+       "paths": [
+        "test/*",
+        "src/*",
+        "app/*",
+        "acme.cabal",
+        "cabal.project",
+        "cabal.project.freeze",
+        "hlint.yaml",
+        ".fourmolu.yaml"
+       ],
+       "steps": [
+        {
+         "run": "cabal test --test-show-details=failures"
+        },
+        {
+         "run": "hlint test"
+        },
+        {
+         "run": "fourmolu --mode check test"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md"
+       ],
+       "steps": []
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "src/Acme/Core.hs"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "executable",
+     "library",
+     "tests"
+    ],
+    "skipped_areas": [
+     "docs"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "cabal build lib:acme --ghc-options=-Werror"
+     ],
+     [
+      ".",
+      "hlint src"
+     ],
+     [
+      ".",
+      "fourmolu --mode check src"
+     ],
+     [
+      ".",
+      "cabal build exe:acme-cli --ghc-options=-Werror"
+     ],
+     [
+      ".",
+      "hlint app"
+     ],
+     [
+      ".",
+      "fourmolu --mode check app"
+     ],
+     [
+      ".",
+      "cabal test --test-show-details=failures"
+     ],
+     [
+      ".",
+      "hlint test"
+     ],
+     [
+      ".",
+      "fourmolu --mode check test"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "first match wins"
+  },
+  {
+   "id": "example-c-header",
+   "rule": "examples",
+   "kind": "decide",
+   "about": "a header touches the library and the tools",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "libacme",
+       "paths": [
+        "include/*",
+        "src/*",
+        "tests/lib/*",
+        "third_party/*",
+        "Makefile"
+       ],
+       "steps": [
+        {
+         "run": "make lib CFLAGS='-Wall -Wextra -Werror'"
+        },
+        {
+         "run": "make test-lib"
+        },
+        {
+         "run": "make format-check"
+        }
+       ]
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*",
+        "tests/tools/*",
+        "include/*",
+        "src/*",
+        "third_party/*",
+        "Makefile"
+       ],
+       "steps": [
+        {
+         "run": "make tools CFLAGS='-Wall -Wextra -Werror'"
+        },
+        {
+         "run": "make test-tools"
+        },
+        {
+         "run": "make format-check"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*",
+        "man/*",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md",
+        "Makefile"
+       ],
+       "steps": [
+        {
+         "run": "make check-man"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "include/acme.h"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "libacme",
+     "tools"
+    ],
+    "skipped_areas": [
+     "docs"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "make lib CFLAGS='-Wall -Wextra -Werror'"
+     ],
+     [
+      ".",
+      "make test-lib"
+     ],
+     [
+      ".",
+      "make format-check"
+     ],
+     [
+      ".",
+      "make tools CFLAGS='-Wall -Wextra -Werror'"
+     ],
+     [
+      ".",
+      "make test-tools"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "first match wins"
+  },
+  {
+   "id": "example-lean-trust-ledger",
+   "rule": "examples",
+   "kind": "decide",
+   "about": "docs/trust-ledger.md is excluded from docs and owned by proofs: only proofs runs",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "spec",
+       "paths": [
+        "spec/*",
+        "lakefile.toml",
+        "lean-toolchain",
+        "lake-manifest.json"
+       ],
+       "steps": [
+        {
+         "run": "lake build Spec"
+        }
+       ]
+      },
+      {
+       "name": "impl",
+       "paths": [
+        "impl/*",
+        "spec/*",
+        "lakefile.toml",
+        "lean-toolchain",
+        "lake-manifest.json"
+       ],
+       "steps": [
+        {
+         "run": "lake build Impl"
+        }
+       ]
+      },
+      {
+       "name": "proofs",
+       "paths": [
+        "proofs/*",
+        "impl/*",
+        "spec/*",
+        "docs/trust-ledger.md",
+        "lakefile.toml",
+        "lean-toolchain",
+        "lake-manifest.json"
+       ],
+       "steps": [
+        {
+         "run": "lake build Proofs"
+        },
+        {
+         "run": ".land/tool/bin/land-lean axiom"
+        },
+        {
+         "run": ".land/tool/bin/land-lean trust"
+        }
+       ]
+      },
+      {
+       "name": "console",
+       "paths": [
+        "console/*"
+       ],
+       "steps": [
+        {
+         "run": "npm ci",
+         "cwd": "console"
+        },
+        {
+         "run": "npm run lint",
+         "cwd": "console"
+        },
+        {
+         "run": "npm test",
+         "cwd": "console"
+        },
+        {
+         "run": "npm run build",
+         "cwd": "console"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md"
+       ],
+       "exclude": [
+        "docs/trust-ledger.md"
+       ],
+       "steps": []
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "docs/trust-ledger.md"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "proofs"
+    ],
+    "skipped_areas": [
+     "console",
+     "docs",
+     "impl",
+     "spec"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "lake build Proofs"
+     ],
+     [
+      ".",
+      ".land/tool/bin/land-lean axiom"
+     ],
+     [
+      ".",
+      ".land/tool/bin/land-lean trust"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "ignores exclude: the stepless docs area is touched too"
+  },
+  {
+   "id": "example-lean-spec",
+   "rule": "examples",
+   "kind": "decide",
+   "about": "a change to the specification touches spec, impl and proofs, not the console",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "spec",
+       "paths": [
+        "spec/*",
+        "lakefile.toml",
+        "lean-toolchain",
+        "lake-manifest.json"
+       ],
+       "steps": [
+        {
+         "run": "lake build Spec"
+        }
+       ]
+      },
+      {
+       "name": "impl",
+       "paths": [
+        "impl/*",
+        "spec/*",
+        "lakefile.toml",
+        "lean-toolchain",
+        "lake-manifest.json"
+       ],
+       "steps": [
+        {
+         "run": "lake build Impl"
+        }
+       ]
+      },
+      {
+       "name": "proofs",
+       "paths": [
+        "proofs/*",
+        "impl/*",
+        "spec/*",
+        "docs/trust-ledger.md",
+        "lakefile.toml",
+        "lean-toolchain",
+        "lake-manifest.json"
+       ],
+       "steps": [
+        {
+         "run": "lake build Proofs"
+        },
+        {
+         "run": ".land/tool/bin/land-lean axiom"
+        },
+        {
+         "run": ".land/tool/bin/land-lean trust"
+        }
+       ]
+      },
+      {
+       "name": "console",
+       "paths": [
+        "console/*"
+       ],
+       "steps": [
+        {
+         "run": "npm ci",
+         "cwd": "console"
+        },
+        {
+         "run": "npm run lint",
+         "cwd": "console"
+        },
+        {
+         "run": "npm test",
+         "cwd": "console"
+        },
+        {
+         "run": "npm run build",
+         "cwd": "console"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md"
+       ],
+       "exclude": [
+        "docs/trust-ledger.md"
+       ],
+       "steps": []
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "spec/Acme/Spec.lean"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "impl",
+     "proofs",
+     "spec"
+    ],
+    "skipped_areas": [
+     "console",
+     "docs"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "lake build Spec"
+     ],
+     [
+      ".",
+      "lake build Impl"
+     ],
+     [
+      ".",
+      "lake build Proofs"
+     ],
+     [
+      ".",
+      ".land/tool/bin/land-lean axiom"
+     ],
+     [
+      ".",
+      ".land/tool/bin/land-lean trust"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "first match wins"
+  },
+  {
+   "id": "example-documents-glossary",
+   "rule": "examples",
+   "kind": "decide",
+   "about": "glossary.md is listed in guide and policies: both run",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "guide",
+       "paths": [
+        "guide/*.md",
+        "glossary.md",
+        ".wordlist.txt"
+       ],
+       "steps": [
+        {
+         "run": "markdownlint guide glossary.md"
+        },
+        {
+         "run": "codespell --ignore-words .wordlist.txt guide glossary.md"
+        },
+        {
+         "run": "lychee --offline guide"
+        }
+       ]
+      },
+      {
+       "name": "policies",
+       "paths": [
+        "policies/*",
+        "glossary.md",
+        ".wordlist.txt"
+       ],
+       "steps": [
+        {
+         "run": "markdownlint policies"
+        },
+        {
+         "run": "codespell --ignore-words .wordlist.txt policies"
+        },
+        {
+         "run": "scripts/check-policy-ids policies"
+        }
+       ]
+      },
+      {
+       "name": "scripts",
+       "paths": [
+        "scripts/*"
+       ],
+       "steps": [
+        {
+         "run": "shellcheck scripts/*"
+        }
+       ]
+      },
+      {
+       "name": "front-matter",
+       "paths": [
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md",
+        "CONTRIBUTING.md"
+       ],
+       "steps": []
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "glossary.md"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "guide",
+     "policies"
+    ],
+    "skipped_areas": [
+     "front-matter",
+     "scripts"
+    ],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "markdownlint guide glossary.md"
+     ],
+     [
+      ".",
+      "codespell --ignore-words .wordlist.txt guide glossary.md"
+     ],
+     [
+      ".",
+      "lychee --offline guide"
+     ],
+     [
+      ".",
+      "markdownlint policies"
+     ],
+     [
+      ".",
+      "codespell --ignore-words .wordlist.txt policies"
+     ],
+     [
+      ".",
+      "scripts/check-policy-ids policies"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "first match wins"
+  },
+  {
+   "id": "example-python-is-valid",
+   "rule": "examples",
+   "kind": "validate",
+   "about": "the python example of docs/areas.md is a valid areas file",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/acme/lib/*",
+        "tests/lib/*",
+        "tests/conftest.py",
+        "pyproject.toml",
+        "uv.lock"
+       ],
+       "steps": [
+        {
+         "run": "ruff check src/acme/lib tests/lib"
+        },
+        {
+         "run": "mypy src/acme/lib"
+        },
+        {
+         "run": "pytest tests/lib -q"
+        }
+       ]
+      },
+      {
+       "name": "orders",
+       "paths": [
+        "src/acme/services/orders/*",
+        "tests/services/orders/*",
+        "src/acme/lib/*",
+        "tests/conftest.py",
+        "pyproject.toml",
+        "uv.lock"
+       ],
+       "steps": [
+        {
+         "run": "ruff check src/acme/services/orders tests/services/orders"
+        },
+        {
+         "run": "mypy src/acme/services/orders"
+        },
+        {
+         "run": "pytest tests/services/orders -q"
+        }
+       ]
+      },
+      {
+       "name": "billing",
+       "paths": [
+        "src/acme/services/billing/*",
+        "tests/services/billing/*",
+        "src/acme/lib/*",
+        "tests/conftest.py",
+        "pyproject.toml",
+        "uv.lock"
+       ],
+       "steps": [
+        {
+         "run": "ruff check src/acme/services/billing tests/services/billing"
+        },
+        {
+         "run": "mypy src/acme/services/billing"
+        },
+        {
+         "run": "pytest tests/services/billing -q"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md"
+       ],
+       "steps": []
+      }
+     ]
+    }
+   },
+   "expect": {
+    "valid": true
+   },
+   "wrong_implementation": "rejects it"
+  },
+  {
+   "id": "example-typescript-is-valid",
+   "rule": "examples",
+   "kind": "validate",
+   "about": "the typescript example of docs/areas.md is a valid areas file",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "shared",
+       "paths": [
+        "packages/shared/*",
+        "package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "tsconfig.base.json"
+       ],
+       "steps": [
+        {
+         "run": "pnpm lint",
+         "cwd": "packages/shared"
+        },
+        {
+         "run": "pnpm typecheck",
+         "cwd": "packages/shared"
+        },
+        {
+         "run": "pnpm test",
+         "cwd": "packages/shared"
+        }
+       ]
+      },
+      {
+       "name": "web",
+       "paths": [
+        "packages/web/*",
+        "packages/shared/*",
+        "package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "tsconfig.base.json"
+       ],
+       "steps": [
+        {
+         "run": "pnpm lint",
+         "cwd": "packages/web"
+        },
+        {
+         "run": "pnpm typecheck",
+         "cwd": "packages/web"
+        },
+        {
+         "run": "pnpm test",
+         "cwd": "packages/web"
+        },
+        {
+         "run": "pnpm build",
+         "cwd": "packages/web"
+        }
+       ]
+      },
+      {
+       "name": "api",
+       "paths": [
+        "packages/api/*",
+        "packages/shared/*",
+        "package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "tsconfig.base.json"
+       ],
+       "steps": [
+        {
+         "run": "pnpm lint",
+         "cwd": "packages/api"
+        },
+        {
+         "run": "pnpm typecheck",
+         "cwd": "packages/api"
+        },
+        {
+         "run": "pnpm test",
+         "cwd": "packages/api"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*",
+        "README.md",
+        "LICENSE"
+       ],
+       "steps": []
+      }
+     ]
+    }
+   },
+   "expect": {
+    "valid": true
+   },
+   "wrong_implementation": "rejects it"
+  },
+  {
+   "id": "example-haskell-is-valid",
+   "rule": "examples",
+   "kind": "validate",
+   "about": "the haskell example of docs/areas.md is a valid areas file",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "library",
+       "paths": [
+        "src/*",
+        "acme.cabal",
+        "cabal.project",
+        "cabal.project.freeze",
+        "hlint.yaml",
+        ".fourmolu.yaml"
+       ],
+       "steps": [
+        {
+         "run": "cabal build lib:acme --ghc-options=-Werror"
+        },
+        {
+         "run": "hlint src"
+        },
+        {
+         "run": "fourmolu --mode check src"
+        }
+       ]
+      },
+      {
+       "name": "executable",
+       "paths": [
+        "app/*",
+        "src/*",
+        "acme.cabal",
+        "cabal.project",
+        "cabal.project.freeze",
+        "hlint.yaml",
+        ".fourmolu.yaml"
+       ],
+       "steps": [
+        {
+         "run": "cabal build exe:acme-cli --ghc-options=-Werror"
+        },
+        {
+         "run": "hlint app"
+        },
+        {
+         "run": "fourmolu --mode check app"
+        }
+       ]
+      },
+      {
+       "name": "tests",
+       "paths": [
+        "test/*",
+        "src/*",
+        "app/*",
+        "acme.cabal",
+        "cabal.project",
+        "cabal.project.freeze",
+        "hlint.yaml",
+        ".fourmolu.yaml"
+       ],
+       "steps": [
+        {
+         "run": "cabal test --test-show-details=failures"
+        },
+        {
+         "run": "hlint test"
+        },
+        {
+         "run": "fourmolu --mode check test"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md"
+       ],
+       "steps": []
+      }
+     ]
+    }
+   },
+   "expect": {
+    "valid": true
+   },
+   "wrong_implementation": "rejects it"
+  },
+  {
+   "id": "example-c-is-valid",
+   "rule": "examples",
+   "kind": "validate",
+   "about": "the c example of docs/areas.md is a valid areas file",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "libacme",
+       "paths": [
+        "include/*",
+        "src/*",
+        "tests/lib/*",
+        "third_party/*",
+        "Makefile"
+       ],
+       "steps": [
+        {
+         "run": "make lib CFLAGS='-Wall -Wextra -Werror'"
+        },
+        {
+         "run": "make test-lib"
+        },
+        {
+         "run": "make format-check"
+        }
+       ]
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*",
+        "tests/tools/*",
+        "include/*",
+        "src/*",
+        "third_party/*",
+        "Makefile"
+       ],
+       "steps": [
+        {
+         "run": "make tools CFLAGS='-Wall -Wextra -Werror'"
+        },
+        {
+         "run": "make test-tools"
+        },
+        {
+         "run": "make format-check"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*",
+        "man/*",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md",
+        "Makefile"
+       ],
+       "steps": [
+        {
+         "run": "make check-man"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "valid": true
+   },
+   "wrong_implementation": "rejects it"
+  },
+  {
+   "id": "example-lean-is-valid",
+   "rule": "examples",
+   "kind": "validate",
+   "about": "the lean example of docs/areas.md is a valid areas file",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "spec",
+       "paths": [
+        "spec/*",
+        "lakefile.toml",
+        "lean-toolchain",
+        "lake-manifest.json"
+       ],
+       "steps": [
+        {
+         "run": "lake build Spec"
+        }
+       ]
+      },
+      {
+       "name": "impl",
+       "paths": [
+        "impl/*",
+        "spec/*",
+        "lakefile.toml",
+        "lean-toolchain",
+        "lake-manifest.json"
+       ],
+       "steps": [
+        {
+         "run": "lake build Impl"
+        }
+       ]
+      },
+      {
+       "name": "proofs",
+       "paths": [
+        "proofs/*",
+        "impl/*",
+        "spec/*",
+        "docs/trust-ledger.md",
+        "lakefile.toml",
+        "lean-toolchain",
+        "lake-manifest.json"
+       ],
+       "steps": [
+        {
+         "run": "lake build Proofs"
+        },
+        {
+         "run": ".land/tool/bin/land-lean axiom"
+        },
+        {
+         "run": ".land/tool/bin/land-lean trust"
+        }
+       ]
+      },
+      {
+       "name": "console",
+       "paths": [
+        "console/*"
+       ],
+       "steps": [
+        {
+         "run": "npm ci",
+         "cwd": "console"
+        },
+        {
+         "run": "npm run lint",
+         "cwd": "console"
+        },
+        {
+         "run": "npm test",
+         "cwd": "console"
+        },
+        {
+         "run": "npm run build",
+         "cwd": "console"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md"
+       ],
+       "exclude": [
+        "docs/trust-ledger.md"
+       ],
+       "steps": []
+      }
+     ]
+    }
+   },
+   "expect": {
+    "valid": true
+   },
+   "wrong_implementation": "rejects it"
+  },
+  {
+   "id": "example-documents-is-valid",
+   "rule": "examples",
+   "kind": "validate",
+   "about": "the documents example of docs/areas.md is a valid areas file",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "guide",
+       "paths": [
+        "guide/*.md",
+        "glossary.md",
+        ".wordlist.txt"
+       ],
+       "steps": [
+        {
+         "run": "markdownlint guide glossary.md"
+        },
+        {
+         "run": "codespell --ignore-words .wordlist.txt guide glossary.md"
+        },
+        {
+         "run": "lychee --offline guide"
+        }
+       ]
+      },
+      {
+       "name": "policies",
+       "paths": [
+        "policies/*",
+        "glossary.md",
+        ".wordlist.txt"
+       ],
+       "steps": [
+        {
+         "run": "markdownlint policies"
+        },
+        {
+         "run": "codespell --ignore-words .wordlist.txt policies"
+        },
+        {
+         "run": "scripts/check-policy-ids policies"
+        }
+       ]
+      },
+      {
+       "name": "scripts",
+       "paths": [
+        "scripts/*"
+       ],
+       "steps": [
+        {
+         "run": "shellcheck scripts/*"
+        }
+       ]
+      },
+      {
+       "name": "front-matter",
+       "paths": [
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md",
+        "CONTRIBUTING.md"
+       ],
+       "steps": []
+      }
+     ]
+    }
+   },
+   "expect": {
+    "valid": true
+   },
+   "wrong_implementation": "rejects it"
+  },
+  {
+   "id": "example-c-makefile",
+   "rule": "examples",
+   "kind": "decide",
+   "about": "Makefile is read by every step (each runs make): it is in every area's paths, so a change to it runs all three areas",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "libacme",
+       "paths": [
+        "include/*",
+        "src/*",
+        "tests/lib/*",
+        "third_party/*",
+        "Makefile"
+       ],
+       "steps": [
+        {
+         "run": "make lib CFLAGS='-Wall -Wextra -Werror'"
+        },
+        {
+         "run": "make test-lib"
+        },
+        {
+         "run": "make format-check"
+        }
+       ]
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*",
+        "tests/tools/*",
+        "include/*",
+        "src/*",
+        "third_party/*",
+        "Makefile"
+       ],
+       "steps": [
+        {
+         "run": "make tools CFLAGS='-Wall -Wextra -Werror'"
+        },
+        {
+         "run": "make test-tools"
+        },
+        {
+         "run": "make format-check"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*",
+        "man/*",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md",
+        "Makefile"
+       ],
+       "steps": [
+        {
+         "run": "make check-man"
+        }
+       ]
+      }
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "Makefile"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "docs",
+     "libacme",
+     "tools"
+    ],
+    "skipped_areas": [],
+    "unmapped": [],
+    "gate_defining": [],
+    "full_suite": false,
+    "steps": [
+     [
+      ".",
+      "make lib CFLAGS='-Wall -Wextra -Werror'"
+     ],
+     [
+      ".",
+      "make test-lib"
+     ],
+     [
+      ".",
+      "make format-check"
+     ],
+     [
+      ".",
+      "make tools CFLAGS='-Wall -Wextra -Werror'"
+     ],
+     [
+      ".",
+      "make test-tools"
+     ],
+     [
+      ".",
+      "make check-man"
+     ]
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "treats the Makefile as unmapped and names it, or lists it in the library area only"
+  }
+ ]
+}
