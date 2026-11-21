@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.22.1 (patch)
+
+- **`land-secrets`'s hook message no longer names a tool of ours.** The pre-commit hook template, its documentation and its test said `Secrets live in doppler, never in a repository.`; a library's public-readiness lint rejects that word, so no library could adopt the gate. The message is now `Secrets live in your secret manager, never in a repository.` Nothing else changes; a consumer on 0.22.0 that copied the hook should copy it again.
+
 ## 0.22.0 (minor; additive: a tool, a template, a protected-set rule, one file and one command for the landings record; a consumer that does nothing is unchanged)
 
 - **`land-secrets`, the secret gate** (`docs/secrets-gate.md`). The tool owns HOW: it runs the repository's pinned gitleaks over the whole history and the working tree (`--staged` for a hook), always with `--redact`, FAILS CLOSED (exit 2 when it cannot run, 1 for a finding, 0 clean), and carries a negative self-test (`--selftest`) that has been watched to fail. The repository owns WHICH (its `.gitleaks.toml`, a reason beside every allowlist entry) and pins the scanner in its `mise.toml`; the tool never vendors one. A secret found in history: rotate it first, then remove it; never allowlist a real one.

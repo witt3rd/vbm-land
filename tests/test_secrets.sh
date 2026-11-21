@@ -95,7 +95,7 @@ hc() { ( cd "$H" && git commit -q -m "$1" ); }
 git -C "$H" add -A; expect_exit "a clean staged change commits" 0 hc "chore: clean"
 check "the clean commit is in" test "$(git -C "$H" rev-list --count HEAD)" = 1
 echo "$MARK" > "$H/leak.txt"; git -C "$H" add leak.txt
-expect_exit "a staged marked file is refused" 1 hc "chore: leak"; out_has "Nothing was committed. Secrets live in doppler, never in a repository."; nomark
+expect_exit "a staged marked file is refused" 1 hc "chore: leak"; out_has "Nothing was committed. Secrets live in your secret manager, never in a repository."; nomark
 check "nothing was committed" test "$(git -C "$H" rev-list --count HEAD)" = 1
 git -C "$H" rm -q -f --cached leak.txt; rm -f "$H/leak.txt"; echo more >> "$H/a.txt"; git -C "$H" add a.txt
 expect_exit "a scanner that cannot run (exit 2) refuses the commit (fails closed)" 1 env STUB_MODE=fail bash -c 'cd "$1" && git commit -q -m x' _ "$H"; out_has "Nothing was committed"

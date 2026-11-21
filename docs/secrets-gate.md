@@ -76,7 +76,7 @@ git config core.hooksPath .githooks     # once per clone
 mise install                            # the repository's pinned scanner
 ```
 
-The hook changes to the top level and runs `.land/tool/bin/land-secrets --staged`. When that exits non-zero it refuses the commit with exit 1 and says `Nothing was committed. Secrets live in doppler, never in a repository.` It fails CLOSED: with the hook installed, a commit is refused when the scanner cannot run (no scanner, no `.land/tool/`).
+The hook changes to the top level and runs `.land/tool/bin/land-secrets --staged`. When that exits non-zero it refuses the commit with exit 1 and says `Nothing was committed. Secrets live in your secret manager, never in a repository.` It fails CLOSED: with the hook installed, a commit is refused when the scanner cannot run (no scanner, no `.land/tool/`).
 
 Say it plainly: the hook is the EARLY warning and a per-clone opt-in (a clone that never set `core.hooksPath`, or a commit with `--no-verify`, skips it). The gate in Tier 1 is the one that cannot be skipped. `.githooks/*` is in the protected set, so a change to the hook needs the `Protected:` trailer.
 
