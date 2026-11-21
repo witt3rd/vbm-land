@@ -7,10 +7,12 @@ LAND_CONF_FILE=$LAND_HOME/land.conf      # the repository's own settings
 LAND_HOOKS_DEFAULT=$LAND_HOME/land.d     # the repository's own hooks
 LAND_SIGNERS_FILE=$LAND_HOME/land.signers   # who may sign releases
 LAND_PINS_FILE=$LAND_HOME/pins.lock      # the libraries this repository vendors, one line each: NAME URL TAG REV TREE_SHA256 (docs/pin.md)
+LAND_SKILLS_LOCK=$LAND_HOME/skills.lock    # the third-party agent skills this repository vendors, one line each: SOURCE_URL COMMIT SKILL TREE_SHA256 LICENSE_SPDX REVIEWED (docs/pin.md section 8)
 LAND_VENDOR_DIR=vendor                   # where a pinned library is vendored: vendor/NAME
 LAND_LEAN_CONF_FILE=$LAND_HOME/lean.conf   # the repository's settings for the Lean gates (docs/lean-gates.md): its PRESENCE turns them on
 LAND_ENTRY=$LAND_HOME/land-direct        # the entry script an agent runs (it execs ./tool/bin/land-direct beside itself)
-LAND_SKILLS_DIR=.agents/skills           # where the tool's agent skills are installed
+LAND_SKILLS_DIR=.agents/skills           # where the tool's agent skills are installed, and where a vendored third-party skill goes: $LAND_SKILLS_DIR/<skill>
+LAND_SKILLS_THIRD_PARTY=$LAND_SKILLS_DIR/THIRD-PARTY   # one provenance directory per third-party source: <slug>/SOURCE.md and <slug>/LICENSE (reserved: never a skill)
 
 # The OLD layout (before 0.8.0), where a consumer that has not been migrated yet keeps the same files. The migration in `install` MOVES them into $LAND_HOME and removes $LAND_LEGACY_DIR;
 # land-update stages them, so their deletions are in the update commit; and install verifies a release against $LAND_LEGACY_SIGNERS_FILE too. Nothing else reads them, nothing writes here, and

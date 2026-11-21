@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
-# land-pin tree DIR | vendor NAME URL TAG | verify | online | list        (docs/pin.md). Run from the repository root, or set LAND_PIN_ROOT.
+# land-pin tree DIR | vendor NAME URL TAG | verify | online | list | skill add|review|adopt|update|list|verify        (docs/pin.md). Run from the repository root, or set LAND_PIN_ROOT.
 #   tree DIR  print the tree hash of DIR.
 #   vendor    the ONLY way to add or move a pin: fetch the tag, REFUSE unless it is annotated and signed by a key in the signers file, its message records exactly one tree_sha256= and the exported tree
 #             hashes to it; then replace vendor/NAME and the lock line, and run verify. A refusal changes nothing.
 #   online    the slow tier: each locked tag must still point at the locked commit on its remote (a moved, deleted or unreachable one is refused); a newer tag is reported, never applied.
 #   list      the locked names, one per line.
 #   verify    offline: every locked library is vendored and unchanged, no vendored library is unlocked, and every copy of a library in the closure (any depth) is the same.
-#             Exit 0 ok; 1 refused (every reason printed); 2 usage or a malformed lock. A missing lock is an empty lock.
+#             Exit 0 ok; 1 refused (every reason printed); 2 usage or a malformed lock. A missing lock is an empty lock. It then runs `skill verify` (below).
+#   skill     (docs/pin.md section 8) vendoring a third-party agent skill set, pinned by source URL and a full 40-hex commit, each skill directory by its tree hash, trusted by a RECORDED REVIEW (no signature exists to check):
+#             skill add URL COMMIT SKILL... --license SPDX --why SKILL=TEXT... [--skip SKILL=TEXT...] [--root PATH]   copy unchanged, lock as `pending`, write THIRD-PARTY/<slug>/{SOURCE.md,LICENSE}, print the review aid
+#             skill adopt (same arguments)  the same for a copy already in the tree: it must equal the commit's directory byte for byte; nothing is copied
+#             skill review SKILL [--by REVIEWER]   record DATE:REVIEWER (refused when the skill changed since the lock); without --by print the review aid and record nothing
+#             skill update URL COMMIT SKILL...  [--license|--why|--skip|--root as above]   re-vendor ALL the skills of a source from a newer commit: prints the diff, resets the review
+#             skill list | skill verify   (offline, fast: hashes local directories only; `land-pin verify` runs it too).  Exit 0 done; 1 refused (a refusal changes nothing); 2 usage or a malformed lock.
+#             The tool runs nothing from a skill and decides nothing from reading one: the review aid only PRINTS (the file list, the fenced shell blocks, the URL hosts).
 set -euo pipefail
-export LC_ALL=C
+export LC_ALL=C GIT_TERMINAL_PROMPT=0
 here=$(cd "$(dirname "$0")" && pwd)
 . "$here/../lib/paths.sh"; . "$here/../lib/verify.sh"
 root=${LAND_PIN_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}
@@ -99,11 +106,328 @@ online() {
   return "$bad"
 }
 
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Skills (docs/pin.md section 8). The tree hash is tree_hash (lib/verify.sh), the same as for a library; tree_lines below lists the same file set, one hash per file, only to NAME a path.
+SK_RE='^[a-z0-9][a-z0-9-]*$'
+SK_TP=${LAND_SKILLS_THIRD_PARTY##*/}   # THIRD-PARTY, the reserved directory name
+
+read_skills_lock() {   # parallel arrays S_URL S_COMMIT S_NAME S_HASH S_LIC S_REV; read strictly (exit 2); a missing lock is an empty lock
+  S_URL=(); S_COMMIT=(); S_NAME=(); S_HASH=(); S_LIC=(); S_REV=()
+  local f=$root/$LAND_SKILLS_LOCK n=0 line url commit name hash lic rev extra x i at
+  [ -f "$f" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1)); line=${line%%#*}; url=; rev=; extra=; at="$LAND_SKILLS_LOCK:$n"
+    read -r url commit name hash lic rev extra <<<"$line" || true
+    [ -n "$url" ] || continue
+    { [ -n "$rev" ] && [ -z "$extra" ]; } || die "$at: want SOURCE_URL COMMIT SKILL TREE_SHA256 LICENSE_SPDX REVIEWED (6 fields)"
+    [[ $commit =~ ^[0-9a-f]{40}$ ]] || die "$at: the commit must be 40 hex digits"
+    [[ $name =~ $SK_RE ]] || die "$at: bad skill name '$name'"
+    [[ $hash =~ ^[0-9a-f]{64}$ ]] || die "$at: the tree hash must be 64 hex digits"
+    [[ $rev = pending || $rev =~ ^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01]):[^[:space:]:#]+$ ]] || die "$at: REVIEWED must be 'pending' or DATE:REVIEWER (YYYY-MM-DD, a reviewer with no space and no colon)"
+    for x in ${S_NAME[@]+"${S_NAME[@]}"}; do [ "$x" != "$name" ] || die "$at: duplicate skill '$name'"; done
+    for ((i = 0; i < ${#S_URL[@]}; i++)); do [ "${S_URL[$i]}" != "$url" ] || [ "${S_COMMIT[$i]}" = "$commit" ] || die "$at: the skills of one source share one commit ($url is at ${S_COMMIT[$i]:0:12} and $commit)"; done
+    S_URL+=("$url"); S_COMMIT+=("$commit"); S_NAME+=("$name"); S_HASH+=("$hash"); S_LIC+=("$lic"); S_REV+=("$rev")
+  done < "$f"
+}
+
+src_slug() {   # the URL without its scheme, without a trailing / or .git, lowercased, every run outside [a-z0-9] one -
+  local s=${1,,}
+  if [[ $s =~ ^[a-z][a-z0-9+.-]*:// ]]; then s=${s#*://}; fi
+  s=${s%/}; s=${s%.git}
+  printf '%s\n' "$s" | sed -E 's/[^a-z0-9]+/-/g'
+}
+
+src_field() { awk -v k="$2" '/^## / {exit} index($0, k ": ") == 1 {print substr($0, length(k) + 3); exit}' "$1"; }   # a `key: value` line of SOURCE.md's header
+src_bullets() { awk -v h="$2" '/^## / {sec = ($0 == "## " h); next} sec && /^- / {s = substr($0, 3); i = index(s, ":"); if (i) {n = substr(s, 1, i - 1); t = substr(s, i + 1); sub(/^ /, "", t)} else {n = s; t = ""}; gsub(/^[ \t]+|[ \t]+$/, "", n); if (n != "") print n "\t" t}' "$1"; }   # `NAME<TAB>TEXT` of each bullet under a heading; the text is kept, never read
+
+skill_front() {   # skill_front FILE: three lines: 1 if the frontmatter is closed, 1 if description has a value, the name ('' when none or not a plain value)
+  awk '
+    { sub(/\r$/, "") }
+    function val(v) { sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v); if (length(v) >= 2 && ((substr(v, 1, 1) == "\"" && substr(v, length(v), 1) == "\"") || (substr(v, 1, 1) == "\047" && substr(v, length(v), 1) == "\047"))) v = substr(v, 2, length(v) - 2); return v }
+    NR == 1 { if ($0 != "---") { bad = 1; exit } next }
+    $0 == "---" { closed = 1; exit }
+    pend { pend = 0; if ($0 ~ /^[ \t]+[^ \t]/) { dok = 1; next } }
+    /^name:/ && !gotname { gotname = 1; v = val(substr($0, 6)); if (v !~ /^[>|][-+0-9]*$/) name = v; next }
+    /^description:/ && !gotdesc { gotdesc = 1; v = val(substr($0, 13)); if (v ~ /^[>|][-+0-9]*$/) pend = 1; else if (v != "") dok = 1; next }
+    END { print (closed ? 1 : 0); print (dok ? 1 : 0); print name }' "$1"
+}
+
+tree_lines() {   # tree_lines DIR: "PATH<TAB>SHA256" per file, the file set of tree_hash, sorted by path bytes; 1 with the reason for what tree_hash refuses (or a tab in a path)
+  ( set -euo pipefail; export LC_ALL=C
+    [ -d "${1:-}" ] || { echo "$1 is not a directory" >&2; exit 1; }
+    cd "$1"; files=()
+    while IFS= read -r -d '' p; do
+      case $p in *$'\n'*|*\\*|*$'\t'*) echo "$1: unsafe path ${p@Q}" >&2; exit 1;; esac
+      { [ -f "$p" ] && [ ! -L "$p" ]; } || { echo "$1/${p#./} is not a regular file" >&2; exit 1; }
+      files+=("$p")
+    done < <(find . \( -name .lake -o -name .git \) -prune -o ! -type d -print0)
+    [ ${#files[@]} = 0 ] || printf '%s\0' "${files[@]}" | xargs -0 sha256sum -- | sed -E 's/^([0-9a-f]{64})  \.\/(.*)$/\2\t\1/' | sort )
+}
+
+tree_diff() {   # tree_diff OLD NEW: "A<TAB>path" (only in NEW), "D" (only in OLD), "M" (different content), sorted by path bytes
+  local a b
+  a=$(tree_lines "$1") || return 1; b=$(tree_lines "$2") || return 1
+  { [ -z "$a" ] || printf '%s\n' "$a" | sed 's/$/\told/'; [ -z "$b" ] || printf '%s\n' "$b" | sed 's/$/\tnew/'; } | sort -t $'\t' -k1,1 |
+    awk -F'\t' 'function flush() { if (p == "") return; if (!o) print "A\t" p; else if (!n) print "D\t" p; else if (os != ns) print "M\t" p }
+      { if ($1 != p) { flush(); p = $1; o = 0; n = 0 } if ($3 == "old") { o = 1; os = $2 } else { n = 1; ns = $2 } } END { flush() }'
+}
+
+lock_put() {   # lock_put ROWSFILE: each row replaces the row of its skill in the lock, or is appended; comments and other rows stay
+  local f=$root/$LAND_SKILLS_LOCK
+  mkdir -p "$(dirname "$f")"; [ -f "$f" ] || : > "$f"
+  awk -v rows="$1" 'BEGIN { while ((getline l < rows) > 0) { split(l, f, " "); nw[f[3]] = l; ord[++c] = f[3] } close(rows) }
+    { t = $0; sub(/#.*/, "", t); m = split(t, f, " "); if (m >= 3 && (f[3] in nw)) { if (!(f[3] in dn)) print nw[f[3]]; dn[f[3]] = 1; next } print }
+    END { for (i = 1; i <= c; i++) if (!(ord[i] in dn)) print nw[ord[i]] }' "$f" > "$f.new" && mv "$f.new" "$f"
+}
+
+review_aid() {   # review_aid SKILL: a READING AID. It prints three lists and decides nothing: no score, no class, no exit code depends on it (docs/pin.md 8.5)
+  local s=$1 d=$root/$LAND_SKILLS_DIR/$1 p n
+  echo "== review aid: $s ($LAND_SKILLS_DIR/$s)"
+  echo "-- files (bytes, path)"
+  ( cd "$d"; find . \( -name .lake -o -name .git \) -prune -o -type f -print0 | sort -z | while IFS= read -r -d '' p; do printf '%s %s\n' "$(wc -c < "$p" | tr -d ' ')" "${p#./}"; done )
+  echo "-- fenced shell blocks (file:line of the opening fence, verbatim)"
+  n=0
+  while IFS= read -r -d '' p; do
+    p=${p#./}
+    awk -v F="$p" '
+      function fence(s,   t, c, k, rest) { match(s, /^ ? ? ?/); t = substr(s, RLENGTH + 1); c = substr(t, 1, 1); if (c != "`" && c != "~") return 0
+        k = 0; while (substr(t, k + 1, 1) == c) k++; if (k < 3) return 0; rest = substr(t, k + 1); if (c == "`" && index(rest, "`") > 0) return 0; fc = c; fl = k; finfo = rest; return 1 }
+      { line = $0; sub(/\r$/, "", line) }
+      inb { if (fence(line) && fc == ch && fl >= len && finfo ~ /^[ \t]*$/) { if (sh) { print $0; print "----- end of block" } inb = 0; next } if (sh) print $0; next }
+      fence(line) { inb = 1; ch = fc; len = fl; w = finfo; sub(/^[ \t]+/, "", w); sub(/[ \t].*$/, "", w); sh = (w == "bash" || w == "sh" || w == "shell" || w == "zsh" || w == "console")
+        if (sh) { print "----- block: " F ":" FNR; print $0 } next }
+      END { if (inb && sh) print "----- not closed: runs to the end of the file" }' "$d/$p"
+  done < <(cd "$d"; find . \( -name .lake -o -name .git \) -prune -o -type f -print0 | sort -z)
+  echo "-- url hosts (count, host)"
+  ( cd "$d"; find . \( -name .lake -o -name .git \) -prune -o -type f -print0 | sort -z | xargs -0 -r grep -ahoE "[A-Za-z][A-Za-z0-9+.-]*://[^]/:?#\"'\`(){}<>[[:space:]]*" -- 2>/dev/null || true ) |
+    sed -E 's#^[A-Za-z][A-Za-z0-9+.-]*://##' | tr 'A-Z' 'a-z' | awk 'NF' | sort | uniq -c | sed -E 's/^ +//' || true
+}
+
+skill_verify() {
+  local bad=0 i j s d got slug tp sm k b x nb n=0 pre=$SK_TP url
+  note() { echo "land-pin: BAD $*" >&2; bad=1; }
+  read_skills_lock
+  for ((i = 0; i < ${#S_NAME[@]}; i++)); do
+    s=${S_NAME[$i]}; d=$root/$LAND_SKILLS_DIR/$s; nb=$bad; n=$((n + 1))
+    if [ ! -d "$d" ]; then note "$s: $LAND_SKILLS_DIR/$s is missing"
+    elif got=$(tree_hash "$d" 2>&1); then
+      [ "$got" = "${S_HASH[$i]}" ] || note "$s: the tree hash is $got, the lock says ${S_HASH[$i]} (an edited, added or deleted file)"
+    else note "$s: $got"; fi
+    [ "${S_REV[$i]}" != pending ] || note "$s: reviewed is pending (added and not yet reviewed)"
+    slug=$(src_slug "${S_URL[$i]}"); tp=$root/$LAND_SKILLS_THIRD_PARTY/$slug; sm=$tp/SOURCE.md
+    if [ ! -f "$sm" ]; then note "$s: $pre/$slug/SOURCE.md is missing"
+    else
+      [ "$(src_field "$sm" url)" = "${S_URL[$i]}" ] || note "$s: $pre/$slug/SOURCE.md says url '$(src_field "$sm" url)', the lock says ${S_URL[$i]}"
+      [ "$(src_field "$sm" commit)" = "${S_COMMIT[$i]}" ] || note "$s: $pre/$slug/SOURCE.md says commit '$(src_field "$sm" commit)', the lock says ${S_COMMIT[$i]}"
+      [ "$(src_field "$sm" license)" = "${S_LIC[$i]}" ] || note "$s: $pre/$slug/SOURCE.md says license '$(src_field "$sm" license)', the lock says ${S_LIC[$i]}"
+      k=0; while IFS=$'\t' read -r b x; do [ "$b" != "$s" ] || k=1; done < <(src_bullets "$sm" Taken)
+      [ "$k" = 1 ] || note "$s: $pre/$slug/SOURCE.md does not list it under '## Taken'"
+    fi
+    { [ -f "$tp/LICENSE" ] && [ ! -L "$tp/LICENSE" ]; } || note "$s: $pre/$slug/LICENSE is missing"
+    [ "$bad" != "$nb" ] || echo "skill $s ${S_COMMIT[$i]:0:12}: ok (reviewed ${S_REV[$i]})"
+  done
+  if [ -d "$root/$LAND_SKILLS_DIR" ]; then
+    for d in "$root/$LAND_SKILLS_DIR"/*/; do
+      [ -d "$d" ] || continue; s=$(basename "$d"); [ "$s" != "$SK_TP" ] || continue
+      k=0; for x in ${S_NAME[@]+"${S_NAME[@]}"}; do [ "$x" != "$s" ] || k=1; done
+      [ "$k" = 0 ] || continue
+      for sm in "$root/$LAND_SKILLS_THIRD_PARTY"/*/SOURCE.md; do
+        [ -f "$sm" ] || continue
+        while IFS=$'\t' read -r b x; do
+          [ "$b" != "$s" ] || note "$s: $LAND_SKILLS_DIR/$s claims a third-party origin ($pre/$(basename "$(dirname "$sm")")/SOURCE.md) and is not in the lock"
+        done < <(src_bullets "$sm" Taken)
+      done
+    done
+  fi
+  [ "$bad" = 0 ] && echo "land-pin: skills ok ($n skills)"
+  return "$bad"
+}
+
+R=()
+r() { R+=("$*"); }
+flush_refusals() { local x; [ ${#R[@]} -gt 0 ] || return 0; for x in "${R[@]}"; do echo "land-pin: REFUSED $x" >&2; done; exit 1; }
+
+skill_src() {   # skill_src add|adopt|update URL COMMIT SKILL... [--license SPDX] [--why S=T]... [--skip S=T]... [--root PATH]
+  local mode=$1; shift
+  [ $# -ge 2 ] || die "usage: land-pin skill $mode URL COMMIT SKILL... --license SPDX --why SKILL=TEXT... [--skip SKILL=TEXT...] [--root PATH]"
+  local url=$1 commit=$2 lic= sroot= kv n t i j s k x; shift 2
+  local -a sk=() all=() prev=() srcs=()
+  local -A WHY=() SKIP=() INSRC=() GIVEN_SKIP=()
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --license) [ $# -ge 2 ] || die "--license needs a value"; lic=$2; shift 2;;
+      --root) [ $# -ge 2 ] || die "--root needs a value"; sroot=$2; shift 2;;
+      --why|--skip) [ $# -ge 2 ] || die "$1 needs SKILL=TEXT"; kv=$2; [[ $kv == *=* ]] || die "$1 wants SKILL=TEXT, got '$kv'"
+        n=${kv%%=*}; t=${kv#*=}; [[ $n =~ $SK_RE ]] || die "$1: bad skill name '$n'"
+        case $t in *$'\n'*) die "$1 $n: the text must be one line";; esac
+        if [ "$1" = --why ]; then WHY[$n]=$t; else SKIP[$n]=$t; GIVEN_SKIP[$n]=1; fi; shift 2;;
+      --*) die "unknown option $1";;
+      *) sk+=("$1"); shift;;
+    esac
+  done
+  [ ${#sk[@]} -gt 0 ] || die "name at least one SKILL"
+  [[ $url =~ ^[^[:space:]#]+$ ]] || die "bad url (no space, no #)"
+  case $url in git@*|ssh://*) echo "land-pin: warning: $url is an ssh address: a lock is shared data, so use the public https URL" >&2;; esac
+  for s in "${sk[@]}"; do [[ $s =~ $SK_RE ]] || die "bad skill name '$s'"; done
+  if [ -n "$sroot" ]; then
+    sroot=${sroot%/}; [ -n "$sroot" ] || sroot=.
+    case /$sroot/ in /../*|*/../*|//*|*//*) die "bad --root '$sroot': a path inside the repository, no '..'";; esac
+    case $sroot in /*) die "bad --root '$sroot': a relative path";; esac
+  fi
+  if [ "$mode" != update ] || [ -n "$lic" ]; then
+    [ -n "$lic" ] || die "--license SPDX is required"
+    [[ $lic =~ ^[A-Za-z0-9][A-Za-z0-9.+-]*$ ]] || die "bad --license '$lic': one token, an SPDX identifier"
+  fi
+  local slug sd=$root/$LAND_SKILLS_DIR tp sm pcommit= plic= nm
+  slug=$(src_slug "$url"); tp=$root/$LAND_SKILLS_THIRD_PARTY/$slug; sm=$tp/SOURCE.md
+  read_skills_lock
+  for ((i = 0; i < ${#S_URL[@]}; i++)); do
+    [ "${S_URL[$i]}" != "$url" ] || { prev+=("${S_NAME[$i]}"); pcommit=${S_COMMIT[$i]}; [ -n "$plic" ] || plic=${S_LIC[$i]}; }
+  done
+  for ((i = 0; i < ${#sk[@]}; i++)); do for ((j = i + 1; j < ${#sk[@]}; j++)); do [ "${sk[$i]}" != "${sk[$j]}" ] || r "${sk[$i]} is named twice"; done; done
+  [[ $commit =~ ^[0-9a-f]{40}$ ]] || r "the commit '$commit' is not 40 hex characters (a tag, a branch or an abbreviation moves or is ambiguous: pin a full commit)"
+  if [ -f "$sm" ]; then [ "$(src_field "$sm" url)" = "$url" ] || r "$LAND_SKILLS_THIRD_PARTY/$slug/SOURCE.md is another source's ($(src_field "$sm" url))"; fi
+  case $mode in
+    add|adopt)
+      for s in "${sk[@]}"; do
+        for x in ${S_NAME[@]+"${S_NAME[@]}"}; do [ "$x" != "$s" ] || r "$s is already locked"; done
+        if [ "$mode" = add ]; then { [ ! -e "$sd/$s" ] && [ ! -L "$sd/$s" ]; } || r "$s is already present at $LAND_SKILLS_DIR/$s"
+        else { [ -d "$sd/$s" ] && [ ! -L "$sd/$s" ]; } || r "$s: there is no copy at $LAND_SKILLS_DIR/$s to adopt"; fi
+      done
+      if [ ${#prev[@]} -gt 0 ]; then
+        [ "$pcommit" = "$commit" ] || r "$url is locked at $pcommit: the skills of one source share one commit (land-pin skill update)"
+        [ "$plic" = "$lic" ] || r "$url is locked with license $plic, not $lic"
+      elif [ -e "$tp" ]; then r "$LAND_SKILLS_THIRD_PARTY/$slug exists and the lock has no skill of $url: remove it or restore the lock"; fi
+      all=(${prev[@]+"${prev[@]}"} "${sk[@]}");;
+    update)
+      [ ${#prev[@]} -gt 0 ] || r "no skill is locked for $url"
+      for s in ${prev[@]+"${prev[@]}"}; do k=0; for x in "${sk[@]}"; do [ "$x" != "$s" ] || k=1; done; [ "$k" = 1 ] || r "$s is locked for $url and not named: a source is updated whole (one commit per source)"; done
+      for s in "${sk[@]}"; do k=0; for x in ${prev[@]+"${prev[@]}"}; do [ "$x" != "$s" ] || k=1; done; [ "$k" = 1 ] || r "$s is not locked for $url"; done
+      [ "$pcommit" != "$commit" ] || r "$url is already locked at $commit (an update is a newer commit)"
+      [ -n "$lic" ] || lic=$plic
+      [ -n "$sroot" ] || { [ ! -f "$sm" ] || sroot=$(src_field "$sm" root); }
+      all=("${sk[@]}");;
+  esac
+  [ -n "$sroot" ] || sroot=skills
+  # carried over from the earlier SOURCE.md (its text is kept verbatim, never read): the reasons of the skills already taken, and the skips
+  if [ ${#prev[@]} -gt 0 ] && [ -f "$sm" ]; then
+    while IFS=$'\t' read -r n t; do [ -n "${WHY[$n]+x}" ] || WHY[$n]=$t; done < <(src_bullets "$sm" Taken)
+    while IFS=$'\t' read -r n t; do [ -n "${SKIP[$n]+x}" ] || SKIP[$n]=$t; done < <(src_bullets "$sm" "Not taken")
+  fi
+  flush_refusals   # what cannot be checked without the source stops here, with every reason found so far
+  # fetch exactly that commit
+  scratch=$(mktemp -d); git init -q "$scratch/r"; mkdir "$scratch/x"
+  if ! git -C "$scratch/r" fetch -q --depth 1 "$url" "$commit" 2>/dev/null; then
+    git -C "$scratch/r" fetch -q "$url" '+refs/heads/*:refs/remotes/src/*' '+refs/tags/*:refs/tags/*' 2>/dev/null || true   # a server that will not serve a bare commit: its refs, then the commit must be among them
+  fi
+  [ "$(git -C "$scratch/r" rev-parse --verify -q "$commit^{commit}" 2>/dev/null || true)" = "$commit" ] || refuse "cannot fetch the commit $commit from $url"
+  export_commit "$scratch/r" "$commit" "$scratch/x"
+  local X=$scratch/x lic_f nl=0 f
+  [ -d "$X/$sroot" ] && [ ! -L "$X/$sroot" ] || refuse "there is no directory '$sroot' at the commit (--root PATH names the directory of the skills)"
+  for d in "$X/$sroot"/*; do [ -d "$d" ] && [ -e "$d/SKILL.md" ] && INSRC[$(basename "$d")]=1; done
+  for f in LICENSE LICENSE.md LICENSE.txt COPYING; do if [ -e "$X/$f" ] || [ -L "$X/$f" ]; then nl=$((nl + 1)); lic_f=$f; fi; done
+  [ "$nl" = 1 ] || r "the source has $nl licence files at its root (LICENSE, LICENSE.md, LICENSE.txt or COPYING: exactly one is needed; the tool never chooses)"
+  [ "$nl" != 1 ] || { [ -f "$X/$lic_f" ] && [ ! -L "$X/$lic_f" ]; } || r "the licence file $lic_f is not a regular file"
+  local th
+  declare -A TH=()
+  for s in "${sk[@]}"; do
+    d=$X/$sroot/$s
+    if [ -L "$d" ] || [ ! -d "$d" ]; then r "$s: there is no directory $sroot/$s at the commit"; continue; fi
+    if [ ! -f "$d/SKILL.md" ] || [ -L "$d/SKILL.md" ]; then r "$s: the directory has no SKILL.md"; continue; fi
+    mapfile -t fm < <(skill_front "$d/SKILL.md")
+    [ "${fm[0]:-0}" = 1 ] || r "$s: SKILL.md has no frontmatter (a first line '---' and a closing '---')"
+    [ -n "${fm[2]:-}" ] || r "$s: the frontmatter has no name"
+    [ "${fm[1]:-0}" = 1 ] || r "$s: the frontmatter has no description"
+    [ -z "${fm[2]:-}" ] || [ "${fm[2]}" = "$s" ] || r "$s: the frontmatter name is '${fm[2]}', not the directory name"
+    if th=$(tree_hash "$d" 2>&1); then TH[$s]=$th; else r "$s: $th"; fi
+  done
+  for s in "${all[@]}"; do [ -n "${WHY[$s]:-}" ] || r "$s: no reason to take it (--why $s=TEXT)"; done
+  for n in "${!GIVEN_SKIP[@]}"; do
+    [ -n "${INSRC[$n]+x}" ] || r "--skip $n: the source has no skill directory '$n' under $sroot"
+    for s in "${all[@]}"; do [ "$s" != "$n" ] || r "$n is both taken and skipped"; done
+    [ -n "${SKIP[$n]}" ] || r "--skip $n: no reason given"
+  done
+  for n in "${!INSRC[@]}"; do
+    k=0; for s in "${all[@]}"; do [ "$s" != "$n" ] || k=1; done
+    [ "$k" = 1 ] || [ -n "${SKIP[$n]:-}" ] || r "$n is a skill of the source and is neither taken nor skipped (name it, or --skip $n=TEXT)"
+  done
+  if [ "$mode" = adopt ]; then
+    for s in "${sk[@]}"; do
+      [ -n "${TH[$s]:-}" ] || continue
+      if ! got=$(tree_diff "$sd/$s" "$X/$sroot/$s" 2>&1); then r "$s: the local copy cannot be compared: $got"; continue; fi
+      [ -z "$got" ] || { IFS=$'\t' read -r k n <<<"$(printf '%s\n' "$got" | awk 'NR == 1')"
+        case $k in A) r "$s: the local copy differs from the commit: $n is in the commit and not in the copy";; D) r "$s: the local copy differs from the commit: $n is in the copy and not in the commit";; *) r "$s: the local copy differs from the commit: $n has other content";; esac; }
+    done
+  fi
+  flush_refusals
+  # nothing is wrong: write. The diff of an update is printed before the old directories go.
+  local rows=$scratch/rows; : > "$rows"
+  mkdir -p "$sd" "$tp"
+  for s in "${sk[@]}"; do
+    if [ "$mode" = update ]; then
+      echo "skill $s: $(printf '%s' "${pcommit}" | cut -c1-12) -> ${commit:0:12}"
+      got=$(tree_diff "$sd/$s" "$X/$sroot/$s" 2>/dev/null || echo "?	(the old copy cannot be listed)")
+      if [ -z "$got" ]; then echo "  no file differs"; else printf '%s\n' "$got" | awk -F'\t' '{ print "  " ($1 == "A" ? "added   " : $1 == "D" ? "removed " : $1 == "M" ? "changed " : "?       ") $2 }'; fi
+      rm -rf "${sd:?}/$s"
+    fi
+    [ "$mode" = adopt ] || cp -R "$X/$sroot/$s" "$sd/$s"
+    echo "$url $commit $s ${TH[$s]} $lic pending" >> "$rows"
+  done
+  if [ "$mode" = update ]; then
+    if [ -f "$tp/LICENSE" ] && cmp -s "$tp/LICENSE" "$X/$lic_f"; then echo "licence: unchanged"; else echo "licence: CHANGED or new ($lic_f): read it as part of the review"; fi
+  fi
+  cp "$X/$lic_f" "$tp/LICENSE"
+  {
+    echo "# Source: $slug"; echo "url: $url"; echo "commit: $commit"; echo "license: $lic"; echo "root: $sroot"; echo; echo "## Taken"
+    for s in "${all[@]}"; do echo "- $s: ${WHY[$s]}"; done
+    echo; echo "## Not taken"
+    for n in $(printf '%s\n' "${!SKIP[@]}" | sort); do
+      [ -n "${INSRC[$n]+x}" ] || continue; k=0; for s in "${all[@]}"; do [ "$s" != "$n" ] || k=1; done; [ "$k" = 0 ] || continue
+      echo "- $n: ${SKIP[$n]}"
+    done
+  } > "$tp/SOURCE.md"
+  lock_put "$rows"
+  echo "land-pin: skill $mode: ${sk[*]} at ${commit:0:12} ($lic); the review is pending: read the skill, then land-pin skill review SKILL --by NAME"
+  for s in "${sk[@]}"; do review_aid "$s"; done
+}
+
+skill_review() {
+  [ $# -ge 1 ] || die "usage: land-pin skill review SKILL [--by REVIEWER]"
+  local s=$1 by= i at=-1 got d row
+  shift
+  while [ $# -gt 0 ]; do case $1 in --by) [ $# -ge 2 ] || die "--by needs a name"; by=$2; shift 2;; *) die "usage: land-pin skill review SKILL [--by REVIEWER]";; esac; done
+  read_skills_lock
+  for ((i = 0; i < ${#S_NAME[@]}; i++)); do [ "${S_NAME[$i]}" != "$s" ] || at=$i; done
+  [ "$at" -ge 0 ] || refuse "$s is not in the lock"
+  d=$root/$LAND_SKILLS_DIR/$s
+  [ -d "$d" ] || refuse "$s: $LAND_SKILLS_DIR/$s is missing"
+  if [ -z "$by" ]; then review_aid "$s"; return 0; fi
+  [[ $by =~ ^[^[:space:]:#[:cntrl:]]+$ ]] || refuse "the reviewer '$by' must be one word with no colon"
+  got=$(tree_hash "$d" 2>&1) || refuse "$s: $got"
+  [ "$got" = "${S_HASH[$at]}" ] || refuse "$s: the tree hash is $got, the lock says ${S_HASH[$at]}: what was read is not what is there (a changed skill is not reviewed)"
+  scratch=$(mktemp -d); row="${S_URL[$at]} ${S_COMMIT[$at]} $s ${S_HASH[$at]} ${S_LIC[$at]} $(date -u +%F):$by"
+  echo "$row" > "$scratch/rows"; lock_put "$scratch/rows"
+  echo "land-pin: reviewed $s: $(date -u +%F):$by"
+}
+
+skill_cmd() {
+  case ${1:-} in
+    add|adopt|update) local m=$1; shift; skill_src "$m" "$@";;
+    review) shift; skill_review "$@";;
+    list) [ $# = 1 ] || die "usage: land-pin skill list"; read_skills_lock; local i; for ((i = 0; i < ${#S_NAME[@]}; i++)); do echo "${S_URL[$i]} ${S_COMMIT[$i]} ${S_NAME[$i]} ${S_HASH[$i]} ${S_LIC[$i]} ${S_REV[$i]}"; done;;
+    verify) [ $# = 1 ] || die "usage: land-pin skill verify"; skill_verify;;
+    *) die "usage: land-pin skill add|adopt URL COMMIT SKILL... --license SPDX --why SKILL=TEXT... [--skip SKILL=TEXT...] [--root PATH] | review SKILL [--by REVIEWER] | update URL COMMIT SKILL... | list | verify";;
+  esac
+}
+
+verify_all() { local rc=0; verify || rc=1; skill_verify || rc=1; return "$rc"; }
+
 case ${1:-} in
   tree) [ $# = 2 ] || die "usage: land-pin tree DIR"; tree_hash "$2";;
   vendor) shift; vendor "$@";;
-  verify) [ $# = 1 ] || die "usage: land-pin verify"; verify;;
+  verify) [ $# = 1 ] || die "usage: land-pin verify"; verify_all;;
+  skill) shift; skill_cmd "$@";;
   online) [ $# = 1 ] || die "usage: land-pin online"; online;;
   list) [ $# = 1 ] || die "usage: land-pin list"; read_lock; for n in ${L_NAME[@]+"${L_NAME[@]}"}; do echo "$n"; done;;
-  *) die "usage: land-pin tree DIR | vendor NAME URL TAG | verify | online | list";;
+  *) die "usage: land-pin tree DIR | vendor NAME URL TAG | verify | online | list | skill add|review|adopt|update|list|verify";;
 esac

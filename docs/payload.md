@@ -13,6 +13,9 @@ no other copy:
   (docs/pin.md);
 - a TOOL FILE (a script, a library of shell, a skill): the vbm-land payload, into `.land/tool/` and
   `.agents/skills/`, pinned by `.land/PIN` (`land-update`).
+- a THIRD-PARTY AGENT SKILL (a skill of someone else's repository, which signs nothing we can check): `land-pin skill`,
+  into `.agents/skills/<skill>/`, locked by commit and tree hash in `.land/skills.lock` with a recorded review
+  (docs/pin.md section 8).
 A file is one or the other, decided here. Its version is the version of the package that ships it.
 
 ## 1a. Where things live (the layout convention)
