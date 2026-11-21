@@ -4,7 +4,7 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
-## Unreleased
+## 0.24.0 (minor; additive: areas, `land-pin outdated` and `update`; a repository with no `.land/areas.json` and no lock is unchanged)
 
 - **`land-pin update` with no argument is `update --all`; `update [--all|--only NAME...] --dry-run` changes nothing** and prints the typed report of `outdated --json` plus the field `would` (`null` or `{from,to,pending_review}`), exit 0 when nothing would change, 1 when something would. An unknown argument stays exit 2; `skill update URL COMMIT SKILL...` is unchanged. `docs/pin.md` 9.2, `tests/test_outdated.sh`.
 
