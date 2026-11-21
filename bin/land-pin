@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# land-pin tree DIR | vendor NAME URL TAG | verify | online | list | skill add|review|adopt|update|list|verify | outdated [--json] | update --all [--only NAME...]        (docs/pin.md). Run from the repository root, or set LAND_PIN_ROOT.
+# land-pin tree DIR | vendor NAME URL TAG | verify | online | list | skill add|review|adopt|update|list|verify | outdated [--json] | update [--all] [--only NAME...] [--dry-run]        (docs/pin.md). Run from the repository root, or set LAND_PIN_ROOT.
 #   tree DIR  print the tree hash of DIR.
 #   vendor    the ONLY way to add or move a pin: fetch the tag, REFUSE unless it is annotated and signed by a key in the signers file, its message records exactly one tree_sha256= and the exported tree
 #             hashes to it; then replace vendor/NAME and the lock line, and run verify. A refusal changes nothing.
@@ -15,7 +15,7 @@
 #             skill list | skill verify   (offline, fast: hashes local directories only; `land-pin verify` runs it too).  Exit 0 done; 1 refused (a refusal changes nothing); 2 usage or a malformed lock.
 #             The tool runs nothing from a skill and decides nothing from reading one: the review aid only PRINTS (the file list, the fenced shell blocks, the URL hosts).
 #   outdated  (docs/pin.md section 9) ONLINE and READ-ONLY: every pin of every kind (library, skill source, the tool) against its source; text or --json. Exit 0 nothing behind, 1 something is, 2 misuse, 3 a source unreachable (1 wins).
-#   update --all [--only NAME...]   one change in the working tree, never a commit, atomic: the report first, then `vendor`, `skill update` and `land-update` as they are. Refuses a dirty tree and an undecided skill. Every skill is `pending` after it.
+#   update [--all] [--only NAME...] [--dry-run]   (bare `update` is `update --all`; --dry-run changes nothing and prints the typed report plus `would`: exit 0 nothing would change, 1 something would) one change in the working tree, never a commit, atomic: the report first, then `vendor`, `skill update` and `land-update` as they are. Refuses a dirty tree and an undecided skill. Every skill is `pending` after it.
 #             Both live in lib/outdated.sh; this file only dispatches to them.
 set -euo pipefail
 export LC_ALL=C GIT_TERMINAL_PROMPT=0
@@ -434,5 +434,5 @@ case ${1:-} in
   outdated) shift; outdated_cmd "$@";;
   update) shift; update_all_cmd "$@";;
   list) [ $# = 1 ] || die "usage: land-pin list"; read_lock; for n in ${L_NAME[@]+"${L_NAME[@]}"}; do echo "$n"; done;;
-  *) die "usage: land-pin tree DIR | vendor NAME URL TAG | verify | online | list | skill add|review|adopt|update|list|verify | outdated [--json] | update --all [--only NAME...]";;
+  *) die "usage: land-pin tree DIR | vendor NAME URL TAG | verify | online | list | skill add|review|adopt|update|list|verify | outdated [--json] | update [--all] [--only NAME...] [--dry-run]";;
 esac

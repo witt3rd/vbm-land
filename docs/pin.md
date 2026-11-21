@@ -369,12 +369,11 @@ under it, and a last line with the counts:
     land-pin: tool vbm-land v0.23.1 -> v0.24.0
     land-pin: outdated: 3 behind, 0 unreachable, 9 pins
 
-### 9.2 `land-pin update --all [--only NAME...]`
+### 9.2 `land-pin update [--all] [--only NAME...] [--dry-run]`
 
 Produces ONE change in the working tree and NEVER COMMITS: no commit, no branch, no tag, no stash, no push, and no
 change to `HEAD`. Whether the changed files are staged is not part of the contract; the person's own `git add` and
-commit are. `--all` is required (a bare `update` is misuse: there is no single-pin update here; one pin is moved by
-`vendor`, `skill update` or `land-update`, as before). `--only NAME...` limits the run to the named pins: a NAME is a
+commit are. A bare `update` is `update --all` (`--all` is accepted and changes nothing); an unknown argument is misuse (exit 2). The form `skill update URL COMMIT SKILL...` is unchanged. There is no single-pin update here: one pin is moved by `vendor`, `skill update` or `land-update`, as before. `--dry-run` changes NOTHING (no file, no lock, no ref) and prints ONE line of JSON, the report of `outdated --json` with the added field `would` on every pin: `null` when the update leaves it, else `{"from":PINNED,"to":TARGET,"pending_review":BOOL}` (the tag or commit; for a skill the `files` are the names git lists as changing, and `pending_review` is true: it would return to pending review). It needs no clean tree. It exits 0 when nothing would change and 1 when something would, so a scheduled check can use it; the refusals and the unreachable source of an update are the same exits (1, 3) as without it. `--only NAME...` limits the run to the named pins: a NAME is a
 library name, a skill name (it selects its whole source: a source is updated whole, one commit per source, 8.3), or
 `vbm-land`; a NAME that is no pin is misuse (exit 2); a named pin that is current is left alone.
 
@@ -481,6 +480,8 @@ red.
 - READ-ONLY: the working tree, the index, the lock files and `.git` (refs, the object count of the repository itself,
   stash) are byte for byte as before the run, on a clean tree and on a dirty one, and no scratch directory remains;
 - `--json` is one valid line with `v`, every key of 9.1 in every pin, and the same pins and counts as the human form.
+
+`update` (bare, and `--dry-run`): bare `update` gives the result of `update --all` on the same fixture; an unknown argument is exit 2; a dry run leaves the tree and the lock byte for byte as before and exits 1 when behind, 0 when nothing is.
 
 `update --all`:
 - misuse is exit 2: no `--all`, `--only` with no name, a name that is no pin, a malformed lock;
