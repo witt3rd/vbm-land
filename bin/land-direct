@@ -28,6 +28,8 @@
 #   ($LAND_DIRECT_LOG, default <git common dir>/vbm-land/metrics.jsonl): ts, result, commits, commit (the tip handed over), attempts, inherited_red, tier1_s, total_s.
 #   Tier 1 that fails ONLY with failures the bare base already has (the names the Tier 1 commands record in $LAND_FAILED_FILE; one extra run, only then) passes as "inherited red": a landing must not ADD a failure.
 #   The landings record is typed and versioned: {"v":1,"at","sha","base","commits","tier1_seconds","result","exit","first_commit_at"} (+ "validation" when inert or reused); a write that fails never changes the result or the exit code.
+# NO-BUILD HOST: before anything else (no git call, no scratch directory, no network) a landing or --validate asks bin/no-build-guard; a host with a no-build marker exits 2 with the guard's message and starts nothing. No override.
+#   --status/--hold/--release/--freeze/--thaw/--version/--check/--print-gate-diff[-hash] and --push start nothing heavy and are allowed there (docs/no-build-host.md).
 # BOUNDED: every step runs under `timeout --kill-after=30`: LAND_TIER1_TIMEOUT (Tier 1, regeneration of generated files by Tier 1 is part of it), LAND_STEP_TIMEOUT
 #   (hooks, regeneration), LAND_GIT_TIMEOUT (fetch, push). A step that runs over is killed with one plain line and the run stops as that step's failure.
 # Operator environment (not policy): REMOTE-independent knobs LAND_CONF, LAND_FIX_FOR_RED=1 (treat this change as a fix, so it passes a freeze), LAND_DIRECT_LOG, and the
@@ -95,6 +97,16 @@ bounded() { local s=$1 label=$2 rc=0; shift 2; timeout --kill-after=30 "$s" "$@"
 stop() { local code=$1; result=$2; shift 2; reason="$*"; echo "land-direct: $*" >&2; exit "$code"; }
 die() { stop 1 error "$*"; }
 badinput() { echo "land-direct: $*" >&2; exit 2; }
+
+# ---- the heavy-host guard, FIRST (docs/no-build-host.md): before any git call, scratch directory, fetch, hook or gate. A host that carries a no-build marker never runs Tier 1 (`lake build` there
+# once took down a whole session): the lander asks bin/no-build-guard (the one reader of the marker; its paths are not repeated here) and exits with ITS code (2), starting nothing. There is NO override.
+# Not asked, because they start nothing heavy: the operator operations (--hold, --release, --freeze, --thaw, --status), --version, --check (the land-time checks only: no hook, no gate), --print-gate-diff[-hash],
+# and --push SHA (it pushes the commit --validate pinned and runs no check: --validate is where the host was asked). A missing guard refuses too (fail closed).
+if [ -z "$op" ] && [ "$checkonly" = 0 ] && [ "$pushmode" = 0 ]; then
+  nbg_rc=0
+  if [ -x "$here/no-build-guard" ]; then "$here/no-build-guard" || nbg_rc=$?; else echo "land-direct: REFUSED: the heavy-host guard $here/no-build-guard is missing: refusing to run Tier 1 without it." >&2; nbg_rc=2; fi
+  [ "$nbg_rc" = 0 ] || { result=refused; reason="the heavy-host guard refused this host (exit $nbg_rc): no Tier 1, nothing was started"; echo "land-direct: refused: this host may not run Tier 1; nothing was started (no override)" >&2; exit "$nbg_rc"; }
+fi
 
 top=$(git rev-parse --show-toplevel 2>/dev/null) || badinput "not inside a git worktree"
 common=$(git -C "$top" rev-parse --path-format=absolute --git-common-dir); state=$common/vbm-land; mkdir -p "$state"

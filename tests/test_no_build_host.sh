@@ -79,4 +79,59 @@ cp "$RS" "$fx/$LAND_DIR/bin/run-scoped.sh"; rm "$fx/scripts/long-runners.txt"; p
 expect_exit "lint: scripts/heavy-runners.txt is read too" 1 lintfx
 rm "$fx/$LAND_DIR/bin/run-scoped.sh" "$fx/scripts/x.sh"; expect_exit "lint: declared runners and no helper fails" 1 lintfx
 expect_exit "lint: --selftest" 0 "$G" --selftest
+# 5. the lander (bin/land-direct) asks the guard FIRST: a landing or --validate on a marked host exits 2 and starts nothing (no scratch directory, no state directory, no commit pushed, Tier 1 never reached);
+# the read-only commands still work there; with the marker removed the same landing proceeds (the negative: the check can fail the other way); --push only pushes what --validate pinned, so it does not ask.
+sandbox; trap 'rm -rf "$tmp" "${SANDBOXES[@]}" "$RESULTS"' EXIT   # the lib's sandbox replaced the trap: remove both
+LD=$ROOT/bin/land-direct; t1ran=$tmp/tier1ran
+set_conf "LAND_TEST_CMD=touch $t1ran"
+worker w1; commit "$T/w1" x.txt 1; worker w2; commit "$T/w2" y.txt 1
+ld() { local d=$1; shift; ( cd "$d" && env_clean "$@" ) >"$T/out" 2>&1; }   # ld DIR CMD...: output to $T/out
+untouched() {   # untouched DESC DIR BEFORE: nothing was created or pushed
+  local d=$1 dir=$2 before=$3 g
+  g=$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir)
+  [ ! -e "$g/vbm-land" ] && [ ! -e "$t1ran" ] && [ -z "$(ls -A "$T/tmp")" ] && [ "$(remote_head)" = "$before" ] && [ -z "$(git -C "$dir" for-each-ref refs/vbm-land)" ] && pass "$d: nothing created (no state or scratch directory, no Tier 1, nothing pushed)" || fail "$d: something was started: $(ls -A "$g" | tr '\n' ' ')"
+}
+head0=$(remote_head); rm -f "$t1ran"
+marker_on
+for mode in land validate; do
+  a=(); [ $mode = validate ] && a=(--validate)
+  rc=0; ld "$T/w1" "$LD" "${a[@]}" || rc=$?; [ "$rc" = 2 ] && pass "land-direct ${a[*]:-(landing)}, marker: exit 2" || fail "land-direct ${a[*]:-(landing)}, marker: exit $rc"; out_has REFUSED
+  [ "$(json_last | sed -n 's/.*"result":"\([a-z]*\)".*"exit":\([0-9]*\).*/\1 \2/p')" = "refused 2" ] && pass "land-direct ${a[*]:-(landing)}, marker: the last line is the JSON summary (refused, exit 2)" || fail "last line: $(json_last)"
+  untouched "land-direct ${a[*]:-(landing)}, marker" "$T/w1" "$head0"
+  rc=0; ld "$T/w1" env VBM_ALLOW_BUILD_HERE=1 ALLOW_BUILD_HERE=1 VBM_NO_GUARD=1 NO_BUILD_GUARD=0 nbh_etc=/nonexistent LAND_TIER1_TIMEOUT=1 "$LD" "${a[@]}" || rc=$?; [ "$rc" = 2 ] && pass "land-direct ${a[*]:-(landing)}, marker and every plausible override variable: still exit 2" || fail "override variable: exit $rc"
+  untouched "land-direct ${a[*]:-(landing)}, marker and override variables" "$T/w1" "$head0"
+done
+marker_off; mkdir -p "$tmp/hm/.config/vbm"; : > "$tmp/hm/.config/vbm/no-build-host"; rc=0; ld "$T/w1" XDG_CONFIG_HOME="$tmp/other" "$LD" --validate || rc=$?
+[ "$rc" = 2 ] && pass "land-direct: marker under HOME while XDG_CONFIG_HOME points elsewhere: exit 2" || fail "land-direct: moved XDG_CONFIG_HOME: exit $rc"; marker_off
+untouched "land-direct, marker under HOME" "$T/w1" "$head0"
+# the exit code is the guard's, and a guard that is missing refuses (a stub guard beside a copy of the lander; the copy is a fixture, never the real tool)
+stub=$tmp/stub; mkdir -p "$stub/bin"; cp "$LD" "$stub/bin/"; cp -r "$ROOT/lib" "$stub/lib"; cp "$ROOT/VERSION" "$stub/" 2>/dev/null || true
+printf '#!/usr/bin/env bash\necho "stub guard says no" >&2\nexit 7\n' > "$stub/bin/no-build-guard"; chmod +x "$stub/bin/no-build-guard"
+rc=0; ld "$T/w1" "$stub/bin/land-direct" || rc=$?; [ "$rc" = 7 ] && pass "land-direct: the exit code is the guard's (7)" || fail "land-direct: the guard exited 7, the lander $rc"; out_has "stub guard says no"; untouched "land-direct, a guard that exits 7" "$T/w1" "$head0"
+rm "$stub/bin/no-build-guard"; rc=0; ld "$T/w1" "$stub/bin/land-direct" --validate || rc=$?; [ "$rc" = 2 ] && pass "land-direct: no guard beside it refuses (2)" || fail "land-direct: no guard: exit $rc"; untouched "land-direct, no guard" "$T/w1" "$head0"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/bin/no-build-guard"; chmod +x "$stub/bin/no-build-guard"; marker_on
+rc=0; ld "$T/w1" "$stub/bin/land-direct" --validate || rc=$?; [ "$rc" = 0 ] && [ -e "$t1ran" ] && pass "self-test: a lander whose guard does nothing runs Tier 1 on a marked host (the check can fail)" || fail "self-test: stub guard that passes: exit $rc"
+rm -f "$t1ran"; rm -rf "$(git -C "$T/w1" rev-parse --path-format=absolute --git-common-dir)/vbm-land"; git -C "$T/w1" for-each-ref --format='%(refname)' refs/vbm-land | while read -r r; do git -C "$T/w1" update-ref -d "$r"; done
+# the read-only commands work on a marked host
+marker_on
+rc=0; ld "$T/w1" "$LD" --status || rc=$?; [ "$rc" = 0 ] && pass "land-direct --status, marker: exit 0" || fail "land-direct --status, marker: exit $rc"; out_has "hold: none"
+rc=0; ld "$T/w1" "$LD" --hold "maintenance" || rc=$?; [ "$rc" = 0 ] && pass "land-direct --hold, marker: exit 0" || fail "land-direct --hold, marker: exit $rc"
+ld "$T/w1" "$LD" --status; out_has "hold: maintenance"
+rc=0; ld "$T/w1" "$LD" --release || rc=$?; [ "$rc" = 0 ] && pass "land-direct --release, marker: exit 0" || fail "land-direct --release, marker: exit $rc"
+rc=0; ld "$T/w1" "$LD" --freeze "t" --owner me --for 1h || rc=$?; [ "$rc" = 0 ] && pass "land-direct --freeze, marker: exit 0" || fail "land-direct --freeze, marker: exit $rc"
+rc=0; ld "$T/w1" "$LD" --thaw || rc=$?; [ "$rc" = 0 ] && pass "land-direct --thaw, marker: exit 0" || fail "land-direct --thaw, marker: exit $rc"
+rc=0; ld "$T/w1" "$LD" --version || rc=$?; [ "$rc" = 0 ] && pass "land-direct --version, marker: exit 0" || fail "land-direct --version, marker: exit $rc"
+rc=0; ld "$T/w1" "$LD" --print-gate-diff-hash x || rc=$?; ! grep -q REFUSED "$T/out" && pass "land-direct --print-gate-diff-hash: not refused by the guard" || fail "land-direct --print-gate-diff-hash was refused by the guard"
+[ ! -e "$t1ran" ] && pass "the read-only commands started no Tier 1" || fail "a read-only command ran Tier 1"
+# the negative: the marker removed, the same attempts proceed. --validate runs Tier 1 and pins; on a marked host --push of that pin only pushes (it runs nothing heavy)
+rm -rf "$(git -C "$T/w1" rev-parse --path-format=absolute --git-common-dir)/vbm-land"; marker_off
+rc=0; ld "$T/w1" "$LD" --validate || rc=$?; [ "$rc" = 0 ] && [ -e "$t1ran" ] && pass "land-direct --validate, no marker: runs Tier 1 (exit 0)" || fail "land-direct --validate, no marker: exit $rc, tier1 ran=$([ -e "$t1ran" ] && echo yes || echo no)"
+pin=$(git -C "$T/w1" for-each-ref --format='%(refname)' refs/vbm-land/validated | sed -n 1p | sed 's|.*/||'); rm -f "$t1ran"
+marker_on; rc=0; ld "$T/w1" "$LD" --push "$pin" || rc=$?
+[ "$rc" = 0 ] && [ "$(remote_head)" = "$pin" ] && [ ! -e "$t1ran" ] && pass "land-direct --push SHA on a marked host: pushes exactly what was validated, runs nothing" || fail "land-direct --push, marker: exit $rc"
+marker_off; head1=$(remote_head); rc=0; ld "$T/w2" "$LD" || rc=$?
+[ "$rc" = 0 ] && [ "$(remote_head)" != "$head1" ] && [ -e "$t1ran" ] && pass "land-direct landing, no marker: lands (exit 0), Tier 1 ran" || fail "land-direct landing, no marker: exit $rc"
+marker_on; head2=$(remote_head); worker w3; commit "$T/w3" z.txt 1; rm -f "$t1ran"
+rc=0; ld "$T/w3" "$LD" || rc=$?; [ "$rc" = 2 ] && [ "$(remote_head)" = "$head2" ] && [ ! -e "$t1ran" ] && pass "land-direct landing, marker back: refused again, nothing pushed" || fail "land-direct landing, marker back: exit $rc"
+marker_off
 finish
