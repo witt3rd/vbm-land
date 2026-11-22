@@ -55,7 +55,7 @@ od_ctx() {   # everything misuse is: not a work tree, no PIN, a malformed PIN or
 # ---- the report: one record directory per pin under $OD/p/, the one source of truth that both renderings read ----
 rec_new() {   # rec_new KIND NAME SOURCE PINNED: sets REC
   local k; OD_N=$((OD_N + 1)); REC=$OD/p/$(printf '%04d' "$OD_N"); mkdir -p "$REC"
-  for k in newer status note lic missing relt relr srcrec licname; do : > "$REC/$k"; done
+  for k in newer status note lic missing relt relr srcrec licname cc ccon path; do : > "$REC/$k"; done
   : > "$REC/files"; : > "$REC/undecided"
   printf '%s' "$1" > "$REC/kind"; printf '%s' "$2" > "$REC/name"; printf '%s' "$3" > "$REC/source"; printf '%s' "$4" > "$REC/pinned"
 }
@@ -63,13 +63,23 @@ rec() { printf '%s' "$2" > "$REC/$1"; }   # rec KEY VALUE
 od_sel() { [ "$SEL_ON" = 0 ] || [ -n "${SEL[$1]+x}" ]; }
 od_selu() { [ "$SEL_ON" = 0 ] || [ -n "${SELU[$1]+x}" ]; }
 
-rb_library() {
-  local name=${L_NAME[$1]} url=${L_URL[$1]} tag=${L_TAG[$1]} out new
+rb_library() {   # a whole-repository line compares vX.Y.Z tags; a subtree line (a PATH) compares the tags of ITS library, NAME/vX.Y.Z, only, and reports closure_changed (docs/family-repo.md section 4); a dep line is its root's, never alone
+  local name=${L_NAME[$1]} url=${L_URL[$1]} tag=${L_TAG[$1]} out new pre= cc
   od_sel "$name" || return 0
+  [ "${L_ROLE[$1]}" != dep ] || return 0
+  [ -z "${L_PATH[$1]}" ] || pre=$name/
   rec_new library "$name" "$url" "$tag"
   if out=$(timeout 120 git ls-remote --tags --refs "$url" 2>"$REC/note"); then
-    new=$(awk -F'\t' '{ sub("^refs/tags/", "", $2); print $2 }' <<<"$out" | newest_of "$RE_TAG")
-    if [ -n "$new" ] && tag_gt "$new" "$tag"; then rec newer "$new"; rec status behind; else rec status current; fi
+    if [ -n "$pre" ]; then new=$(awk -F'\t' -v p="$pre" '{ sub("^refs/tags/", "", $2); if (index($2, p) == 1) print substr($2, length(p) + 1) }' <<<"$out" | newest_of "$RE_TAG"); [ -z "$new" ] || new=$pre$new
+    else new=$(awk -F'\t' '{ sub("^refs/tags/", "", $2); print $2 }' <<<"$out" | newest_of "$RE_TAG"); fi
+    if [ -n "$new" ] && tag_gt "${new#"$pre"}" "${tag#"$pre"}"; then
+      rec newer "$new"; rec status behind
+      if [ -n "$pre" ]; then
+        if cc=$(st_closure_changed "$name" "$url" "$tag" "${L_REV[$1]}" "$new" 2>"$REC/note"); then rec ccon 1; printf '%s\n' "$cc" | awk 'NF' | tr '\n' '\0' > "$REC/cc"
+        else rec status unreachable; rec newer ""; fi
+      fi
+    else rec status current; fi
+    [ -z "$pre" ] || rec path "${L_PATH[$1]}"
   else rec status unreachable; fi
 }
 
@@ -174,6 +184,8 @@ od_obj() {   # one JSON object for the record dir $1
   printf ',"release":'
   if [ -n "$(<"$d/relt")" ]; then printf '{"tag":%s,"rev":%s}' "$(js "$(<"$d/relt")")" "$(js "$(<"$d/relr")")"; else printf null; fi
   printf ',"missing_at_tip":%s' "$(if [ -n "$(<"$d/missing")" ]; then cat "$d/missing"; else printf null; fi)"
+  printf ',"closure_changed":'   # a library with a PATH that is behind: the sorted names whose subtree hash differs between the pinned commit and the newer tag's; null otherwise
+  if [ -n "$(<"$d/ccon")" ]; then mapfile -d '' -t a < "$d/cc"; printf '['; for ((j = 0; j < ${#a[@]}; j++)); do [ "$j" = 0 ] || printf ,; js "${a[$j]}"; done; printf ']'; else printf null; fi
   if [ "$DRY" = 1 ]; then   # update --dry-run: `would` is null when the pin stays, else what the update does to it
     if [ "$(<"$d/status")" = behind ]; then printf ',"would":{"from":%s,"to":%s,"pending_review":%s}' "$(js "$(<"$d/pinned")")" "$(js "$(<"$d/newer")")" "$([ "$(<"$d/kind")" = skill ] && echo true || echo false)"; else printf ',"would":null'; fi
   fi
@@ -279,14 +291,14 @@ update_all_cmd() {
   report_build
   trap 'ua_exit' EXIT; trap 'exit 1' INT TERM
   # what the report named as behind, and what refuses the run before anything is written
-  local -a ul_name=() ul_url=() ul_old=() ul_new=() us_url=() us_slug=() us_tip=() us_old=() us_lic=() us_licname=() refusals=() unreach=()
+  local -a ul_path=() ul_name=() ul_url=() ul_old=() ul_new=() us_url=() us_slug=() us_tip=() us_old=() us_lic=() us_licname=() refusals=() unreach=()
   local kind name st url pin new tool_new= tool_old= sk s
   local -A SKREC=()
   for d in "$OD"/p/*/; do d=${d%/}; kind=$(<"$d/kind"); name=$(<"$d/name"); st=$(<"$d/status"); url=$(<"$d/source"); pin=$(<"$d/pinned"); new=$(<"$d/newer")
     [ "$st" != unreachable ] || unreach+=("$kind $name ($url): $(sed -n 1p "$d/note")")
     [ "$st" = behind ] || continue
     case $kind in
-      library) ul_name+=("$name"); ul_url+=("$url"); ul_old+=("$pin"); ul_new+=("$new");;
+      library) ul_name+=("$name"); ul_url+=("$url"); ul_old+=("$pin"); ul_new+=("$new"); ul_path+=("$(<"$d/path")");;
       tool) tool_new=$new; tool_old=$pin;;
       skill) SKREC[$name]=$d
         [ "$(<"$d/missing")" != true ] || refusals+=("skill $name is locked and has no directory at the tip $new of $url (an update needs each skill at the new commit)");;
@@ -302,8 +314,10 @@ update_all_cmd() {
   if [ "$dry" = 1 ]; then DRY=1; od_json; DRY=0; return 1; fi   # nothing is written: the typed report plus `would`; exit 1, something would change
   # apply: a snapshot first, then libraries, skills, the tool (last: it replaces the code that is running)
   ua_snapshot
+  local moving="${ul_name[*]}"   # the roots this run moves: a closure member they share moves with them (no diamond between two of them)
   for ((i = 0; i < ${#ul_name[@]}; i++)); do
-    LAND_PIN_ROOT=$root "$here/land-pin" vendor "${ul_name[$i]}" "${ul_url[$i]}" "${ul_new[$i]}" || ua_fail library "${ul_name[$i]}"
+    if [ -n "${ul_path[$i]}" ]; then LAND_PIN_MOVING=$moving LAND_PIN_ROOT=$root "$here/land-pin" vendor "${ul_name[$i]}" "${ul_url[$i]}" "${ul_new[$i]}" --path "${ul_path[$i]}" || ua_fail library "${ul_name[$i]}"
+    else LAND_PIN_ROOT=$root "$here/land-pin" vendor "${ul_name[$i]}" "${ul_url[$i]}" "${ul_new[$i]}" || ua_fail library "${ul_name[$i]}"; fi
   done
   for ((i = 0; i < ${#us_url[@]}; i++)); do
     local -a names=(); for ((j = 0; j < ${#S_URL[@]}; j++)); do [ "${S_URL[$j]}" != "${us_url[$i]}" ] || names+=("${S_NAME[$j]}"); done

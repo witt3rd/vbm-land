@@ -20,15 +20,22 @@ tree_hash() (
 # export_commit REPO REV DEST: the exported tree of REV in REPO (git archive) into the existing directory DEST. The tree hash of a commit is tree_hash of this export (docs/pin.md section 1).
 export_commit() { git -C "$1" archive --format=tar "$2" | tar -x -C "$3"; }
 
-# src_check_tag DEST REF SIGNERS [OUTDIR]: strict. DEST is a git repository (bare or not) holding the tag. Succeeds, printing the verified tree hash, only when REF is an annotated tag signed by an allowed
-# signer of SIGNERS, its message records exactly one tree_sha256=, and the exported tree of the tagged commit (into OUTDIR when given, so the caller keeps it) hashes to it. Otherwise returns 1, the reason on stderr.
-src_check_tag() {
-  local dest=$1 ref=$2 signers=${3:-} out=${4:-} kind want got d
+# src_tag_signed DEST REF SIGNERS: succeeds only when REF is an annotated tag of the git repository DEST (bare or not) signed by an allowed signer of SIGNERS. Otherwise returns 1, the reason on stderr.
+# The one place a release signature is checked: src_check_tag (a whole release) and the subtree form of land-pin vendor (lib/subtree.sh) both call it.
+src_tag_signed() {
+  local dest=$1 ref=$2 signers=${3:-} kind
   { [ -n "$signers" ] && [ -r "$signers" ]; } || { echo "REFUSED: no readable signers file: a release signature cannot be checked" >&2; return 1; }
   signers=$(readlink -f "$signers")   # git below runs in the clone's directory: a relative path would be looked up there and a good signature would look unknown
   kind=$(git -C "$dest" cat-file -t "refs/tags/$ref" 2>/dev/null) || { echo "REFUSED: $ref is not a release tag, and signed releases are required; pass the tag, not a commit" >&2; return 1; }
   [ "$kind" = tag ] || { echo "REFUSED: $ref is a lightweight tag: a signed, annotated release tag is required" >&2; return 1; }
   git -C "$dest" -c gpg.format=ssh -c "gpg.ssh.allowedSignersFile=$signers" verify-tag "$ref" >/dev/null 2>&1 || { echo "REFUSED: the signature of tag $ref does not verify against $signers (unsigned, or an unknown signer)" >&2; return 1; }
+}
+
+# src_check_tag DEST REF SIGNERS [OUTDIR]: strict. DEST is a git repository (bare or not) holding the tag. Succeeds, printing the verified tree hash, only when REF is an annotated tag signed by an allowed
+# signer of SIGNERS, its message records exactly one tree_sha256=, and the exported tree of the tagged commit (into OUTDIR when given, so the caller keeps it) hashes to it. Otherwise returns 1, the reason on stderr.
+src_check_tag() {
+  local dest=$1 ref=$2 signers=${3:-} out=${4:-} want got d
+  src_tag_signed "$dest" "$ref" "$signers" || return 1
   want=$(git -C "$dest" tag -l --format='%(contents)' "$ref" | sed -n -E 's/^tree_sha256=([0-9a-f]{64})$/\1/p')
   [ "$(printf '%s\n' "$want" | grep -c .)" = 1 ] || { echo "REFUSED: the message of $ref does not record exactly one tree_sha256=" >&2; return 1; }
   d=${out:-$(mktemp -d)}; export_commit "$dest" "$ref^{commit}" "$d"

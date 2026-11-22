@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# land-pin tree DIR | vendor NAME URL TAG | verify | online | list | skill add|review|adopt|update|list|verify | outdated [--json] | update [--all] [--only NAME...] [--dry-run]        (docs/pin.md). Run from the repository root, or set LAND_PIN_ROOT.
+# land-pin tree DIR | vendor NAME URL TAG [--path lib/NAME] | verify | online | list | skill add|review|adopt|update|list|verify | outdated [--json] | update [--all] [--only NAME...] [--dry-run]        (docs/pin.md). Run from the repository root, or set LAND_PIN_ROOT.
 #   tree DIR  print the tree hash of DIR.
 #   vendor    the ONLY way to add or move a pin: fetch the tag, REFUSE unless it is annotated and signed by a key in the signers file, its message records exactly one tree_sha256= and the exported tree
 #             hashes to it; then replace vendor/NAME and the lock line, and run verify. A refusal changes nothing.
+#             With --path lib/NAME (docs/family-repo.md section 4): TAG is NAME/vX.Y.Z of a family repository; exports exactly that subtree, vendors the in-repo dependency closure (lib/NAME/deps) flat beside it from the same commit, one seven-field lock line each (lib/subtree.sh).
 #   online    the slow tier: each locked tag must still point at the locked commit on its remote (a moved, deleted or unreachable one is refused); a newer tag is reported, never applied.
 #   list      the locked names, one per line.
 #   verify    offline: every locked library is vendored and unchanged, no vendored library is unlocked, and every copy of a library in the closure (any depth) is the same.
@@ -20,28 +21,41 @@
 set -euo pipefail
 export LC_ALL=C GIT_TERMINAL_PROMPT=0
 here=$(cd "$(dirname "$0")" && pwd)
-. "$here/../lib/paths.sh"; . "$here/../lib/verify.sh"; . "$here/../lib/outdated.sh"
+. "$here/../lib/paths.sh"; . "$here/../lib/verify.sh"; . "$here/../lib/subtree.sh"; . "$here/../lib/outdated.sh"
 root=${LAND_PIN_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}
 die() { echo "land-pin: $*" >&2; exit 2; }
 refuse() { echo "land-pin: REFUSED $*" >&2; exit 1; }
 scratch=; trap '[ -z "$scratch" ] || rm -rf "$scratch"' EXIT
 
-read_lock() {   # parallel arrays L_NAME L_URL L_TAG L_REV L_HASH; read strictly
-  L_NAME=(); L_URL=(); L_TAG=(); L_REV=(); L_HASH=()
-  local f=$root/$LAND_PINS_FILE n=0 line name url tag rev hash extra x at
+read_lock() {   # parallel arrays L_NAME L_URL L_TAG L_REV L_HASH L_PATH L_ROLE; read strictly. Five fields: the whole repository at vX.Y.Z (L_PATH and L_ROLE empty). Seven: a subtree, NAME URL TAG COMMIT PATH TREE_SHA256 ROLE (docs/family-repo.md section 4)
+  L_NAME=(); L_URL=(); L_TAG=(); L_REV=(); L_HASH=(); L_PATH=(); L_ROLE=()
+  local f=$root/$LAND_PINS_FILE n=0 line name url tag rev hash extra x at p role i ok
+  local -a w
   [ -f "$f" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
-    n=$((n + 1)); line=${line%%#*}; name=; hash=; extra=; at="$LAND_PINS_FILE:$n"
-    read -r name url tag rev hash extra <<<"$line" || true
-    [ -n "$name" ] || continue
-    { [ -n "$hash" ] && [ -z "$extra" ]; } || die "$at: want NAME URL TAG REV TREE_SHA256 (5 fields)"
+    n=$((n + 1)); line=${line%%#*}; at="$LAND_PINS_FILE:$n"; p=; role=
+    read -r -a w <<<"$line" || true
+    [ ${#w[@]} -gt 0 ] || continue
+    case ${#w[@]} in
+      5) name=${w[0]}; url=${w[1]}; tag=${w[2]}; rev=${w[3]}; hash=${w[4]}
+         [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "$at: the tag must be vX.Y.Z, got '$tag'";;
+      7) name=${w[0]}; url=${w[1]}; tag=${w[2]}; rev=${w[3]}; p=${w[4]}; hash=${w[5]}; role=${w[6]}
+         [[ $tag =~ ^[a-z0-9][a-z0-9_-]*/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "$at: the tag must be ROOT/vX.Y.Z, got '$tag'"
+         [ "$p" = "lib/$name" ] || die "$at: the path must be lib/$name, got '$p'"
+         case $role in root|dep) ;; *) die "$at: the role must be root or dep, got '$role'";; esac;;
+      *) die "$at: want NAME URL TAG REV TREE_SHA256 (5 fields) or NAME URL TAG COMMIT PATH TREE_SHA256 ROLE (7 fields)";;
+    esac
     [[ $name =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "$at: bad name '$name'"
-    [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "$at: the tag must be vX.Y.Z, got '$tag'"
     [[ $rev =~ ^[0-9a-f]{40}$ ]] || die "$at: the rev must be 40 hex digits"
     [[ $hash =~ ^[0-9a-f]{64}$ ]] || die "$at: the tree hash must be 64 hex digits"
     for x in ${L_NAME[@]+"${L_NAME[@]}"}; do [ "$x" != "$name" ] || die "$at: duplicate name '$name'"; done
-    L_NAME+=("$name"); L_URL+=("$url"); L_TAG+=("$tag"); L_REV+=("$rev"); L_HASH+=("$hash")
+    L_NAME+=("$name"); L_URL+=("$url"); L_TAG+=("$tag"); L_REV+=("$rev"); L_HASH+=("$hash"); L_PATH+=("$p"); L_ROLE+=("$role")
   done < "$f"
+  for ((i = 0; i < ${#L_NAME[@]}; i++)); do   # a subtree line's tag is NAME/vX.Y.Z of a name in the lock (its own, or its first root's)
+    [ -n "${L_PATH[$i]}" ] || continue; ok=0
+    for x in "${L_NAME[@]}"; do [ "$x" != "${L_TAG[$i]%%/*}" ] || ok=1; done
+    [ "$ok" = 1 ] || die "$LAND_PINS_FILE: ${L_NAME[$i]}: the tag ${L_TAG[$i]} has a prefix that is not a name in the lock"
+  done
 }
 
 verify() {
@@ -71,12 +85,14 @@ verify() {
       done < <(printf '%s\n' "${copies[@]}" | sort -u -k1,2 | awk '{c[$1]++} END {for (k in c) if (c[k] > 1) print k}' | sort)
     fi
   fi
+  st_verify   # the closure and the dep lines of the subtree pins (docs/family-repo.md section 4, rules 4 and 5)
   [ "$bad" = 0 ] && echo "land-pin: verify ok (${#L_NAME[@]} pins)"
   return "$bad"
 }
 
 vendor() {
-  [ $# = 3 ] || die "usage: land-pin vendor NAME URL TAG"
+  if [ $# = 5 ] && [ "$4" = --path ]; then vendor_subtree "$1" "$2" "$3" "$5"; return; fi   # a subtree of a family repository (lib/subtree.sh)
+  [ $# = 3 ] || die "usage: land-pin vendor NAME URL TAG [--path lib/NAME]"
   local name=$1 url=$2 tag=$3 signers=$root/$LAND_SIGNERS_FILE dest=$root/$LAND_VENDOR_DIR/$1 f=$root/$LAND_PINS_FILE rev want
   [[ $name =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "bad name '$name'"
   [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "the tag must be vX.Y.Z, got '$tag'"
@@ -103,6 +119,7 @@ online() {
     peeled=$(awk '$2 ~ /\^\{\}$/ {print $1}' <<<"$out"); [ -n "$peeled" ] || peeled=$(awk 'NR == 1 {print $1}' <<<"$out")
     if [ "$peeled" = "$rev" ]; then echo "pin $name $tag: ok (the tag still points at ${rev:0:12})"
     else echo "land-pin: BAD $name: $tag points at $peeled, the lock says $rev" >&2; bad=1; fi
+    [ -z "${L_PATH[$i]}" ] || continue   # a subtree pin's newer tags are `outdated`'s, per library
     last=$(git ls-remote --tags --refs "$url" 'refs/tags/v*' 2>/dev/null | sed -E 's#.*refs/tags/##' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | awk 'END {print}' || true)
     if [ -n "$last" ] && [ "$last" != "$tag" ] && [ "$(printf '%s\n%s\n' "$tag" "$last" | sort -V | awk 'END {print}')" = "$last" ]; then echo "pin $name: newer: $last (not applied: land-pin vendor $name $url $last)"; fi
   done
@@ -434,5 +451,5 @@ case ${1:-} in
   outdated) shift; outdated_cmd "$@";;
   update) shift; update_all_cmd "$@";;
   list) [ $# = 1 ] || die "usage: land-pin list"; read_lock; for n in ${L_NAME[@]+"${L_NAME[@]}"}; do echo "$n"; done;;
-  *) die "usage: land-pin tree DIR | vendor NAME URL TAG | verify | online | list | skill add|review|adopt|update|list|verify | outdated [--json] | update [--all] [--only NAME...] [--dry-run]";;
+  *) die "usage: land-pin tree DIR | vendor NAME URL TAG [--path lib/NAME] | verify | online | list | skill add|review|adopt|update|list|verify | outdated [--json] | update [--all] [--only NAME...] [--dry-run]";;
 esac
