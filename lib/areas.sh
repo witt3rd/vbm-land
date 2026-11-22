@@ -74,11 +74,19 @@ areas_tier1() {
   esac
   cp "$run/areas.d/passed" "$run/areas.passed"; prev=$bsha
 }
-# areas_candidate ROOT REF TIMEOUT: every step of every area of REF's areas file, in file order, on ROOT's tree, with LAND_RC=1 (nothing cached, selected or skipped). 0 green or no areas file, 1 red, 2 malformed.
+# areas_candidate ROOT REF TIMEOUT [NAME]: every step of every area of REF's areas file, in file order, on ROOT's tree, with LAND_RC=1 (nothing cached, selected or skipped). 0 green or no areas file, 1 red, 2 malformed.
+# With NAME (docs/family-repo.md section 5, land-release --area): only the areas a change to lib/NAME/ touches, which by the declared overlap (docs/areas.md rule 4) are the area NAME and every area that lists lib/NAME/*,
+# the dependents; the areas not run are named. 2 when no area NAME owns lib/NAME/.
 areas_candidate() {
   local tmp rc=0 a c r; tmp=$(mktemp -d "${TMPDIR:-/tmp}/land-areas.XXXXXX")
   if areas_fetch "$1" "$2" "$tmp/areas.json"; then
-    areas_run touched --rc --file "$tmp/areas.json" --into "$tmp" < /dev/null > /dev/null || rc=2
+    if [ -n "${4:-}" ]; then
+      printf 'M\tlib/%s/VERSION\n' "$4" | areas_run touched --file "$tmp/areas.json" --into "$tmp" > /dev/null || rc=2
+      if [ "$rc" = 0 ] && { [ -s "$tmp/unmapped" ] || ! grep -qx -- "$4" "$tmp/areas"; }; then echo "land-release: no area $4 owns lib/$4/ in $LAND_AREAS_FILE" >&2; rc=2; fi
+      [ "$rc" != 0 ] || echo "land-release: area $4 and the areas that depend on it run: $(tr '\n' ' ' < "$tmp/areas")(not run: $(tr '\n' ' ' < "$tmp/skipped" | sed 's/ $//'))"
+    else
+      areas_run touched --rc --file "$tmp/areas.json" --into "$tmp" < /dev/null > /dev/null || rc=2
+    fi
     if [ "$rc" = 0 ]; then
       while IFS= read -r -d '' a && IFS= read -r -d '' c && IFS= read -r -d '' r; do
         echo "land-release: area $a: step: $r${c:+ (in $c)}"
