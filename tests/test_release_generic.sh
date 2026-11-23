@@ -57,7 +57,20 @@ check "and no tag was made" bash -c "! git -C '$O' rev-parse -q --verify refs/ta
 git -C "$L" checkout -q main; git -C "$L" reset -q --hard origin/main; git -C "$L" cherry-pick -x "$fix" >/dev/null; git -C "$L" push -q origin main
 git -C "$L" checkout -q cand
 expect_exit "the same fix forward-ported to main: the release is made from the branch (exit 0)" 0 rel --push; out_has "the release candidate is green"
-check "the tag is on the candidate's head" test "$(git -C "$O" rev-parse 'v0.4.0^{commit}')" = "$(git -C "$O" rev-parse refs/heads/rc/v0.4.0)"
+check "the tag is on the candidate's head (the commit that was checked out and released)" test "$(git -C "$O" rev-parse 'v0.4.0^{commit}')" = "$(git -C "$L" rev-parse HEAD)"
+out_has "deleted the candidate branch rc/v0.4.0"
+check "and the release left no candidate branch behind (its commits are in the tag)" bash -c "! git -C '$O' rev-parse -q --verify refs/heads/rc/v0.4.0 >/dev/null"
+check "main is untouched by the cleanup" git -C "$O" rev-parse -q --verify refs/heads/main
+
+echo "## a candidate that holds a commit the tag does not is KEPT (a fix not released is never deleted)"
+git -C "$L" checkout -q main; git -C "$L" fetch -q origin; git -C "$L" reset -q --hard origin/main
+echo 0.5.0 > "$L/VERSION"; printf 'LAND_TEST_CMD=true\nLAND_RC_CMD=true\n' > "$L/$LAND_CONF_FILE"; git -C "$L" add -A; git -C "$L" commit -qm "chore: version 0.5.0"; git -C "$L" push -q origin main
+expect_exit "--declare cuts rc/v0.5.0" 0 rel --declare
+git -C "$L" checkout -q -B cand5 origin/rc/v0.5.0; echo extra > "$L/src/extra.txt"; git -C "$L" add -A; git -C "$L" commit -qm "fix: a commit only the candidate has"; git -C "$L" push -q origin cand5:rc/v0.5.0
+git -C "$L" checkout -q main; git -C "$L" reset -q --hard origin/main
+expect_exit "releasing from main while the candidate holds an extra commit: the tag is made (exit 0)" 0 rel --push; out_has "kept the candidate branch rc/v0.5.0"
+check "the candidate branch is still there" git -C "$O" rev-parse -q --verify refs/heads/rc/v0.5.0
+check "and its extra commit is not in the tag" bash -c "! git -C '$O' merge-base --is-ancestor refs/heads/rc/v0.5.0 v0.5.0"
 git -C "$L" checkout -q main; git -C "$L" reset -q --hard origin/main
 expect_exit "HEAD that is neither main nor a declared candidate is still refused" 1 bash -c "cd '$L' && git commit -q --allow-empty -m stray && LAND_SIGNING_KEY=$K/maint ./$LAND_DIR/bin/land-release"; git -C "$L" reset -q --hard origin/main
 

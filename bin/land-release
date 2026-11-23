@@ -110,4 +110,10 @@ fi
 git -c gpg.format=ssh -c "user.signingkey=$key" tag -s "$tag" "${msgs[@]}"
 if [ -n "$area" ]; then src_tag_signed . "$tag" "$scratch/signers" || { git tag -d "$tag" >/dev/null; echo "land-release: $tag is not signed by a key of $LAND_SIGNERS_FILE: the tag is removed, nothing was pushed" >&2; exit 1; }; fi   # [guard:signed]
 echo "land-release: signed tag $tag on $(git rev-parse --short HEAD)"
-if [ "$push" = 1 ]; then git push -q origin "refs/tags/$tag"; echo "land-release: pushed $tag"; else echo "land-release: push it with: git push origin refs/tags/$tag"; fi
+if [ "$push" = 1 ]; then git push -q origin "refs/tags/$tag"; echo "land-release: pushed $tag"
+  # The candidate branch has done its job once its commits are in the pushed tag: delete it, so a release leaves no branch behind. A candidate that holds a commit the tag does not (a fix not released) is KEPT, and said so.
+  if has_cand; then
+    if git merge-base --is-ancestor "origin/$cand" "refs/tags/$tag"; then git push -q origin ":refs/heads/$cand" && echo "land-release: deleted the candidate branch $cand (the tag $tag holds its commits)"
+    else echo "land-release: kept the candidate branch $cand: it holds commits the tag $tag does not" >&2; fi
+  fi
+else echo "land-release: push it with: git push origin refs/tags/$tag"; fi
