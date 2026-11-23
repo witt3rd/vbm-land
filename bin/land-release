@@ -63,8 +63,10 @@ if [ -n "$area" ] && [ "$rc_only" = 0 ]; then
   [ -z "$last" ] || [ "$(printf '%s\n%s\n' "$last" "$ver" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)" = "$ver" ] || { echo "land-release: lib/$area/VERSION ($ver) is not greater than the last tag $area/v$last (compared by number)" >&2; exit 1; }   # [guard:version]
   cl=$(git show "HEAD:lib/$area/CHANGELOG.md" 2>/dev/null || true)
   grep -qE "^## ${ver//./\\.}([^0-9]|\$)" <<<"$cl" || { echo "land-release: lib/$area/CHANGELOG.md has no heading line that begins '## $ver'" >&2; exit 1; }
-  rv=$(git show "HEAD:registry/$area.json" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])' 2>/dev/null || true)
-  [ "$rv" = "$ver" ] || { echo "land-release: registry/$area.json says version '$rv', lib/$area/VERSION says $ver" >&2; exit 1; }
+  if git cat-file -e "HEAD:registry/$area.json" 2>/dev/null; then   # a mirror of the version, IF the repository keeps one, must agree; a repository that describes its libraries with cards derives the version from lib/NAME/VERSION and keeps no copy
+    rv=$(git show "HEAD:registry/$area.json" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])' 2>/dev/null || true)
+    [ "$rv" = "$ver" ] || { echo "land-release: registry/$area.json says version '$rv', lib/$area/VERSION says $ver" >&2; exit 1; }
+  fi
   git show "origin/$base:$LAND_SIGNERS_FILE" > "$scratch/signers" 2>/dev/null || { echo "land-release: origin/$base has no $LAND_SIGNERS_FILE: a library tag is verified against it" >&2; exit 2; }
 fi
 # ---- the release candidate: the project's full suite on the exact HEAD, before anything is signed. The config is read from the branch being released (origin/main or the candidate; data, never expanded), like the lander reads it.
