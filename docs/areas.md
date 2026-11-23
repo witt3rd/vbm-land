@@ -501,6 +501,85 @@ The Lean tree is a chain: `impl` imports `spec`, `proofs` imports both, so `spec
 
 No code, still areas. `guide` and `policies` are checked separately, and both read the glossary and the word list, so those two files are in both. `scripts` is the tooling the checks use. `front-matter` has no steps: the readme, licence, changelog and contributing guide are read by no check (the audit of 3.3 says so), so a change that touches only them runs nothing and says `"validation":"inert"`. A document change that touches the guide runs the guide's three checks and not the policies'. The repository that sets `LAND_INERT=CHANGELOG.md` today is this one with the area made explicit.
 
+### 8.7 A family repository with per-library areas (leaf, C substrate, split definitions/proofs)
+
+In a family repository (`docs/family-repo.md` section 1.3), each library declares its own `lib/<name>/areas.json` and `.land/areas.json` is composed deterministically from them. Three library shapes illustrate how `uses` and per-library areas compose:
+
+1. **A small leaf library (`leaf`, ~10 Lean modules, `deps` empty)** declares one area named `leaf`:
+
+```json
+{
+  "version": 1,
+  "areas": [
+    {
+      "name": "leaf",
+      "paths": ["*"],
+      "steps": [
+        {"run": "lake build", "cwd": "lib/leaf"},
+        {"run": "lake test", "cwd": "lib/leaf"}
+      ]
+    }
+  ]
+}
+```
+
+2. **A library with a specification and a C substrate (`kernel`, `deps` empty)** splits into `kernel:spec` (shared Lean specification) and `kernel:c` (the C substrate, which reads the specification's exported layout header and has `"uses": []`):
+
+```json
+{
+  "version": 1,
+  "areas": [
+    {
+      "name": "kernel:spec",
+      "paths": ["Spec/*", "lakefile.toml", "lean-toolchain", "lake-manifest.json"],
+      "steps": [{"run": "lake build Spec", "cwd": "lib/kernel"}]
+    },
+    {
+      "name": "kernel:c",
+      "paths": ["c/*", "include/*", "Makefile", "Spec/*"],
+      "steps": [{"run": "make test", "cwd": "lib/kernel"}],
+      "uses": []
+    }
+  ]
+}
+```
+
+Here `Spec/*` is listed in both `kernel:spec` and `kernel:c` (intra-library overlap, rule 4) because the C tests check against the spec; a change in `c/*` runs only `kernel:c` and does not rebuild `Spec`.
+
+3. **A library with quick definitions and slow proofs (`core`, `deps`: `["leaf", "kernel"]`)** splits into `core:defs` and `core:proofs`, and a downstream library `app` (`deps`: `["core"]`) declares `uses` only on `core:defs`:
+
+```json
+{
+  "version": 1,
+  "areas": [
+    {
+      "name": "core:defs",
+      "paths": ["Defs/*", "lakefile.toml", "lean-toolchain", "lake-manifest.json"],
+      "steps": [{"run": "lake build Defs", "cwd": "lib/core"}],
+      "uses": [
+        {"lib": "leaf", "area": "leaf"},
+        {"lib": "kernel", "area": "spec"}
+      ]
+    },
+    {
+      "name": "core:proofs",
+      "paths": ["Proofs/*", "Defs/*", "lakefile.toml", "lean-toolchain", "lake-manifest.json"],
+      "steps": [{"run": "lake build Proofs", "cwd": "lib/core"}],
+      "uses": [
+        {"lib": "leaf", "area": "leaf"},
+        {"lib": "kernel", "area": "spec"}
+      ]
+    }
+  ]
+}
+```
+
+When `app/areas.json` declares `"uses": [{"lib": "core", "area": "defs"}]`, the composed `.land/areas.json` expands `app`'s `paths` to include `lib/core/Defs/*` (and transitively `lib/leaf/*` and `lib/kernel/Spec/*`), **excluding `lib/core/Proofs/*` and `lib/kernel/c/*`**:
+
+- A change to `lib/core/Proofs/*` runs only `core:proofs` (slow proofs), without triggering `app` or `core:defs`.
+- A change to `lib/core/Defs/*` runs `core:defs`, `core:proofs`, and `app`.
+- Releasing `core` (`land-release --area core`) still requires **both** `core:defs` and `core:proofs` plus `app` (every area of `core` and every area that `uses` it) to pass, and tags `core/vX.Y.Z`.
+
 ## 9. What this page does not do
 
 - It does not select inside an area. A project that wants a faster area splits it.
