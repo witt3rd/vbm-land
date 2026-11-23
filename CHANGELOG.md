@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.28.0 (patch-level fix, additive: nothing that worked changes)
+
+- **`land-release --area NAME` checks `registry/NAME.json` only when the repository keeps one.** It required that file with a version equal to `lib/NAME/VERSION`; a family repository that describes its libraries with cards derives the version from `VERSION` and keeps no copy, so tagging any of its libraries failed. A mirror that exists and disagrees is still refused. Test: a library with no mirror is released, a stale mirror is refused.
+
 ## 0.27.0 (minor; additive: `gate_areas` in the areas file; a repository that does not set it is unchanged)
 
 - **`gate_areas`** (an optional top-level key of `.land/areas.json`: a non-empty list of distinct area names that exist) says which areas a GATE-DEFINING change runs. A change under `.land/` or to a `LAND_PROTECTED` path used to run EVERY area; in a repository of many libraries that is the whole suite, one area after another, for every update of the vendored tool or the areas file. With the key, such a change runs the declared areas (added to the areas it touches) and is still named gate-defining. The release candidate still runs EVERY area (`docs/areas.md` rule 7), a path no area owns still runs the full suite, and reuse across a trunk move follows the same narrowing. Without the key nothing changes. Vectors for each behaviour and four refusals, and three mutants that must fail the runner.
