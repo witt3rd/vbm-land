@@ -127,6 +127,13 @@ mutant "first match wins" '            for n in owners:
                 touched.setdefault(n, p)'
 mutant "a deleted path matches nothing" '        if st == "D" and s.nodel:' '        if st == "D":'
 mutant "the release candidate narrows" 'full, touched, unmapped, gate = rc, {}, set(), set()' 'full, touched, unmapped, gate = False, {}, set(), set()'
+mutant "gate_areas is ignored (a gate-defining path runs everything)" '                if ga:   # the file declares which areas a change to what judges runs; the release candidate still runs every area' '                if False:   # the file declares which areas a change to what judges runs; the release candidate still runs every area'
+mutant "gate_areas replaces what the change touches instead of adding to it" '                    for n in ga:
+                        touched.setdefault(n, p)' '                    touched.clear()
+                    for n in ga:
+                        touched.setdefault(n, p)'
+mutant "gate_areas is accepted when it names an area that does not exist" '            if x not in seen:
+                raise Refuse("gate_areas names '"'"'%s'"'"', which is not an area" % x)' '            pass'
 mutant "a moved gate-defining path is ignored by reuse" 'not d["full"] and not moved["full"] and' 'not d["full"] and'
 echo "## the lander with the decision cut out is caught"
 cp "$ROOT/lib/areas.sh" "$mk/lib/areas.sh"; cp "$ROOT/lib/areas.py" "$mk/lib/areas.py"; cp "$L" "$mk/bin/land-direct"; cp "$ROOT"/lib/conf.sh "$ROOT"/lib/freeze.sh "$mk/lib/"; cp "$ROOT/bin/no-build-guard" "$mk/bin/"; cp "$ROOT/VERSION" "$mk/"

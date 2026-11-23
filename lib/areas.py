@@ -68,11 +68,15 @@ def load(path):
     except (ValueError, RecursionError) as e:
         raise Refuse("not valid JSON: %s" % e)
 
+class Areas(list):
+    """the areas of a file; gate_areas: the areas a gate-defining change runs (None: every area)"""
+    gate_areas = None
+
 def parse(doc):
     if not isinstance(doc, dict):
         raise Refuse("the file must be a JSON object")
     for k in doc:
-        if k not in ("version", "areas"):
+        if k not in ("version", "areas", "gate_areas"):
             raise Refuse("unknown key '%s'" % k)
     if type(doc.get("version")) is not int or doc["version"] != 1:
         raise Refuse("version must be exactly 1")
@@ -121,6 +125,17 @@ def parse(doc):
         except Refuse as e:
             raise Refuse("%s: %s" % (where, e))
         out.append(Area(n, paths, excl, steps))
+    out = Areas(out)
+    if "gate_areas" in doc:
+        ga = doc["gate_areas"]
+        if not isinstance(ga, list) or not ga or not all(isinstance(x, str) for x in ga):
+            raise Refuse("gate_areas must be a non-empty list of area names")
+        for x in ga:
+            if x not in seen:
+                raise Refuse("gate_areas names '%s', which is not an area" % x)
+        if len(set(ga)) != len(ga):
+            raise Refuse("gate_areas names an area twice")
+        out.gate_areas = list(ga)
     return out
 
 def build(o):
@@ -146,12 +161,17 @@ def is_gate(p, prot):
 
 def decide(areas, prot, changes, rc):
     full, touched, unmapped, gate = rc, {}, set(), set()
+    ga = getattr(areas, "gate_areas", None)
     for c in changes:
         for st, p in ([("D", c[1]), ("A", c[2])] if c[0] == "R" else [c]):
             gd = is_gate(p, prot)
             if gd:
-                full = True
                 gate.add(p)
+                if ga:   # the file declares which areas a change to what judges runs; the release candidate still runs every area
+                    for n in ga:
+                        touched.setdefault(n, p)
+                else:
+                    full = True
             owners = [a.name for a in areas if a.owns(p, st)]
             if not owners and not gd:
                 owners = enclosing(areas, p)
@@ -192,7 +212,9 @@ def explain(areas, d, o, res, changes, rc):
         else:
             out.append("skip %s: no changed path touches it" % n)
     out += ["unmapped %s: no area owns or encloses it: the full suite runs" % p for p in res["unmapped"]]
-    out += ["gate-defining %s: judges every change: the full suite runs" % p for p in res["gate_defining"]]
+    ga = getattr(areas, "gate_areas", None)
+    if ga: out += ["gate-defining %s: judges every change: it runs the declared gate areas (%s); the release candidate runs every area" % (p, ", ".join(ga)) for p in res["gate_defining"]]
+    else: out += ["gate-defining %s: judges every change: the full suite runs" % p for p in res["gate_defining"]]
     return out
 
 def shown(res):

@@ -7883,6 +7883,955 @@
     "validation": "tier1"
    },
    "wrong_implementation": "treats the Makefile as unmapped and names it, or lists it in the library area only"
+  },
+  {
+   "id": "gate-areas-narrow",
+   "rule": "5",
+   "kind": "decide",
+   "about": "a file that declares gate_areas runs ONLY those areas for a gate-defining path (here docs, which has no steps: the change is judged by what the file says it is judged by), names the path gate-defining and does not run the full suite",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ],
+     "gate_areas": [
+      "docs"
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      ".land/land.conf"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "docs"
+    ],
+    "full_suite": false,
+    "gate_defining": [
+     ".land/land.conf"
+    ],
+    "skipped_areas": [
+     "app",
+     "lib",
+     "tools",
+     "vendor"
+    ],
+    "steps": [],
+    "unmapped": [],
+    "validation": "inert"
+   },
+   "wrong_implementation": "ignores gate_areas and runs the full suite for a gate-defining path"
+  },
+  {
+   "id": "gate-areas-adds-to-touched",
+   "rule": "5",
+   "kind": "decide",
+   "about": "the gate areas are ADDED to what the change touches: a change to the vendored tool and to src/app runs tools (the gate area) and app (touched), not lib, docs or vendor (the touched path comes FIRST, so an implementation that replaces the touched set by the gate areas is caught)",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ],
+     "gate_areas": [
+      "tools"
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "src/app/main.c"
+     ],
+     [
+      "M",
+      ".land/tool/bin/land-direct"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "app",
+     "tools"
+    ],
+    "full_suite": false,
+    "gate_defining": [
+     ".land/tool/bin/land-direct"
+    ],
+    "skipped_areas": [
+     "docs",
+     "lib",
+     "vendor"
+    ],
+    "steps": [
+     [
+      ".",
+      "make fmt-check"
+     ],
+     [
+      ".",
+      "make test-app"
+     ],
+     [
+      "src/app",
+      "make lint-app"
+     ],
+     [
+      ".",
+      "make test-tools"
+     ]
+    ],
+    "unmapped": [],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "runs only the gate areas and drops the areas the change touches"
+  },
+  {
+   "id": "gate-areas-unmapped-still-full",
+   "rule": "5",
+   "kind": "decide",
+   "about": "gate_areas narrows only the gate-defining paths: a path no area owns or encloses still runs the full suite",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ],
+     "gate_areas": [
+      "tools"
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      "NOTES.txt"
+     ]
+    ]
+   },
+   "expect": {
+    "areas": [
+     "app",
+     "docs",
+     "lib",
+     "tools",
+     "vendor"
+    ],
+    "full_suite": true,
+    "gate_defining": [],
+    "skipped_areas": [],
+    "steps": [
+     [
+      ".",
+      "make fmt-check"
+     ],
+     [
+      ".",
+      "make test-lib"
+     ],
+     [
+      ".",
+      "make test-app"
+     ],
+     [
+      "src/app",
+      "make lint-app"
+     ],
+     [
+      ".",
+      "make test-tools"
+     ],
+     [
+      ".",
+      "make test-vendor"
+     ]
+    ],
+    "unmapped": [
+     "NOTES.txt"
+    ],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "lets gate_areas narrow an unmapped path as well"
+  },
+  {
+   "id": "gate-areas-release-candidate-full",
+   "rule": "7",
+   "kind": "decide",
+   "about": "the release candidate runs every area whatever gate_areas says (the audit of the factoring)",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ],
+     "gate_areas": [
+      "tools"
+     ]
+    },
+    "changes": [
+     [
+      "M",
+      ".land/land.conf"
+     ]
+    ],
+    "release_candidate": true
+   },
+   "expect": {
+    "areas": [
+     "app",
+     "docs",
+     "lib",
+     "tools",
+     "vendor"
+    ],
+    "full_suite": true,
+    "gate_defining": [
+     ".land/land.conf"
+    ],
+    "skipped_areas": [],
+    "steps": [
+     [
+      ".",
+      "make fmt-check"
+     ],
+     [
+      ".",
+      "make test-lib"
+     ],
+     [
+      ".",
+      "make test-app"
+     ],
+     [
+      "src/app",
+      "make lint-app"
+     ],
+     [
+      ".",
+      "make test-tools"
+     ],
+     [
+      ".",
+      "make test-vendor"
+     ]
+    ],
+    "unmapped": [],
+    "validation": "tier1"
+   },
+   "wrong_implementation": "narrows the release candidate by gate_areas"
+  },
+  {
+   "id": "reuse-gate-areas-move",
+   "rule": "5",
+   "kind": "reuse",
+   "about": "with gate_areas declared, a trunk move of a gate-defining path touches only the gate areas: my area app, which it does not touch, keeps its verdict",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ],
+     "gate_areas": [
+      "tools"
+     ]
+    },
+    "mine": [
+     [
+      "M",
+      "src/app/main.c"
+     ]
+    ],
+    "moved": [
+     [
+      "M",
+      ".land/land.conf"
+     ]
+    ]
+   },
+   "expect": {
+    "rerun": [],
+    "reused": [
+     "app"
+    ]
+   },
+   "wrong_implementation": "treats a moved gate-defining path as the full suite even when gate_areas narrows it"
+  },
+  {
+   "id": "invalid-gate-areas-unknown",
+   "rule": "5",
+   "kind": "validate",
+   "about": "gate_areas names an area that does not exist",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ],
+     "gate_areas": [
+      "nope"
+     ]
+    }
+   },
+   "expect": {
+    "valid": false
+   },
+   "wrong_implementation": "accepts it"
+  },
+  {
+   "id": "invalid-gate-areas-empty",
+   "rule": "5",
+   "kind": "validate",
+   "about": "gate_areas is an empty list",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ],
+     "gate_areas": []
+    }
+   },
+   "expect": {
+    "valid": false
+   },
+   "wrong_implementation": "accepts it"
+  },
+  {
+   "id": "invalid-gate-areas-duplicate",
+   "rule": "5",
+   "kind": "validate",
+   "about": "gate_areas names an area twice",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ],
+     "gate_areas": [
+      "docs",
+      "docs"
+     ]
+    }
+   },
+   "expect": {
+    "valid": false
+   },
+   "wrong_implementation": "accepts it"
+  },
+  {
+   "id": "invalid-gate-areas-not-a-list",
+   "rule": "5",
+   "kind": "validate",
+   "about": "gate_areas is not a list",
+   "input": {
+    "areas_file": {
+     "version": 1,
+     "areas": [
+      {
+       "name": "lib",
+       "paths": [
+        "src/lib/*",
+        "tests/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-lib"
+        }
+       ]
+      },
+      {
+       "name": "app",
+       "paths": [
+        "src/app/*",
+        "tests/app/*",
+        "src/lib/*"
+       ],
+       "steps": [
+        {
+         "run": "make fmt-check"
+        },
+        {
+         "run": "make test-app"
+        },
+        {
+         "run": "make lint-app",
+         "cwd": "src/app"
+        }
+       ]
+      },
+      {
+       "name": "docs",
+       "paths": [
+        "docs/*"
+       ],
+       "steps": []
+      },
+      {
+       "name": "tools",
+       "paths": [
+        "tools/*"
+       ],
+       "exclude": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-tools"
+        }
+       ]
+      },
+      {
+       "name": "vendor",
+       "paths": [
+        "tools/vendor/*"
+       ],
+       "steps": [
+        {
+         "run": "make test-vendor"
+        }
+       ]
+      }
+     ],
+     "gate_areas": "docs"
+    }
+   },
+   "expect": {
+    "valid": false
+   },
+   "wrong_implementation": "accepts it"
   }
  ]
 }
