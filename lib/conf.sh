@@ -9,7 +9,7 @@
 # The keys and their defaults are the stable interface of this tool (README, "Configuration"): conf_defaults sets them, conf_parse reads a file.
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/paths.sh"   # every consumer path, defined once (lib/paths.sh)
 
-land_conf_keys="LAND_BASE LAND_REMOTE LAND_GATES_CMD LAND_TEST_CMD LAND_REGEN_CMD LAND_GEN_CMD LAND_GENERATED_LIST LAND_REQUIRE_TRAILERS
+land_conf_keys="LAND_BASE LAND_REMOTE LAND_GATES_CMD LAND_TEST_CMD LAND_REGEN_CMD LAND_GEN_CMD LAND_GENERATED_LIST LAND_REQUIRE_TRAILERS LAND_AUTHORS
  LAND_CONVENTIONAL LAND_COMMIT_TYPES LAND_PROTECTED LAND_INERT LAND_HOOKS_DIR LAND_LOCALE LAND_ATTEMPTS LAND_DEADLINE LAND_TIER1_TIMEOUT
  LAND_STEP_TIMEOUT LAND_GIT_TIMEOUT LAND_RC_CMD LAND_RC_TIMEOUT LAND_REUSE LAND_AFFECTS_CMD"
 
@@ -31,6 +31,7 @@ conf_defaults() {
   LAND_REGEN_CMD=; LAND_GEN_CMD=                # regenerate generated files: after a conflict in them / always after the rebase
   LAND_GENERATED_LIST=                          # path (in the repository) of a file listing generated paths, one per line, `#` comments
   LAND_REQUIRE_TRAILERS=                        # trailer names every commit must carry, space separated (e.g. Task-ID)
+  LAND_AUTHORS=                                 # the addresses a commit's author AND committer may carry, space separated; none = not checked
   LAND_CONVENTIONAL=1                           # require `type(scope): summary` (or git's own `Revert "..."`)
   LAND_COMMIT_TYPES="feat fix docs chore refactor test perf build ci style revert"
   LAND_PROTECTED=                               # shell patterns (* matches /): the gate-defining set

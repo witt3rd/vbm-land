@@ -212,6 +212,11 @@ for c in $commits; do
   subj=$(git -C "$top" log -1 --format=%s "$c"); body=$(git -C "$top" log -1 --format=%B "$c" | tr -d '\r')
   if [ "$LAND_CONVENTIONAL" = 1 ]; then grep -qE "$conv_re" <<<"$subj" || die "commit ${c:0:12}: the subject is not a Conventional Commit 'type(scope): summary' (types: $LAND_COMMIT_TYPES): '$subj'"; fi
   for t in $LAND_REQUIRE_TRAILERS; do grep -qE "^$t: ..*" <<<"$body" || die "commit ${c:0:12} ($subj): no '$t:' trailer (a '$t: <value>' line at the end of the commit message)"; done
+  if [ -n "$LAND_AUTHORS" ]; then   # the identity a commit claims: git does not verify it, and a forge links it to an account by this address
+    for who in "$(git -C "$top" log -1 --format=%ae "$c")" "$(git -C "$top" log -1 --format=%ce "$c")"; do
+      case " $LAND_AUTHORS " in *" $who "*) ;; *) die "commit ${c:0:12} ($subj): the address '$who' is not one of LAND_AUTHORS ($LAND_AUTHORS): set the identity (git config user.email) and amend the commit (git commit --amend --reset-author)";; esac
+    done
+  fi
   commit_is_fix "$c" || allfix=0
 done
 isfix=$allfix; [ "$o_fixred" != 1 ] || isfix=1

@@ -215,6 +215,7 @@ The last line of stdout is JSON, and it is what a caller reads, never the text a
 | `LAND_GEN_CMD` | none | Always run on the rebased tree; anything it changes lands as a commit of the lander. |
 | `LAND_GENERATED_LIST` | none | Path of a file listing generated paths, one per line, read from base. |
 | `LAND_REQUIRE_TRAILERS` | none | Trailer names every commit must carry (for example `Task-ID`). |
+| `LAND_AUTHORS` | none | The addresses a commit's author AND committer may carry, space separated. A commit with any other is refused (exit 1) before anything is rebased, tested or pushed. Git does not verify the address and a forge links it to an account, so a repository that has one identity says so here. Unset: not checked. |
 | `LAND_CONVENTIONAL`, `LAND_COMMIT_TYPES` | `1`, the usual types | Require `type(scope): summary` subjects; git's own `Revert "..."` is accepted. |
 | `LAND_PROTECTED` | none | Shell patterns (`*` matches `/`): the gate-defining set. A change that touches it is judged by the `post-rebase` hook. |
 | `LAND_INERT` | none | Shell patterns (`*` matches `/`): paths that no Tier 1 command, hook or reviewer reads (a changelog, prose docs). A change whose every touched path matches, with none of them in `LAND_PROTECTED`, skips Tier 1 and the `post-tier1` hook (where a reviewer runs), and its summary line then carries `"validation":"inert"`. See "Inert paths" below. |

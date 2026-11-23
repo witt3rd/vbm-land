@@ -71,6 +71,23 @@ worker k2; echo 1 > "$T/k2/x.txt"; git -C "$T/k2" add x.txt; git -C "$T/k2" comm
 refused "a missing required trailer refuses" 1 "$T/k2"; out_has "no 'Task-ID:' trailer"
 worker k3; commit "$T/k3" r.txt 1 'Revert "feat: something"'
 lands "git's own Revert \"...\" subject is accepted (no divergence between the subject check and the red rule)" "$T/k3"
+
+echo "## LAND_AUTHORS: the identity a commit claims is checked (git does not verify it)"
+sandbox
+set_conf 'LAND_TEST_CMD=true' 'LAND_AUTHORS=owner@example.test bot@example.test'
+as() { local a=$1 c=$2; shift 2; GIT_AUTHOR_EMAIL=$a GIT_COMMITTER_EMAIL=$c "$@"; }   # as AUTHOR COMMITTER cmd...: the harness sets the identity by environment, which beats git config
+worker au1; as owner@example.test bot@example.test commit "$T/au1" a.txt 1
+lands "a listed author and a listed committer land" "$T/au1"
+worker au2; as stranger@example.test stranger@example.test commit "$T/au2" b.txt 1
+refused "an author that is not listed is refused (exit 1)" 1 "$T/au2"; out_has "stranger@example.test"; out_has "not one of LAND_AUTHORS"
+check "and nothing was pushed" bash -c "! git -C '$T/remote.git' cat-file -e main:b.txt"
+worker au3; as owner@example.test stranger@example.test commit "$T/au3" c.txt 1
+refused "a listed author with a committer that is not listed is refused too" 1 "$T/au3"; out_has "stranger@example.test"
+worker au4; as owner@example.test owner@example.test commit "$T/au4" d1.txt 1; as stranger@example.test stranger@example.test commit "$T/au4" d2.txt 1
+refused "one wrong commit among several refuses the whole landing, and names the commit" 1 "$T/au4"; out_has "d2.txt"
+set_conf 'LAND_TEST_CMD=true'
+worker au5; as stranger@example.test stranger@example.test commit "$T/au5" e.txt 1
+lands "with LAND_AUTHORS unset nothing is checked (the key is opt-in: a default of ours would be a bug)" "$T/au5"
 echo "## a signing keys file that exists changes only by its owner"
 set_conf 'LAND_TEST_CMD=true'; seed_push scripts/x.signers "k1"
 worker sg1; echo k2 > "$T/sg1/scripts/x.signers"; git -C "$T/sg1" add -A; git -C "$T/sg1" commit -qm "feat: swap the signing key" -m "Task-ID: t"
