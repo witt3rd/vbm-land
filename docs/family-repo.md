@@ -26,7 +26,7 @@ registry/<name>.json    one entry per library (section 1.2)
 docs/  scripts/  tests/ the repository's own documents, helpers and lints (the tooling area)
 ```
 
-A library directory is **self-contained**: its toolchain pin and package file are inside it, so that the directory alone, exported, is a buildable library. A path dependency `../<dep>` resolves the same way in the family repository (`lib/<dep>`) and in a consumer (`vendor/<dep>`, section 4): that is why the form is fixed. A library name is `[a-z0-9][a-z0-9_-]*`, unique, and is never `registry`, `docs`, `tooling` or `inert` (area names, section 1.3). The directory name, the registry file name, the single-area name (or `<name>:` prefix) and the tag prefix share this `<name>`.
+A library directory is **self-contained**: its toolchain pin and package file are inside it, so that the directory alone, exported, is a buildable library. A path dependency `../<dep>` resolves the same way in the family repository (`lib/<dep>`) and in a consumer (`vendor/<dep>`, section 4): that is why the form is fixed. A library name is `[a-z0-9][a-z0-9_-]*` with no double underscore (`__`), unique, and is never `registry`, `docs`, `tooling` or `inert` (area names, section 1.3). The double underscore is reserved as the separator between a library name and an area part (`<name>__<part>`), so a library name must not contain `__`. The directory name, the registry file name, the single-area name (or `<name>__` prefix) and the tag prefix share this `<name>`.
 
 ### 1.1 One file per library, nothing every change must edit
 
@@ -88,7 +88,7 @@ Each library declares its own areas in **`lib/<name>/areas.json`**, which may be
 |---|---|
 | `version` | must be `1` |
 | `areas` | non-empty list of area objects |
-| `name` | `<name>` when the library has one area, or `<name>:<part>` when it has several (`<part>` is `[a-z0-9][a-z0-9_-]*`); must start with `<name>` (exact `<name>` or `<name>:<part>`) and must be unique in the repository |
+| `name` | `<name>` when the library has one area, or `<name>__<part>` when it has several (`<part>` is `[a-z0-9][a-z0-9_-]*`, no `__`; the lander grammar `lib/areas.py` `NAME` is `[a-z0-9][a-z0-9_-]*`, so `:` is refused); must be `<name>` or `<name>__<part>` and must be unique in the repository |
 | `paths` | non-empty list of globs relative to `lib/<name>/` (using the glob language of `docs/areas.md` section 1; must not start with `lib/`, `/` or `./`, and must not contain `..`) |
 | `exclude` | optional list of globs relative to `lib/<name>/`, same shape rules |
 | `steps` | required list of `{"run": ..., "cwd": ...}` objects (`cwd` optional, relative to repository root or default `.`) |
@@ -102,25 +102,33 @@ Each library declares its own areas in **`lib/<name>/areas.json`**, which may be
 
 **Cross-library `uses`:**
 
-- `uses` is the declared dependency across libraries, refined to areas. Each entry `{"lib": "<dep>", "area": "<part>"}` names a library `<dep>` that **must** appear in `lib/<name>/deps` (naming a library not in `deps` is refused) and an area `<dep>:<part>` (or `<dep>` when `<dep>` has one area and `area` is `<dep>` or omitted/matched by the resolved area name `<dep>`).
+- `uses` is the declared dependency across libraries, refined to areas. Each entry `{"lib": "<dep>", "area": "<part>"}` names a library `<dep>` that **must** appear in `lib/<name>/deps` (naming a library not in `deps` is refused) and an area `<dep>__<part>` (or `<dep>` when `<dep>` has one area and `area` is `<dep>` or omitted/matched by the resolved area name `<dep>`).
 - **Transitive expansion:** an area `A` that declares `uses` owns, in addition to its own prefixed `paths`, the composed paths (including transitive `uses`) of each named dependency area.
-- **Sound default when `uses` is omitted or absent:** an area that declares no `uses` key **uses every area of every library in `<name>`'s `deps` closure**. This equals the one-area-per-library rule: a small library or one that has not split its dependency interface gets the sound over-approximation automatically. An explicit `"uses": []` declares that the area reads **no** in-repo dependency (for example a self-contained C substrate or specification).
+- **Sound default when `uses` is omitted or absent:** an area that declares no `uses` key **uses every area with non-empty `steps` of every library in `<name>`'s `deps` closure**. An area with `steps: []` (such as `<name>__docs`) is **not** included in any dependent's closure, so a documentation edit in a dependency never triggers a downstream library's build. An explicit `"uses": []` declares that the area reads **no** in-repo dependency (for example a self-contained C substrate or specification).
+
+**The scope rule (what an area owns):**
+
+The scope of an area must equal what its steps **read** (`docs/areas.md` section 3.3). Ask of any area what a `README.md` edit and a declaration edit (`areas.json`, `deps`) would run:
+
+- **Documents no gate reads (`<name>__docs`):** a library declares its own `README.md`, `CHANGELOG.md`, `NOTICE`, and `LICENSE` as a second area `<name>__docs` with `"steps": []` (or with only the repository-wide lint step where required) and excludes those paths from its main area (`"exclude": ["README.md", "CHANGELOG.md", "NOTICE", "LICENSE", "areas.json", "deps"]`). Because composition omits stepless areas from dependents' closures, editing `lib/<name>/README.md` does not rebuild `<name>` or any dependent library — it runs only the whole-repository gates (if declared as a step of `<name>__docs`, or nothing beyond `LAND_PROTECTED` when stepless).
+- **The library's own declarations (`lib/<name>/areas.json`, `lib/<name>/deps`):** excluded from the library's main area and listed in `LAND_PROTECTED`, so they are gate-defining (not unmapped, and not owned by the library's build area). Editing what judges a library is gate-defining and runs `gate_areas` rather than silently slipping under a narrow area or running every library.
 
 **The composed file `.land/areas.json`:**
 
 - The lander reads `.land/areas.json` from `origin/<base>` (`docs/areas.md` section 1). That file is the **composition** of every `lib/*/areas.json`, followed by `registry`, `docs`, and `tooling`:
-  - for each library `<name>` in sorted order, and each area in `lib/<name>/areas.json` in declaration order: each `paths` (and `exclude`) entry is prefixed with `lib/<name>/`, each `uses` target's composed paths (or, when `uses` is absent, all composed paths of all libraries in `<name>`'s `deps` closure) are unioned in, sorted and deduplicated, and the repository-wide lint step (`tests/lint.sh`) is prepended (unless already present);
+  - for each library `<name>` in sorted order, and each area in `lib/<name>/areas.json` in declaration order: each `paths` (and `exclude`) entry is prefixed with `lib/<name>/`, each `uses` target's composed paths (or, when `uses` is absent, all composed paths of all areas with non-empty `steps` of all libraries in `<name>`'s `deps` closure) are unioned in, sorted and deduplicated, and the repository-wide lint step (`tests/lint.sh`) is prepended (unless already present on an area with steps; stepless areas with `steps: []` stay stepless unless the repository chooses to attach the lint);
   - **Area `registry`** owns `registry/*`. **Area `docs`** owns `docs/*`, `README.md`, `CHANGELOG.md` (the repository's own, not a library's). **Area `tooling`** owns `scripts/*` and `tests/*`.
 - **Pure, deterministic, derived:** the composition is a **pure, deterministic function** (sorted, stable) specified in Lean. `.land/areas.json` is committed because the lander reads it from `origin/<base>`, and it is **derived**:
   - `compose --check` must refuse (exit 2) any landing whose committed `.land/areas.json` differs from the composition of `lib/*/areas.json` and the `deps` files;
   - `compose --write` regenerates `.land/areas.json` deterministically from `lib/*/areas.json`.
-- **The public lint is a step of every area** (the same `cwd` and `run` in each, so it runs once per landing, `docs/areas.md` rule 3). It runs on the WHOLE tree and holds the family checks of sections 2 and 3 and the leak check of section 8. No area is stepless: a document can leak a name as well as a source file can.
-- A path no area owns (a root file) runs everything (rule 5); the first change to it is judged by every area. `.land/` is gate-defining and runs everything.
+- **The public lint is a step of every code area** (the same `cwd` and `run` in each, so it runs once per landing, `docs/areas.md` rule 3). It runs on the WHOLE tree and holds the family checks of sections 2 and 3 and the leak check of section 8. A library's `<name>__docs` area may have `steps: []` (excluded from dependents' closures; whole-repository checks run on it when configured or via the repository's `docs` / lint policy).
+- A path no area owns or encloses (a root file) runs everything (`docs/areas.md` rule 5); the first change to it is judged by every area. `.land/` and `LAND_PROTECTED` are gate-defining.
+- **`gate_areas` (`docs/areas.md` rule 5):** the composed `.land/areas.json` declares `"gate_areas"` listing the family repository's own area(s) (e.g. `tooling`) and **one small library as a canary**, instead of running every library on every gate-defining change. A change to `.land/` or `LAND_PROTECTED` (including `lib/*/areas.json` and `lib/*/deps`) then runs those declared gate areas; the release candidate (`land-release --rc`) still runs **every** area.
 - The release candidate of the whole repository (`land-release --rc`, no `--area`) runs every area (rule 7).
 
-**Who may change a library's `steps` (protection):**
+**Who may change a library's declarations (protection):**
 
-A library's `steps` decide whether a change to that library may land, so an agent that could edit `lib/<name>/areas.json` unchecked could weaken or switch off the check that judges it (`AGENTS.md`: only what decides whether a change may land is protected). Therefore **every `lib/*/areas.json` and the composed `.land/areas.json` must be in the protected set** (`LAND_PROTECTED` / `.land/`, changed only with the owner's word and the `Protected:` trailer), while a library's tests, proofs, `VERSION`, `CHANGELOG.md`, `deps`, and sources remain ordinary (unprotected) files.
+A library's `areas.json` and `deps` decide whether and how a change to that library is judged, so an agent that could edit `lib/<name>/areas.json` or `lib/<name>/deps` unchecked could weaken, skip, or misroute the check that judges it (`AGENTS.md`: only what decides whether a change may land is protected). Therefore **every `lib/*/areas.json`, every `lib/*/deps`, and the composed `.land/areas.json` must be in the protected set** (`LAND_PROTECTED` / `.land/`, changed only with the owner's word and the `Protected:` trailer) and excluded from the library's main area, while a library's tests, proofs, `VERSION`, `CHANGELOG.md`, and sources remain ordinary (unprotected) files.
 
 - **Cost:** adding a new library, splitting an area, or changing an area's `steps` or `paths` requires the owner's word and `Protected:` once; in a stable library this is rare.
 - **Alternative considered and rejected:** keeping `steps` in unprotected files inside `lib/<name>/` and having the lander merely invoke a fixed script name (e.g., `lib/<name>/check.sh`). That is weaker because any agent landing a source change could edit `check.sh` in the same landing to exit 0, bypassing the gate without owner review.
@@ -137,7 +145,7 @@ The lint (`tests/lint.sh` of the family repository; it is a step of every area) 
    - the library's package file names in-repo requirements only by the relative path `../<dep>`; the set of names so required must equal `deps` exactly (a required path that is not in `deps`, or a `deps` name no package file requires, is refused). A language-level `import` of a library that the package does not require cannot resolve: the area's own build refuses it, which is why the steps of an area run the real build and not a stand-in;
    - no tracked file under `lib/<a>/` may contain the byte string `../<b>/` or `lib/<b>/` where `<b>` is a library that is not in the closure of `<a>` (a literal match of names the registry lists; a file that has to speak of another library writes its name without a path);
 4. a missing, malformed, or invalid `lib/<name>/areas.json`:
-   - unknown or missing key, bad glob or `cwd`, duplicate area name, or an area name that does not start with `<name>` (`<name>` for a single-area library or `<name>:<part>` for a multi-area one);
+   - unknown or missing key, bad glob or `cwd`, duplicate area name, or an area name that does not match `<name>` or `<name>__<part>` (or a library name containing `__`);
    - an area whose `paths` leave `lib/<name>/`, or a tracked path inside `lib/<name>/` not owned by any area of `lib/<name>/areas.json` (unmapped path inside a library);
    - a `uses` entry naming a library not in `lib/<name>/deps` or naming an area that does not exist in that dependency's `areas.json`;
    - a committed `.land/areas.json` that differs from the pure deterministic composition of `lib/*/areas.json` (`compose --check`);
@@ -149,7 +157,7 @@ The lint (`tests/lint.sh` of the family repository; it is a step of every area) 
 A release of ONE library is an annotated, ssh-signed tag **`<name>/vX.Y.Z`** (the same key as every release, `docs/signing.md`) on a commit that
 
 1. **landed on `main`** (HEAD is `origin/main`, or the declared candidate `rc/<name>/vX.Y.Z` whose changes are all on main, as `land-release` already requires), and
-2. **passed the steps of EVERY area of the library AND of every area that `uses` it** (every area in the composed `.land/areas.json` whose name is `<name>` or `<name>:*`, plus every area whose `paths` overlap any of `lib/<name>/`'s areas through `uses` or the default `deps` closure), run as a release candidate with `LAND_RC=1`: nothing cached, selected or skipped. Area parts (`<name>:<part>`) are never separately released; the tag name stays `<name>/vX.Y.Z`.
+2. **passed the steps of EVERY area of the library AND of every area that `uses` it** (every area in the composed `.land/areas.json` whose name is `<name>` or `<name>__*`, plus every area whose `paths` overlap any of `lib/<name>/`'s areas through `uses` or the default `deps` closure), run as a release candidate with `LAND_RC=1`: nothing cached, selected or skipped. Area parts (`<name>__<part>`) are never separately released; the tag name stays `<name>/vX.Y.Z`.
 
 **The tag's meaning:** "the subtree `lib/<name>/` and the subtrees of its in-repo dependency closure, at this commit." Nothing else in the repository is promised: a sibling library, the registry, the documents and the tooling can be in any state. The tag says nothing about libraries that depend on `<name>`: they are not released by this tag, each takes the next release of its own, and every area that `uses` `<name>` has been run on `<name>`'s commit (point 2) so that a break would have stopped this release.
 
@@ -222,9 +230,9 @@ land-release --area NAME [--declare] [--rc] [--push]
 
 With `--area NAME`:
 
-1. NAME must be a library (never an area part `NAME:part`, which is refused: area parts are not separately released) with `lib/NAME/areas.json` and at least one area (`NAME` or `NAME:*`) in `origin/<base>`'s `.land/areas.json`; `VERSION`, `CHANGELOG.md` and `registry/NAME.json` are read from `lib/NAME/` and `registry/` at HEAD, and the checks of section 3 (the plain `X.Y.Z`, greater than every existing `NAME/v*` tag, a `## X.Y.Z` heading, registry `version` equal) must pass, or no tag (exit 1 or 2 as the tool already uses them);
+1. NAME must be a library (never an area part `NAME__part`, which is refused: area parts are not separately released) with `lib/NAME/areas.json` and at least one area (`NAME` or `NAME__*`) in `origin/<base>`'s `.land/areas.json`; `VERSION`, `CHANGELOG.md` and `registry/NAME.json` are read from `lib/NAME/` and `registry/` at HEAD, and the checks of section 3 (the plain `X.Y.Z`, greater than every existing `NAME/v*` tag, a `## X.Y.Z` heading, registry `version` equal) must pass, or no tag (exit 1 or 2 as the tool already uses them);
 2. the clean tree, `HEAD == origin/<base>` and the candidate branch rules are as today; the candidate branch is `rc/NAME/vX.Y.Z` (one per library and version);
-3. **`RC` runs every area of NAME and every area that `uses` it:** every step of every area named `NAME` or `NAME:*` and of every area whose composed `paths` overlap any of `lib/NAME/`'s areas (via `uses` or default `deps` closure), in file order, with `LAND_RC=1`, nothing cached, selected or skipped (`docs/areas.md` rule 7, restricted to these areas). The areas it does not run are named in the output. **`LAND_RC_CMD` is not run:** it is the repository-wide candidate, and a library's own extra checks are steps of its area; `land-release --rc` with no `--area` runs every area and then `LAND_RC_CMD`, and tags nothing;
+3. **`RC` runs every area of NAME and every area that `uses` it:** every step of every area named `NAME` or `NAME__*` and of every area whose composed `paths` overlap any of `lib/NAME/`'s areas (via `uses` or default `deps` closure), in file order, with `LAND_RC=1`, nothing cached, selected or skipped (`docs/areas.md` rule 7, restricted to these areas). The areas it does not run are named in the output. **`LAND_RC_CMD` is not run:** it is the repository-wide candidate, and a library's own extra checks are steps of its area; `land-release --rc` with no `--area` runs every area and then `LAND_RC_CMD`, and tags nothing;
 4. the tag is made as in section 3, signed by `LAND_SIGNING_KEY` (the same key and the same `.land/land.signers` principal as every release: custody and rotation as in `docs/signing.md`), with `tree_sha256=` and the `dep_tree_sha256=` lines;
 5. `--push` pushes the tag, never a branch.
 
@@ -243,7 +251,7 @@ The one verifier (`lib/verify.sh`) gains the subtree form (export a path of a co
 1. `git clone --no-local OLD scratch && cd scratch`; check out its `main`; remove every ref but `main` and the tags (no other branch is migrated; an unmerged branch is archived as a diff and a reason first, README 4.6).
 2. **Move the whole tree under `lib/NAME/`, rewriting history:** `git filter-repo --to-subdirectory-filter lib/NAME --force`. Every commit is kept, with its author, dates and message; only its tree is re-rooted. The tool writes `.git/filter-repo/commit-map` (old hash, new hash, one pair per line) and rewrites the old tags onto the new commits; these tag objects are discarded in step 5 (their signatures covered the old hashes and no longer verify). Because the whole tree is moved and nothing else changes, **the tree hash of `lib/NAME/` at a migrated commit equals the old tree hash at the old commit** (the hash is of the directory's files with paths relative to it): the migration checks this equality for every old tag and refuses on any difference.
 3. In a clone of the family repository, with `main` at its head: `git fetch ../scratch main:refs/heads/migrate/NAME` then `git merge --allow-unrelated-histories --no-ff -m "chore(NAME): migrate the library, with its history, into lib/NAME" migrate/NAME`. The first parent is the family `main`, so the push is a plain fast-forward of the trunk; the old history is the second parent and `git log lib/NAME` and `git blame` follow it. This merge is the **one commit of the repository not made by the lander** (the lander rebases and flattens, and cannot carry a second parent); it is the owner's act, under the hold, never forced, and nothing it touches lies outside `lib/NAME/`.
-4. **The adaptation** is a second ordinary commit on top of the merge, in the same push: add `lib/NAME/deps` (the sorted family libraries the old repository vendored), write `lib/NAME/areas.json` (one area `NAME` or split `NAME:<part>` areas, section 1.3), replace the old repository's vendored family copies (`vendor/<dep>/`, nested ones too) by the path requirement `../<dep>`, remove their lock lines, add `registry/NAME.json`, regenerate `.land/areas.json` with `compose --write` (and verify with `compose --check`), and delete what the repository needed only for being a repository (its own vendored lander, rulesets, workflows and scripts, which the family repository already has once). A library that vendors a dependency that is not in the family is a point this page leaves open (section 12).
+4. **The adaptation** is a second ordinary commit on top of the merge, in the same push: add `lib/NAME/deps` (the sorted family libraries the old repository vendored), write `lib/NAME/areas.json` (one area `NAME` or split `NAME__<part>` areas, plus `NAME__docs`, section 1.3), replace the old repository's vendored family copies (`vendor/<dep>/`, nested ones too) by the path requirement `../<dep>`, remove their lock lines, add `registry/NAME.json`, regenerate `.land/areas.json` with `compose --write` (and verify with `compose --check`), and delete what the repository needed only for being a repository (its own vendored lander, rulesets, workflows and scripts, which the family repository already has once). A library that vendors a dependency that is not in the family is a point this page leaves open (section 12).
 5. **Before the push,** in a scratch worktree of the merge result, the owner runs the family repository's `land-release --rc` (every area, every step) and the public lint: a red result is fixed in the adaptation commit, never pushed. Then `git push origin HEAD:main` (a fast-forward), then `land-direct --release`. From the next landing on, the base has the area, and the library is judged by it (`docs/areas.md` section 7: the base judges; this is the additive landing).
 6. **The old tags are re-created under the new names, on the migrated commits.** For each old tag `vX.Y.Z` with old commit `C`, `C' = commit-map(C)` (the commit of the migrated history, **before** the adaptation): `land-release --area NAME --retag vX.Y.Z --commit C'` (a flag of the implementing item), which refuses unless `C'` is an ancestor of `origin/main`, `lib/NAME/VERSION` at `C'` is `X.Y.Z`, the tree hash of `lib/NAME/` at `C'` equals the old tag's `tree_sha256=` (or, for a pre-signing old tag with none, the old tree hash), and `NAME/vX.Y.Z` does not exist. It runs no candidate (the old repository already passed it; these are legacy tags, section 3) and makes the annotated tag `NAME/vX.Y.Z` on `C'` with the message `tree_sha256=` and one line `retagged_from=<old URL> <old tag> <old commit>`.
 7. **The signature is re-issued, not moved.** The new tag is a NEW tag object, signed by the same release key (`LAND_SIGNING_KEY`, on the maintainer's host), verified against `.land/land.signers` of the family repository (the same public key line, its fingerprint checked out of band as in `docs/signing.md`). The old tag's signature stays valid for the old object in the old repository, which is archived and never deleted; it is not edited and no tag there is moved.
@@ -283,48 +291,81 @@ lib/gamma/deps   beta
 lib/delta/deps   (empty)
 ```
 
-`registry/gamma.json` is the entry of section 1.2 (`"deps": ["beta"]`). The areas file, complete and valid (`docs/areas.md` section 1), is:
+`registry/gamma.json` is the entry of section 1.2 (`"deps": ["beta"]`). Each library declares its `areas.json` with a main area (excluding its documents and its own declarations `areas.json` and `deps`, which are in `LAND_PROTECTED`) and a `<name>__docs` area (`steps: []`). For example, `lib/beta/areas.json` is:
 
 ```json
 {
   "version": 1,
   "areas": [
     {
+      "name": "beta",
+      "paths": ["*"],
+      "exclude": ["README.md", "CHANGELOG.md", "NOTICE", "LICENSE", "areas.json", "deps"],
+      "steps": [
+        {"run": "lake build", "cwd": "lib/beta"},
+        {"run": "lake test", "cwd": "lib/beta"}
+      ]
+    },
+    {
+      "name": "beta__docs",
+      "paths": ["README.md", "CHANGELOG.md", "NOTICE", "LICENSE"],
+      "steps": []
+    }
+  ]
+}
+```
+
+The composed `.land/areas.json`, complete and valid (`docs/areas.md` section 1), declares `gate_areas` (its own `tooling` area plus `alpha` as the small canary library) and omits `steps: []` areas (`*__docs`) from dependents' closures:
+
+```json
+{
+  "version": 1,
+  "gate_areas": ["tooling", "alpha"],
+  "areas": [
+    {
       "name": "alpha",
       "paths": ["lib/alpha/*"],
+      "exclude": ["lib/alpha/README.md", "lib/alpha/CHANGELOG.md", "lib/alpha/NOTICE", "lib/alpha/LICENSE", "lib/alpha/areas.json", "lib/alpha/deps"],
       "steps": [
         {"run": "tests/lint.sh"},
         {"run": "lake build", "cwd": "lib/alpha"},
         {"run": "lake test", "cwd": "lib/alpha"}
       ]
     },
+    {"name": "alpha__docs", "paths": ["lib/alpha/README.md", "lib/alpha/CHANGELOG.md", "lib/alpha/NOTICE", "lib/alpha/LICENSE"], "steps": []},
     {
       "name": "beta",
       "paths": ["lib/alpha/*", "lib/beta/*"],
+      "exclude": ["lib/alpha/README.md", "lib/alpha/CHANGELOG.md", "lib/alpha/NOTICE", "lib/alpha/LICENSE", "lib/alpha/areas.json", "lib/alpha/deps", "lib/beta/README.md", "lib/beta/CHANGELOG.md", "lib/beta/NOTICE", "lib/beta/LICENSE", "lib/beta/areas.json", "lib/beta/deps"],
       "steps": [
         {"run": "tests/lint.sh"},
         {"run": "lake build", "cwd": "lib/beta"},
         {"run": "lake test", "cwd": "lib/beta"}
       ]
     },
+    {"name": "beta__docs", "paths": ["lib/beta/README.md", "lib/beta/CHANGELOG.md", "lib/beta/NOTICE", "lib/beta/LICENSE"], "steps": []},
     {
       "name": "gamma",
       "paths": ["lib/alpha/*", "lib/beta/*", "lib/gamma/*"],
+      "exclude": ["lib/alpha/README.md", "lib/alpha/CHANGELOG.md", "lib/alpha/NOTICE", "lib/alpha/LICENSE", "lib/alpha/areas.json", "lib/alpha/deps", "lib/beta/README.md", "lib/beta/CHANGELOG.md", "lib/beta/NOTICE", "lib/beta/LICENSE", "lib/beta/areas.json", "lib/beta/deps", "lib/gamma/README.md", "lib/gamma/CHANGELOG.md", "lib/gamma/NOTICE", "lib/gamma/LICENSE", "lib/gamma/areas.json", "lib/gamma/deps"],
       "steps": [
         {"run": "tests/lint.sh"},
         {"run": "lake build", "cwd": "lib/gamma"},
         {"run": "lake test", "cwd": "lib/gamma"}
       ]
     },
+    {"name": "gamma__docs", "paths": ["lib/gamma/README.md", "lib/gamma/CHANGELOG.md", "lib/gamma/NOTICE", "lib/gamma/LICENSE"], "steps": []},
     {
       "name": "delta",
       "paths": ["lib/delta/*"],
+      "exclude": ["lib/delta/README.md", "lib/delta/CHANGELOG.md", "lib/delta/NOTICE", "lib/delta/LICENSE", "lib/delta/areas.json", "lib/delta/deps"],
       "steps": [
         {"run": "tests/lint.sh"},
         {"run": "lake build", "cwd": "lib/delta"},
         {"run": "lake test", "cwd": "lib/delta"}
       ]
     },
+    {"name": "delta__docs", "paths": ["lib/delta/README.md", "lib/delta/CHANGELOG.md", "lib/delta/NOTICE", "lib/delta/LICENSE"], "steps": []},
     {"name": "registry", "paths": ["registry/*"], "steps": [{"run": "tests/lint.sh"}]},
     {"name": "docs", "paths": ["docs/*", "README.md", "CHANGELOG.md"], "steps": [{"run": "tests/lint.sh"}]},
     {"name": "tooling", "paths": ["scripts/*", "tests/*"], "steps": [{"run": "tests/lint.sh"}]}
@@ -334,7 +375,7 @@ lib/delta/deps   (empty)
 
 What follows from it:
 
-- A change to `lib/alpha/` touches `alpha`, `beta` and `gamma` (and not `delta`): the lint runs once, then the three builds and tests. A change to `lib/gamma/` touches `gamma` only. A change to `lib/delta/` touches `delta` only, and is never disturbed by, nor disturbs, the others (`delta`'s overlap with anything is empty). A change to `registry/gamma.json` touches `registry` and runs the lint. A path no area owns (`LICENSE`) runs every area.
+- A code change to `lib/alpha/` touches `alpha`, `beta` and `gamma` (and not `delta`): the lint runs once, then the three builds and tests. A change to `lib/alpha/README.md` touches only `alpha__docs` (`steps: []`), so it does not rebuild `alpha`, `beta`, or `gamma`. A change to `lib/beta/areas.json` or `lib/beta/deps` is gate-defining (`LAND_PROTECTED`), so it runs `gate_areas` (`tooling` and the canary `alpha`) rather than every library. A change to `lib/gamma/` touches `gamma` only. A change to `lib/delta/` touches `delta` only, and is never disturbed by, nor disturbs, the others (`delta`'s overlap with anything is empty). A change to `registry/gamma.json` touches `registry` and runs the lint. A path no area owns or encloses (`LICENSE` at root) runs every area.
 - **Releasing `alpha` 1.3.0.** The landing that bumps `lib/alpha/VERSION`, its `CHANGELOG.md` (a `## 1.3.0` heading) and `registry/alpha.json` `version` changes nothing of `beta` or `gamma`. Then `land-release --area alpha --push` runs the steps of `alpha`, `beta` and `gamma` (the three areas that hold `lib/alpha/*`; `delta`, `registry`, `docs` and `tooling` are named as not run), and only if all pass signs `alpha/v1.3.0`. Had `beta` been red against the new `alpha`, there would be no tag, and the red area names where to look. `beta` and `gamma` are not released by it.
 - **Releasing `gamma` 0.4.0** makes `gamma/v0.4.0`, whose message is:
 

@@ -503,9 +503,9 @@ No code, still areas. `guide` and `policies` are checked separately, and both re
 
 ### 8.7 A family repository with per-library areas (leaf, C substrate, split definitions/proofs)
 
-In a family repository (`docs/family-repo.md` section 1.3), each library declares its own `lib/<name>/areas.json` and `.land/areas.json` is composed deterministically from them. Three library shapes illustrate how `uses` and per-library areas compose:
+In a family repository (`docs/family-repo.md` section 1.3), each library declares its own `lib/<name>/areas.json` and `.land/areas.json` is composed deterministically from them. Because the lander's area name grammar (`lib/areas.py`) is `[a-z0-9][a-z0-9_-]*`, colons are refused; sub-areas use a double underscore `<name>__<part>` (and library names must not contain `__`). The scope of each area equals what its steps read: documents no gate reads (`README.md`, `CHANGELOG.md`, `NOTICE`, `LICENSE`) are declared as a second area `<name>__docs` with `"steps": []` (omitted from dependents' closures), and the library's own declarations (`areas.json`, `deps`) are excluded from the main area and listed in `LAND_PROTECTED` so changes to them are gate-defining and run `gate_areas` (the repository's own area plus one small canary library). Three library shapes illustrate how `uses` and per-library areas compose:
 
-1. **A small leaf library (`leaf`, ~10 Lean modules, `deps` empty)** declares one area named `leaf`:
+1. **A small leaf library (`leaf`, ~10 Lean modules, `deps` empty)** declares `leaf` (excluding its documents and declarations) and `leaf__docs`:
 
 ```json
 {
@@ -514,46 +514,57 @@ In a family repository (`docs/family-repo.md` section 1.3), each library declare
     {
       "name": "leaf",
       "paths": ["*"],
+      "exclude": ["README.md", "CHANGELOG.md", "NOTICE", "LICENSE", "areas.json", "deps"],
       "steps": [
         {"run": "lake build", "cwd": "lib/leaf"},
         {"run": "lake test", "cwd": "lib/leaf"}
       ]
+    },
+    {
+      "name": "leaf__docs",
+      "paths": ["README.md", "CHANGELOG.md", "NOTICE", "LICENSE"],
+      "steps": []
     }
   ]
 }
 ```
 
-2. **A library with a specification and a C substrate (`kernel`, `deps` empty)** splits into `kernel:spec` (shared Lean specification) and `kernel:c` (the C substrate, which reads the specification's exported layout header and has `"uses": []`):
+2. **A library with a specification and a C substrate (`kernel`, `deps` empty)** splits into `kernel__spec` (shared Lean specification), `kernel__c` (the C substrate, which reads the specification's exported layout header and has `"uses": []`), and `kernel__docs`:
 
 ```json
 {
   "version": 1,
   "areas": [
     {
-      "name": "kernel:spec",
+      "name": "kernel__spec",
       "paths": ["Spec/*", "lakefile.toml", "lean-toolchain", "lake-manifest.json"],
       "steps": [{"run": "lake build Spec", "cwd": "lib/kernel"}]
     },
     {
-      "name": "kernel:c",
+      "name": "kernel__c",
       "paths": ["c/*", "include/*", "Makefile", "Spec/*"],
       "steps": [{"run": "make test", "cwd": "lib/kernel"}],
       "uses": []
+    },
+    {
+      "name": "kernel__docs",
+      "paths": ["README.md", "CHANGELOG.md", "NOTICE", "LICENSE"],
+      "steps": []
     }
   ]
 }
 ```
 
-Here `Spec/*` is listed in both `kernel:spec` and `kernel:c` (intra-library overlap, rule 4) because the C tests check against the spec; a change in `c/*` runs only `kernel:c` and does not rebuild `Spec`.
+Here `Spec/*` is listed in both `kernel__spec` and `kernel__c` (intra-library overlap, rule 4) because the C tests check against the spec; a change in `c/*` runs only `kernel__c` and does not rebuild `Spec`.
 
-3. **A library with quick definitions and slow proofs (`core`, `deps`: `["leaf", "kernel"]`)** splits into `core:defs` and `core:proofs`, and a downstream library `app` (`deps`: `["core"]`) declares `uses` only on `core:defs`:
+3. **A library with quick definitions and slow proofs (`core`, `deps`: `["leaf", "kernel"]`)** splits into `core__defs`, `core__proofs`, and `core__docs`, and a downstream library `app` (`deps`: `["core"]`) declares `uses` only on `core__defs`:
 
 ```json
 {
   "version": 1,
   "areas": [
     {
-      "name": "core:defs",
+      "name": "core__defs",
       "paths": ["Defs/*", "lakefile.toml", "lean-toolchain", "lake-manifest.json"],
       "steps": [{"run": "lake build Defs", "cwd": "lib/core"}],
       "uses": [
@@ -562,23 +573,30 @@ Here `Spec/*` is listed in both `kernel:spec` and `kernel:c` (intra-library over
       ]
     },
     {
-      "name": "core:proofs",
+      "name": "core__proofs",
       "paths": ["Proofs/*", "Defs/*", "lakefile.toml", "lean-toolchain", "lake-manifest.json"],
       "steps": [{"run": "lake build Proofs", "cwd": "lib/core"}],
       "uses": [
         {"lib": "leaf", "area": "leaf"},
         {"lib": "kernel", "area": "spec"}
       ]
+    },
+    {
+      "name": "core__docs",
+      "paths": ["README.md", "CHANGELOG.md", "NOTICE", "LICENSE"],
+      "steps": []
     }
   ]
 }
 ```
 
-When `app/areas.json` declares `"uses": [{"lib": "core", "area": "defs"}]`, the composed `.land/areas.json` expands `app`'s `paths` to include `lib/core/Defs/*` (and transitively `lib/leaf/*` and `lib/kernel/Spec/*`), **excluding `lib/core/Proofs/*` and `lib/kernel/c/*`**:
+When `app/areas.json` declares `"uses": [{"lib": "core", "area": "defs"}]`, the composed `.land/areas.json` expands `app`'s `paths` to include `lib/core/Defs/*` (and transitively `lib/leaf/*` and `lib/kernel/Spec/*`), **excluding `lib/core/Proofs/*`, `lib/kernel/c/*`, and every `*__docs` area**:
 
-- A change to `lib/core/Proofs/*` runs only `core:proofs` (slow proofs), without triggering `app` or `core:defs`.
-- A change to `lib/core/Defs/*` runs `core:defs`, `core:proofs`, and `app`.
-- Releasing `core` (`land-release --area core`) still requires **both** `core:defs` and `core:proofs` plus `app` (every area of `core` and every area that `uses` it) to pass, and tags `core/vX.Y.Z`.
+- A change to `lib/core/Proofs/*` runs only `core__proofs` (slow proofs), without triggering `app` or `core__defs`.
+- A change to `lib/core/Defs/*` runs `core__defs`, `core__proofs`, and `app`.
+- A change to `lib/leaf/README.md` touches only `leaf__docs` (`steps: []`), without rebuilding `leaf` or `core`.
+- A change to `lib/leaf/areas.json` or `lib/leaf/deps` is gate-defining (`LAND_PROTECTED`), so it runs `gate_areas` rather than every library.
+- Releasing `core` (`land-release --area core`) still requires **both** `core__defs` and `core__proofs` plus `app` (every code area of `core` and every area that `uses` it) to pass, and tags `core/vX.Y.Z`.
 
 ## 9. What this page does not do
 
