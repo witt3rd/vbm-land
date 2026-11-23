@@ -4,6 +4,10 @@ Interface (the stable part): the `land.conf` keys, the exit codes, the JSON last
 Additive changes to it are minor releases; anything else is major.
 
 
+## 0.27.0 (minor; additive: `gate_areas` in the areas file; a repository that does not set it is unchanged)
+
+- **`gate_areas`** (an optional top-level key of `.land/areas.json`: a non-empty list of distinct area names that exist) says which areas a GATE-DEFINING change runs. A change under `.land/` or to a `LAND_PROTECTED` path used to run EVERY area; in a repository of many libraries that is the whole suite, one area after another, for every update of the vendored tool or the areas file. With the key, such a change runs the declared areas (added to the areas it touches) and is still named gate-defining. The release candidate still runs EVERY area (`docs/areas.md` rule 7), a path no area owns still runs the full suite, and reuse across a trunk move follows the same narrowing. Without the key nothing changes. Vectors for each behaviour and four refusals, and three mutants that must fail the runner.
+
 ## 0.26.0 (minor; additive: `LAND_AUTHORS`, and `land-release --push` cleans up the candidate branch; a repository that sets neither is unchanged)
 
 - **`LAND_AUTHORS`** (a `land.conf` key, space separated addresses, none = not checked) names the addresses a commit's author AND committer may carry. A commit with another is refused (exit 1) with the commit and the address, before anything is rebased, tested or pushed. Git does not verify the address and a forge links a commit to an account by it, so a repository that has one identity can now say so. Opt-in: unset, nothing changes.
